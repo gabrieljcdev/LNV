@@ -19,27 +19,6 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS netlink_posts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject TEXT NOT NULL DEFAULT 'NO SUBJECT',
-    body TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    post_id INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE SET NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS netlink_comments (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    netlink_post_id  INTEGER NOT NULL,
-    user_id          INTEGER NOT NULL,
-    body             TEXT NOT NULL,
-    created_at       TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (netlink_post_id) REFERENCES netlink_posts(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id)         REFERENCES users(id)
-  );
-
   CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -90,35 +69,6 @@ db.exec(`
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS walls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    is_public INTEGER DEFAULT 1,
-    cover_image TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (owner_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS wall_members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    wall_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    role TEXT DEFAULT 'viewer',
-    FOREIGN KEY (wall_id) REFERENCES walls(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS wall_posts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    wall_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,
-    added_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (wall_id) REFERENCES walls(id) ON DELETE CASCADE,
-    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
-  );
-
   CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id INTEGER NOT NULL,
@@ -139,87 +89,6 @@ db.exec(`
 
   INSERT OR IGNORE INTO users (id, username, display_name, bio)
   VALUES (1, 'lnv_admin', 'Late Night Vibes', 'Curator of the late night crate.');
-
-  CREATE TABLE IF NOT EXISTS crates (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id      INTEGER NOT NULL,
-    name         TEXT    NOT NULL,
-    description  TEXT    DEFAULT '',
-    is_public    INTEGER DEFAULT 0,
-    is_pinned    INTEGER DEFAULT 0,
-    created_at   TEXT    DEFAULT (datetime('now')),
-    updated_at   TEXT    DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_records (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id  INTEGER NOT NULL,
-    post_id   INTEGER NOT NULL,
-    added_at  TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE,
-    FOREIGN KEY (post_id)  REFERENCES posts(id)  ON DELETE CASCADE,
-    UNIQUE(crate_id, post_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_likes (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id  INTEGER NOT NULL,
-    user_id   INTEGER NOT NULL,
-    liked_at  TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE,
-    UNIQUE(crate_id, user_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_follows (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id     INTEGER NOT NULL,
-    user_id      INTEGER NOT NULL,
-    followed_at  TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE,
-    UNIQUE(crate_id, user_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_activity (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id   INTEGER NOT NULL,
-    user_id    INTEGER,
-    event_type TEXT NOT NULL,
-    detail     TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_collaborators (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id   INTEGER NOT NULL,
-    user_id    INTEGER NOT NULL,
-    invited_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE,
-    UNIQUE(crate_id, user_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_comments (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id   INTEGER NOT NULL,
-    post_id    INTEGER NOT NULL,
-    user_id    INTEGER NOT NULL,
-    body       TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE,
-    FOREIGN KEY (post_id)  REFERENCES posts(id)  ON DELETE CASCADE,
-    FOREIGN KEY (user_id)  REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS crate_tracks (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id   INTEGER NOT NULL,
-    track_id   INTEGER NOT NULL,
-    added_at   TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id)      ON DELETE CASCADE,
-    FOREIGN KEY (track_id) REFERENCES post_tracks(id) ON DELETE CASCADE,
-    UNIQUE(crate_id, track_id)
-  );
 `);
 
 
@@ -236,24 +105,41 @@ const migrations = [
     data TEXT NOT NULL,
     fetched_at TEXT DEFAULT (datetime('now'))
   )`,
-  // Crate enhancements
-  'ALTER TABLE crates ADD COLUMN cover_image TEXT',
-  'ALTER TABLE crates ADD COLUMN slug TEXT',
-  'ALTER TABLE crate_collaborators ADD COLUMN role TEXT DEFAULT \'contributor\'',
-  'ALTER TABLE crate_collaborators ADD COLUMN status TEXT DEFAULT \'accepted\'',
-  'ALTER TABLE crate_collaborators ADD COLUMN invited_by INTEGER',
-  // Invite tokens for shareable invite links
-  `CREATE TABLE IF NOT EXISTS crate_invites (
+  // Rescope: crates/playlisting and walls (a second, near-identical collections
+  // feature) are cut — this app is a blog-like feed now, no community layer.
+  // Drops run once per table (IF EXISTS makes repeats a no-op on later boots).
+  'DROP TABLE IF EXISTS crate_invites',
+  'DROP TABLE IF EXISTS crate_tracks',
+  'DROP TABLE IF EXISTS crate_comments',
+  'DROP TABLE IF EXISTS crate_collaborators',
+  'DROP TABLE IF EXISTS crate_activity',
+  'DROP TABLE IF EXISTS crate_follows',
+  'DROP TABLE IF EXISTS crate_likes',
+  'DROP TABLE IF EXISTS crate_records',
+  'DROP TABLE IF EXISTS crates',
+  'DROP TABLE IF EXISTS wall_posts',
+  'DROP TABLE IF EXISTS wall_members',
+  'DROP TABLE IF EXISTS walls',
+  // Rescope: netlink was a separate community-board data model running
+  // alongside posts/comments. The feed already reads/writes posts/comments
+  // directly (confirmed dead: useFeedPosts.js and ComposeModal's netlink
+  // dual-write, both removed) — netlink_comments dropped first since it
+  // has a FK to netlink_posts.
+  'DROP TABLE IF EXISTS netlink_comments',
+  'DROP TABLE IF EXISTS netlink_posts',
+  // Spotlights: auto-posted editorial cards for an artist/genre/label once
+  // it crosses a post-count milestone. Additive only — nothing reads or
+  // writes these yet (wired up in the spotlight-trigger phase).
+  'ALTER TABLE posts ADD COLUMN is_spotlight INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE posts ADD COLUMN spotlight_subject TEXT',
+  `CREATE TABLE IF NOT EXISTS spotlights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    crate_id INTEGER NOT NULL,
-    token TEXT UNIQUE NOT NULL,
-    created_by INTEGER NOT NULL,
-    role TEXT DEFAULT 'contributor',
-    uses INTEGER DEFAULT 0,
-    max_uses INTEGER DEFAULT NULL,
-    expires_at TEXT DEFAULT NULL,
+    subject_type TEXT NOT NULL,
+    subject_name TEXT NOT NULL,
+    post_count_at_trigger INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (crate_id) REFERENCES crates(id) ON DELETE CASCADE
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
   )`,
 ];
 for (const sql of migrations) {

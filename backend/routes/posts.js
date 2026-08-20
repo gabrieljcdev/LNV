@@ -4,6 +4,17 @@ import { enrichPostTracks } from '../services/youtubeService.js';
 
 const router = express.Router();
 
+const SPOTLIGHT_EVERY = 10;
+
+// Query fragments keyed by subject type — used both when checking whether a
+// subject just crossed a spotlight threshold and when pulling representative
+// posts for a spotlight's cover collage.
+const SUBJECT_JOIN = {
+  artist: `JOIN post_artists x ON x.post_id = p.id AND x.artist_name = ?`,
+  label:  `JOIN post_labels  x ON x.post_id = p.id AND x.label_name  = ?`,
+  genre:  `JOIN post_genres  x ON x.post_id = p.id AND x.genre       = ?`,
+};
+
 function getFullPost(postId) {
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
   if (!post) return null;
@@ -13,15 +24,94 @@ function getFullPost(postId) {
   const tracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
-  return { ...post, artists, labels, genres, tracks, user, commentCount };
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount };
+  if (post.is_spotlight) {
+    const sl = db.prepare('SELECT subject_type, subject_name, post_count_at_trigger FROM spotlights WHERE post_id = ?').get(postId);
+    if (sl) {
+      full.spotlightType = sl.subject_type;
+      full.spotlightCount = sl.post_count_at_trigger;
+      full.spotlightCovers = db.prepare(`
+        SELECT p.id, p.title, p.cover_image, p.thumb_image, p.created_at
+        FROM posts p ${SUBJECT_JOIN[sl.subject_type]}
+        WHERE p.is_spotlight = 0
+        ORDER BY p.created_at DESC LIMIT 4
+      `).all(sl.subject_name);
+    }
+  }
+  return full;
+}
+
+// After a post is tagged with artists/labels/genres, check whether any of
+// those subjects just crossed a multiple-of-SPOTLIGHT_EVERY post count.
+// First time crossing it, post a synthetic editorial "spotlight" card and
+// record it in `spotlights` so the same milestone never fires twice.
+function triggerSpotlights(postId) {
+  const subjects = [
+    ...db.prepare('SELECT DISTINCT artist_name AS name FROM post_artists WHERE post_id = ?').all(postId).map(r => ({ type: 'artist', name: r.name })),
+    ...db.prepare('SELECT DISTINCT label_name AS name FROM post_labels WHERE post_id = ?').all(postId).map(r => ({ type: 'label', name: r.name })),
+    ...db.prepare('SELECT DISTINCT genre AS name FROM post_genres WHERE post_id = ?').all(postId).map(r => ({ type: 'genre', name: r.name })),
+  ];
+
+  for (const { type, name } of subjects) {
+    if (!name) continue;
+    const join = SUBJECT_JOIN[type];
+    const { c: count } = db.prepare(`
+      SELECT COUNT(DISTINCT p.id) as c FROM posts p ${join} WHERE p.is_spotlight = 0
+    `).get(name);
+    if (count <= 0 || count % SPOTLIGHT_EVERY !== 0) continue;
+
+    const already = db.prepare(
+      'SELECT 1 FROM spotlights WHERE subject_type = ? AND subject_name = ? AND post_count_at_trigger = ?'
+    ).get(type, name, count);
+    if (already) continue;
+
+    const rep = db.prepare(`
+      SELECT p.cover_image, p.thumb_image FROM posts p ${join}
+      WHERE p.is_spotlight = 0 ORDER BY p.created_at DESC LIMIT 1
+    `).get(name);
+
+    const insertPost = db.prepare(`
+      INSERT INTO posts (user_id, discogs_type, title, cover_image, thumb_image, notes, is_spotlight, spotlight_subject, post_type)
+      VALUES (1, 'spotlight', ?, ?, ?, ?, 1, ?, 'spotlight')
+    `);
+    const result = insertPost.run(
+      `${name} — ${count} posts`,
+      rep?.cover_image || null, rep?.thumb_image || null,
+      `${count} posts tagged ${name} in the feed.`,
+      name
+    );
+    db.prepare(
+      'INSERT INTO spotlights (subject_type, subject_name, post_count_at_trigger, post_id) VALUES (?, ?, ?, ?)'
+    ).run(type, name, count, result.lastInsertRowid);
+  }
 }
 
 router.get('/', (req, res, next) => {
   try {
-    const { artist, label, genre, year, catno, user_id, discogs_id, page = 1, limit = 20 } = req.query;
+    const { artist, label, genre, year, catno, user_id, discogs_id, search, page = 1, limit = 20 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
     let postIds;
     if (discogs_id) { postIds = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').all(Number(discogs_id)).map(r => r.id); }
+    else if (search) {
+      // One canonical search implementation — matches title, artists,
+      // labels, genres, and track titles. Feed's search bar and any other
+      // caller should both go through this param rather than reimplementing
+      // the query.
+      const q = '%' + search + '%';
+      postIds = db.prepare(`
+        SELECT DISTINCT p.id FROM posts p
+        LEFT JOIN post_artists pa ON pa.post_id = p.id
+        LEFT JOIN post_labels  pl ON pl.post_id = p.id
+        LEFT JOIN post_genres  pg ON pg.post_id = p.id
+        LEFT JOIN post_tracks  pt ON pt.post_id = p.id
+        WHERE LOWER(p.title) LIKE LOWER(?)
+           OR LOWER(pa.artist_name) LIKE LOWER(?)
+           OR LOWER(pl.label_name) LIKE LOWER(?)
+           OR LOWER(pg.genre) LIKE LOWER(?)
+           OR LOWER(pt.title) LIKE LOWER(?)
+        ORDER BY p.id DESC LIMIT ? OFFSET ?
+      `).all(q, q, q, q, q, Number(limit), offset).map(r => r.id);
+    }
     else if (artist) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_artists WHERE LOWER(artist_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+artist+'%', Number(limit), offset).map(r => r.post_id); }
     else if (label) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_labels WHERE LOWER(label_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+label+'%', Number(limit), offset).map(r => r.post_id); }
     else if (genre) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_genres WHERE LOWER(genre) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+genre+'%', Number(limit), offset).map(r => r.post_id); }
@@ -72,6 +162,7 @@ router.post('/', (req, res, next) => {
     for (const g of genres) ig.run(postId, g);
     const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url) VALUES (?, ?, ?, ?, ?, ?)');
     for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null);
+    triggerSpotlights(postId);
     res.status(201).json(getFullPost(postId));
   } catch (err) { next(err); }
 });

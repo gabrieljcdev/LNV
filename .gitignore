@@ -12,6 +12,7 @@ node_modules/
 .env
 .env.local
 
-# Logs
-logs/
+# Logs — only the runtime log files, not source under a logs/ dir
+# (backend/logs/logger.js lives here and needs to stay tracked)
+logs/*.log
 *.log

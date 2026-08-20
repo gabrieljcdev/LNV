@@ -3,42 +3,21 @@ import { LayoutContext } from './LayoutContext';
 import { applyPalette, getAutoIndex } from '../services/themeService';
 
 export function LayoutProvider({ children }) {
- const [activeTab, setActiveTab] = useState('collection');
- const [drawerOpen, setDrawerOpen] = useState(true);
- const [drawerIsLanding, setDrawerIsLanding] = useState(true);
  const [d3Content, setD3Content] = useState(null);
  const [d3Props, setD3Props] = useState({});
  const [currentTrack, setCurrentTrack] = useState(null);
- const [landingPanelOpen, setLandingPanelOpen] = useState(true);
 
  const feedRef = useRef(null);
  const stripRef = useRef(null);
- const drawerRef = useRef(null);
  const brandRef = useRef(null);
- const landingPanelRef = useRef(null);
  const postRefs = useRef(new Map());
- const drawerOpenRef = useRef(true);
 
- function openDrawer(tab) {
-   if (activeTab === tab && drawerOpen) {
-     drawerOpenRef.current = false; setDrawerOpen(false); setActiveTab(null);
-     if (typeof window.lnvUnlockLayout === 'function') window.lnvUnlockLayout();
-   } else {
-     drawerOpenRef.current = true; setDrawerIsLanding(false); setActiveTab(tab); setDrawerOpen(true);
-     if (typeof window.lnvLockLayout === 'function') window.lnvLockLayout();
-   }
- }
- function closeDrawer() {
-   drawerOpenRef.current = false; setDrawerOpen(false); setActiveTab(null);
-   if (typeof window.lnvUnlockLayout === 'function') window.lnvUnlockLayout();
- }
- function closeLandingPanel() { setLandingPanelOpen(false); }
  function openD3(content, props = {}) { setD3Content(content); setD3Props(props); }
  function closeD3() { setD3Content(null); setD3Props({}); }
  function registerPostRef(postId, ref) { postRefs.current.set(postId, ref); }
 
  const scrollToPost = useCallback((postId) => {
-   closeDrawer();
+   closeD3();
    const feed = feedRef.current;
    const postEl = postRefs.current.get(postId);
    if (!feed || !postEl) return;
@@ -63,6 +42,11 @@ export function LayoutProvider({ children }) {
    // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
+ // Scroll-driven strip chrome: as the user scrolls into the feed, the
+ // strip narrows from 320px (room for the tab labels + brand wordmark) down
+ // to a 108px icon rail, the tab row fades in past the halfway point, and
+ // the brand wordmark fades out. stripRef/brandRef are attached to the
+ // corresponding elements in Strip.jsx.
  const handleFeedScroll = useCallback((scrollX) => {
    const feed = feedRef.current;
    const maxScroll = feed
@@ -73,19 +57,7 @@ export function LayoutProvider({ children }) {
    const safeEased = isNaN(eased) ? 0 : eased;
    const newD1Width = 320 - (320 - 108) * safeEased;
    const newBrandOp = Math.max(0.15, 1 - safeEased * 2);
-   const drawerWidth = Math.max(2, Math.round(260 * Math.max(0, Math.min(1, (newD1Width - 108) / (320 - 108)))));
-   const landingProgress = Math.min(1, safeEased * 2.5);
-   const landingWidth = Math.max(2, Math.round(420 * (1 - landingProgress)));
-   if (landingPanelRef.current) {
-     landingPanelRef.current.style.width = `${landingWidth}px`;
-     landingPanelRef.current.style.minWidth = '0px';
-     landingPanelRef.current.style.overflow = 'hidden';
-     landingPanelRef.current.style.pointerEvents = landingProgress > 0.9 ? 'none' : 'auto';
-     const bg = getComputedStyle(document.documentElement).getPropertyValue('--theme-sidebar').trim();
-     if (bg) landingPanelRef.current.style.background = bg;
-   }
    if (stripRef.current) stripRef.current.style.width = `${newD1Width}px`;
-   if (drawerRef.current) drawerRef.current.style.width = `${drawerWidth}px`;
    if (brandRef.current) brandRef.current.style.opacity = `${newBrandOp}`;
    const pillsEl = stripRef.current?.querySelector('#lnv-tabs');
    if (pillsEl) {
@@ -93,35 +65,17 @@ export function LayoutProvider({ children }) {
      pillsEl.style.opacity = `${pillOp}`;
      pillsEl.style.pointerEvents = pillOp > 0.2 ? 'all' : 'none';
    }
-   const scrollProgress = Math.max(0, Math.min(1, (320 - newD1Width) / (320 - 108)));
-   const logoEl = drawerRef.current?.querySelector('[data-logo]');
-   const hintEl = drawerRef.current?.querySelector('[data-hint]');
-   if (logoEl) { logoEl.style.transform = `translateX(${-scrollProgress * 180}px)`; logoEl.style.opacity = `${Math.max(0, 1 - scrollProgress * 1.5)}`; }
-   if (hintEl) hintEl.style.opacity = `${Math.max(0, 1 - scrollProgress * 1.5)}`;
  }, []);
 
- // Init strip/drawer widths and wire outer scroll → layout animation
+ // Init strip width and wire outer scroll → layout animation
  useEffect(() => {
    if (stripRef.current) stripRef.current.style.width = '320px';
-   if (drawerRef.current) drawerRef.current.style.width = '260px';
-   if (landingPanelRef.current) { landingPanelRef.current.style.width = '420px'; landingPanelRef.current.style.minWidth = '0px'; }
    // Apply correct time-based theme on mount
    applyPalette(getAutoIndex());
    const themeInterval = setInterval(() => applyPalette(getAutoIndex()), 60000);
    // (cleanup returned below)
    // Expose for direct calls from non-React code
    window.lnvHandleFeedScroll = handleFeedScroll;
-   window.lnvCollapseLanding = () => {
-     const steps = 30;
-     let i = 0;
-     const interval = setInterval(() => {
-       i++;
-       const progress = i / steps;
-       handleFeedScroll(progress * 2000);
-       if (i >= steps) clearInterval(interval);
-     }, 16);
-   };
-   const scrollOuter = document.getElementById('scroll-outer');
    const scrollSpacer = document.getElementById('scroll-spacer');
    const scrollInner = document.getElementById('scroll-inner');
    window.lnvSpacerLocked = false;
@@ -129,64 +83,58 @@ export function LayoutProvider({ children }) {
      if (window.lnvSpacerLocked) return;
      if (scrollInner && scrollSpacer) scrollSpacer.style.height = (scrollInner.scrollWidth + window.innerHeight) + 'px';
    }
-   // Re-query inside handler so it works even if DOM wasn't ready at mount
-   function onOuterScroll() {
-     const so = document.getElementById('scroll-outer');
-     if (!so) return;
-     const maxOuter = so.scrollHeight - so.clientHeight;
-     const progress = maxOuter > 0 ? so.scrollTop / maxOuter : 0;
-     // If feed exists, sync its scrollLeft and use its range
-     if (feedRef.current) {
-       const maxFeed = Math.max(0, feedRef.current.scrollWidth - feedRef.current.clientWidth);
-       const target = progress * maxFeed;
-       feedRef.current.scrollLeft = target;
-       handleFeedScroll(target);
-     } else {
-       // No feed — pass scrollX such that raw = progress
-       // maxScroll in handleFeedScroll = scrollX * 2 (no-feed branch)
-       // So to get raw = progress, we need scrollX / (scrollX * 2) = 0.5 always — BROKEN
-       // Fix: use a fixed large range so progress maps correctly
-       // raw = scrollX / (FIXED_MAX * 0.4), so scrollX = progress * FIXED_MAX * 0.4
-       handleFeedScroll(progress * 5000 * 0.4);
-     }
-   }
    updateSpacer();
    const resizeObs = new ResizeObserver(updateSpacer);
    if (scrollInner) resizeObs.observe(scrollInner);
-   // Attach directly to scroll-outer — re-query in case it wasn't in DOM at closure time
-   const attachScroll = () => {
+
+   // ── Smooth scroll ticker ──────────────────────────────────────────────
+   // Native wheel/trackpad/touch input drives #scroll-outer's real scrollTop
+   // (no custom wheel handler — let the browser's own momentum happen). Every
+   // animation frame we read that scrollTop as a *target* and damp-lerp a
+   // `current` value toward it, then apply `current` to the feed and to
+   // handleFeedScroll's layout writes. This is what makes it glide instead of
+   // snapping frame-to-frame with raw scroll events — same technique as
+   // avantt.displaay.net's ScrollContainer (target = native scroll position,
+   // visual position chases it via framerate-independent damping each tick).
+   let raf = null;
+   let lastTime = performance.now();
+   let current = 0;
+   const DAMPING = 12; // higher = snappier / less glide, lower = floatier. ~12 settles in ~150-200ms.
+
+   function tick(now) {
+     const dt = Math.min(0.1, (now - lastTime) / 1000); // clamp so a tab-switch pause can't cause a huge jump
+     lastTime = now;
      const so = document.getElementById('scroll-outer');
-     if (so) { so.removeEventListener('scroll', onOuterScroll); so.addEventListener('scroll', onOuterScroll); }
-   };
-   // Also handle wheel events — wheel drives scrollTop which then fires scroll
-   function onWheel(e) {
-     const so = document.getElementById('scroll-outer');
-     if (!so) return;
-     e.preventDefault();
-     const maxScroll = so.scrollHeight - so.clientHeight;
-     const newTop = Math.max(0, Math.min(maxScroll, so.scrollTop + e.deltaY));
-     so.scrollTop = newTop;
-     so.dispatchEvent(new Event('scroll'));
+     if (so) {
+       const maxOuter = so.scrollHeight - so.clientHeight;
+       const target = maxOuter > 0 ? so.scrollTop / maxOuter : 0;
+       const factor = Math.min(1, DAMPING * dt);
+       current += (target - current) * factor;
+       if (Math.abs(target - current) < 0.0002) current = target;
+
+       if (feedRef.current) {
+         const maxFeed = Math.max(0, feedRef.current.scrollWidth - feedRef.current.clientWidth);
+         const scrollX = current * maxFeed;
+         feedRef.current.scrollLeft = scrollX;
+         handleFeedScroll(scrollX);
+       } else {
+         // No feed mounted — same fixed-range fallback the old handler used
+         handleFeedScroll(current * 5000 * 0.4);
+       }
+     }
+     raf = requestAnimationFrame(tick);
    }
-   const attachWheel = () => {
-     const so = document.getElementById('scroll-outer');
-     if (so) { so.removeEventListener('wheel', onWheel); so.addEventListener('wheel', onWheel, { passive: false }); }
-   };
-   attachScroll();
-   attachWheel();
-   setTimeout(() => { attachScroll(); attachWheel(); }, 100);
+   raf = requestAnimationFrame(tick);
+
    return () => {
      resizeObs.disconnect();
-     const so = document.getElementById('scroll-outer');
-     so?.removeEventListener('scroll', onOuterScroll);
-     so?.removeEventListener('wheel', onWheel);
+     if (raf) cancelAnimationFrame(raf);
    };
  }, [handleFeedScroll]);
 
  return (
    <LayoutContext.Provider value={{
-     stripRef, drawerRef, brandRef, landingPanelRef,     landingPanelOpen, closeLandingPanel,
-     activeTab, drawerOpen, drawerIsLanding, openDrawer, closeDrawer,
+     stripRef, brandRef,
      d3Content, d3Props, openD3, closeD3,
      currentTrack, setCurrentTrack,
      feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll,

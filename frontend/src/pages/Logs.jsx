@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useLayout } from '../context/LayoutContext';
 
 const BASE = import.meta.env.VITE_API_URL;
 
@@ -15,7 +15,7 @@ function formatDate(dateStr) {
 }
 
 export default function Logs() {
-  const navigate = useNavigate();
+  const { closeD3, scrollToPost } = useLayout() || {};
 
   const { data, isLoading } = useQuery({
     queryKey: ['posts', 'logs'],
@@ -56,7 +56,11 @@ export default function Logs() {
           return (
             <div
               key={post.id}
-              onClick={() => navigate(`/crates/${post.id}`)}
+              // scrollToPost only finds the post if Feed is mounted in the same
+              // tree (true when this renders inside ContentPanel's drawer, which
+              // sits over the feed; a no-op on the standalone /logs route where
+              // Feed isn't mounted — fine for now, Phase 3 reworks this shell).
+              onClick={() => { closeD3?.(); scrollToPost?.(post.id); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
                 padding: '8px 16px',

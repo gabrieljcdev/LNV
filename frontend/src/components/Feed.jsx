@@ -3,11 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { usePlayer } from '../context/PlayerContext'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
+import { getUserId } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-
-const SHOWCASE_EVERY = 13
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -58,9 +57,87 @@ function CoverArt({ post, style = {}, children }) {
 
 // ── Open card — split layout (top: palette colour + media, bottom: theme colour + meta)
 
+function CommentThread({ postId, onCountChange }) {
+  const [comments, setComments] = useState(null) // null = not yet loaded
+  const [text, setText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API}/posts/${postId}/comments`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (!cancelled) setComments(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setComments([]) })
+    return () => { cancelled = true }
+  }, [postId])
+
+  const userId = getUserId()
+
+  async function submit() {
+    const content = text.trim()
+    if (!content || submitting || !userId) return
+    setSubmitting(true); setError('')
+    try {
+      const res = await fetch(`${API}/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, content }),
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const saved = await res.json()
+      setComments(prev => [...(prev || []), saved])
+      onCountChange?.((comments?.length || 0) + 1)
+      setText('')
+    } catch {
+      setError('COULD NOT POST — TRY AGAIN')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{ padding: '8px 14px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 160, overflowY: 'auto' }}>
+      {comments === null ? (
+        <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>loading…</div>
+      ) : comments.length === 0 ? (
+        <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>no replies yet</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+          {comments.map(c => (
+            <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: 12, fontFamily: 'Barlow, sans-serif', lineHeight: 1.4 }}>
+              <span style={{ fontWeight: 700, color: 'var(--theme-text-pri)', flexShrink: 0 }}>{c.username || c.display_name || 'anon'}</span>
+              <span style={{ color: 'var(--theme-text-sec)' }}>{c.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {userId ? (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit() }}
+            placeholder="reply…"
+            style={{ flex: 1, borderRadius: 20, border: '1px solid var(--theme-border)', padding: '5px 12px', fontFamily: 'Barlow, sans-serif', fontSize: 11, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', outline: 'none' }}
+          />
+          <button onClick={submit} disabled={!text.trim() || submitting}
+            style={{ borderRadius: 20, border: 'none', padding: '5px 14px', fontFamily: 'VT323, monospace', fontSize: 11, background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', opacity: (!text.trim() || submitting) ? 0.5 : 1, flexShrink: 0 }}
+          >{submitting ? '···' : 'reply'}</button>
+        </div>
+      ) : (
+        <a href="/login" style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>
+      )}
+      {error && <div style={{ fontFamily: 'VT323, monospace', fontSize: 10, color: 'var(--theme-accent)', marginTop: 4 }}>{error}</div>}
+    </div>
+  )
+}
+
 function OpenCardContent({ post, cardBg, flip }) {
   const { openD3 } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const type   = detectType(post)
   const note   = cleanNote(post.notes || post.body)
   const genres = post.genres || []
@@ -138,7 +215,7 @@ function OpenCardContent({ post, cardBg, flip }) {
       </div>
 
       {/* BOTTOM — metadata */}
-      <div style={{ flex: botFlex, background: botBg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: botFlex, background: botBg, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden' }}>
 
         {/* Meta block */}
         <div style={{ padding: '12px 14px 8px', flexShrink: 0, borderBottom: `0.5px solid ${divider}` }}>
@@ -211,10 +288,10 @@ function OpenCardContent({ post, cardBg, flip }) {
           <div style={{ padding: '8px 14px', flexShrink: 0, borderBottom: `0.5px solid ${divider}` }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: 'var(--theme-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
-                {(post.username || '?').charAt(0).toUpperCase()}
+                {(post.user?.username || post.username || '?').charAt(0).toUpperCase()}
               </div>
               <div style={{ flex: 1, background: noteBg, borderRadius: '0 8px 8px 8px', padding: '6px 10px', border: `0.5px solid ${noteBdr}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textPri, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{post.username}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: textPri, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{post.user?.username || post.username}</div>
                 <div style={{ fontSize: 12, color: textSec, lineHeight: 1.45, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{note}</div>
               </div>
             </div>
@@ -222,12 +299,11 @@ function OpenCardContent({ post, cardBg, flip }) {
         )}
 
         {/* Footer */}
-        <div style={{ padding: '6px 14px 10px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+        <div style={{ padding: '6px 14px 10px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: commentsOpen ? 0 : 'auto' }}>
           <div style={{ display: 'flex', gap: 12 }}>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>
-              <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{post.commentCount || post.comment_count || 0}</span>&nbsp;replies
+            <button onClick={e => { e.stopPropagation(); setCommentsOpen(v => !v) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>
+              <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
             </button>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>+ collect</button>
             {post.discogs_url && (
               <a href={post.discogs_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                 style={{ fontSize: 11, color: textTer, fontFamily: 'Barlow, sans-serif', textDecoration: 'none' }}>↗ discogs</a>
@@ -241,6 +317,8 @@ function OpenCardContent({ post, cardBg, flip }) {
             <span style={{ color: textSec, fontWeight: 500 }}>{post.user?.username || post.username}</span> · {timeAgo(post.created_at)}
           </span>
         </div>
+
+        {commentsOpen && <CommentThread postId={post.id} onCountChange={setCommentCount} />}
       </div>
     </div>
   )
@@ -248,14 +326,21 @@ function OpenCardContent({ post, cardBg, flip }) {
 
 // ── Showcase open content ─────────────────────────────────────────────────────
 
-function ShowcaseOpenContent({ showcase, cardBg, flip }) {
-  const { type, name, genres, posts: scPosts } = showcase
+// Spotlight cards are real posts (post.is_spotlight, created server-side by
+// posts.js's triggerSpotlights once a subject crosses a post-count
+// milestone — see spotlightType/spotlightCount/spotlightCovers on the post,
+// enriched by getFullPost). Not a client-side random shuffle.
+function SpotlightOpenContent({ post, cardBg, flip, onFilterSubject }) {
+  const name = post.spotlight_subject
+  const type = post.spotlightType
+  const count = post.spotlightCount || 0
+  const covers = post.spotlightCovers || []
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* TOP HALF — avatar always on top, bg colour alternates */}
       <div style={{ flex: '0 0 50%', background: flip ? '#fff' : cardBg, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {scPosts.slice(0, 4).map((p, i) => coverSrc(p) && (
-          <img key={i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.2 }} />
+        {covers.slice(0, 4).map((p, i) => coverSrc(p) && (
+          <img key={p.id || i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.2 }} />
         ))}
         {type === 'artist'
           ? <div style={{ position: 'relative', zIndex: 2, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 900, color: '#fff', fontFamily: 'Barlow, sans-serif', backdropFilter: 'blur(8px)' }}>
@@ -270,19 +355,17 @@ function ShowcaseOpenContent({ showcase, cardBg, flip }) {
       <div style={{ flex: '0 0 50%', background: flip ? cardBg : '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '10px 12px 8px', flexShrink: 0, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.15)' : '#f0ede6'}` }}>
           <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.09em', padding: '2px 6px', borderRadius: 3, display: 'inline-block', marginBottom: 5, background: 'var(--theme-accent)', color: '#fff', fontFamily: 'VT323, monospace' }}>
-            {type === 'artist' ? 'Artist showcase' : 'Label showcase'}
+            {type === 'artist' ? 'Artist spotlight' : type === 'label' ? 'Label spotlight' : 'Genre spotlight'}
           </span>
           <div style={{ fontSize: 14, fontWeight: 700, color: flip ? '#fff' : '#111', lineHeight: 1.25, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{name}</div>
-          <div style={{ fontSize: 11, color: flip ? 'rgba(255,255,255,0.6)' : '#777', marginBottom: 6, fontFamily: 'VT323, monospace' }}>{scPosts.length} post{scPosts.length !== 1 ? 's' : ''} in feed</div>
-          {genres.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-              {genres.slice(0, 4).map(g => <span key={g} style={{ fontSize: 9, background: flip ? 'rgba(255,255,255,0.15)' : '#f0ede6', color: flip ? '#fff' : '#666', padding: '2px 7px', borderRadius: 99, fontFamily: 'Barlow, sans-serif' }}>{g}</span>)}
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: flip ? 'rgba(255,255,255,0.6)' : '#777', marginBottom: 6, fontFamily: 'VT323, monospace', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{count} post{count !== 1 ? 's' : ''} in the feed</span>
+            <span onClick={e => { e.stopPropagation(); onFilterSubject?.(name) }} style={{ color: 'var(--theme-accent)', cursor: 'pointer', textDecoration: 'underline' }}>view all →</span>
+          </div>
         </div>
         <div style={{ flex: 1, overflow: 'hidden', padding: '6px 12px' }}>
-          {scPosts.slice(0, 3).map((p, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 5, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.1)' : '#f5f5f5'}`, marginBottom: 5 }}>
+          {covers.slice(0, 3).map((p, i) => (
+            <div key={p.id || i} style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 5, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.1)' : '#f5f5f5'}`, marginBottom: 5 }}>
               <div style={{ width: 28, height: 28, borderRadius: 3, flexShrink: 0, overflow: 'hidden', background: flip ? 'rgba(255,255,255,0.15)' : '#eee' }}>
                 {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
               </div>
@@ -294,7 +377,7 @@ function ShowcaseOpenContent({ showcase, cardBg, flip }) {
           ))}
         </div>
         <div style={{ padding: '5px 12px 8px', flexShrink: 0, borderTop: `0.5px solid ${flip ? 'rgba(255,255,255,0.15)' : '#f0ede6'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)', letterSpacing: '0.05em', fontFamily: 'VT323, monospace' }}>Showcase · read only</span>
+          <span style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)', letterSpacing: '0.05em', fontFamily: 'VT323, monospace' }}>Spotlight · read only</span>
           <span style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : '#ccc', fontFamily: 'VT323, monospace' }}><span style={{ color: flip ? 'rgba(255,255,255,0.7)' : '#aaa' }}>LNV</span> · editorial</span>
         </div>
       </div>
@@ -304,9 +387,9 @@ function ShowcaseOpenContent({ showcase, cardBg, flip }) {
 
 // ── Three-state Feed Card ─────────────────────────────────────────────────────
 
-function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHoverEnd, onClick }) {
-  const { post, showcase } = item
-  const isShowcase = !!showcase
+function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHoverEnd, onClick, onFilterSubject }) {
+  const { post } = item
+  const isShowcase = !!post?.is_spotlight
 
   const restW  = isShowcase ? 300 : 160
   const hoverW = isShowcase ? 400 : 240
@@ -323,8 +406,8 @@ function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHover
     return t === 'livemix' ? 'Live set' : t === 'single' ? 'Single' : 'Album'
   })() : null
 
-  const idLabel = isShowcase ? `S–0${showcase.index}` : `#${String(post?.id || '').padStart(3, '0')}`
-  const subLabel = isShowcase ? (showcase.type === 'artist' ? 'Artist showcase' : 'Label showcase') : 'Post'
+  const idLabel = isShowcase ? `S–${String(post.id).padStart(3, '0')}` : `#${String(post?.id || '').padStart(3, '0')}`
+  const subLabel = isShowcase ? (post.spotlightType === 'artist' ? 'Artist spotlight' : post.spotlightType === 'label' ? 'Label spotlight' : 'Genre spotlight') : 'Post'
 
   return (
     <div
@@ -337,7 +420,7 @@ function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHover
       {/* REST */}
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '22px 16px', opacity: isHovered || isOpen ? 0 : 1, transform: isHovered || isOpen ? 'translateX(-12px)' : 'none', transition: 'opacity 0.15s, transform 0.32s', pointerEvents: 'none' }}>
         <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: '0.11em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', fontFamily: 'Barlow, sans-serif' }}>{subLabel}</span>
-        {isShowcase && <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: 'var(--theme-text-sec)', fontFamily: 'Barlow, sans-serif' }}>{showcase.name}</span>}
+        {isShowcase && <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: 'var(--theme-text-sec)', fontFamily: 'Barlow, sans-serif' }}>{post.spotlight_subject}</span>}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--theme-text-ter)' }}>{idLabel}</span>
           {!isShowcase && typeLabel && <span style={{ writingMode: 'vertical-rl', fontSize: 8, fontWeight: 500, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', fontFamily: 'Barlow, sans-serif' }}>{typeLabel}</span>}
@@ -348,19 +431,19 @@ function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHover
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', opacity: isHovered && !isOpen ? 1 : 0, transform: isHovered && !isOpen ? 'none' : isOpen ? 'translateX(-14px)' : 'translateX(14px)', transition: 'opacity 0.18s, transform 0.38s', pointerEvents: isHovered && !isOpen ? 'all' : 'none' }}>
         {isShowcase
           ? <div style={{ flex: 1, background: cardBg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-              {showcase.posts.slice(0, 4).map((p, i) => coverSrc(p) && <img key={i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.25 }} />)}
-              <div style={{ position: 'relative', zIndex: 2, width: 72, height: 72, borderRadius: showcase.type === 'artist' ? '50%' : 10, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
-                {showcase.name.charAt(0).toUpperCase()}
+              {(post.spotlightCovers || []).slice(0, 4).map((p, i) => coverSrc(p) && <img key={p.id || i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.25 }} />)}
+              <div style={{ position: 'relative', zIndex: 2, width: 72, height: 72, borderRadius: post.spotlightType === 'artist' ? '50%' : 10, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
+                {post.spotlight_subject.charAt(0).toUpperCase()}
               </div>
             </div>
           : <CoverArt post={post} style={{ flex: 1 }} />
         }
         <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 3, background: 'var(--theme-dark2)', flexShrink: 0, height: 88 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-pri)', lineHeight: 1.25, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isShowcase ? showcase.name : (artistName(post) || post?.title)}
+            {isShowcase ? post.spotlight_subject : (artistName(post) || post?.title)}
           </div>
           <div style={{ fontSize: 11, color: 'var(--theme-text-sec)', fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isShowcase ? `${showcase.posts.length} posts in feed` : post?.title}
+            {isShowcase ? `${post.spotlightCount || 0} posts in feed` : post?.title}
           </div>
           <div style={{ fontSize: 8, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', marginTop: 3, fontFamily: 'Barlow, sans-serif' }}>click to open</div>
         </div>
@@ -369,7 +452,7 @@ function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHover
       {/* OPEN */}
       <div style={{ position: 'absolute', inset: 0, opacity: isOpen ? 1 : 0, transform: isOpen ? 'none' : 'translateX(14px)', transition: 'opacity 0.2s 0.06s, transform 0.38s', pointerEvents: isOpen ? 'all' : 'none' }}>
         {isShowcase
-          ? <ShowcaseOpenContent showcase={showcase} cardBg={cardBg} flip={flip} />
+          ? <SpotlightOpenContent post={post} cardBg={cardBg} flip={flip} onFilterSubject={onFilterSubject} />
           : <OpenCardContent post={post} cardBg={cardBg} flip={flip} />
         }
       </div>
@@ -378,38 +461,13 @@ function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHover
 }
 
 // ── Build shelf items ─────────────────────────────────────────────────────────
+// One item per post, in feed order. Spotlight cards (post.is_spotlight) are
+// real posts returned by /api/posts alongside everything else — server-side
+// (posts.js's triggerSpotlights), not a client-side shuffle — so no separate
+// injection pass is needed here.
 
 function buildShelfItems(posts) {
-  if (!posts.length) return []
-
-  const seenA = new Set(), seenL = new Set()
-  const artists = [], labels = []
-
-  posts.forEach(p => {
-    const a = artistName(p), l = labelName(p)
-    if (a && !seenA.has(a)) { seenA.add(a); artists.push({ name: a, genres: p.genres || [], posts: posts.filter(x => artistName(x) === a) }) }
-    if (l && !seenL.has(l)) { seenL.add(l); labels.push({ name: l, genres: p.genres || [], posts: posts.filter(x => labelName(x) === l) }) }
-  })
-
-  const shuffle = arr => [...arr].sort(() => Math.random() - 0.5)
-  const sArtists = shuffle(artists), sLabels = shuffle(labels)
-  const pool = []
-  const max = Math.max(sArtists.length, sLabels.length)
-  for (let i = 0; i < max; i++) {
-    if (i < sArtists.length) pool.push({ type: 'artist', ...sArtists[i] })
-    if (i < sLabels.length)  pool.push({ type: 'label',  ...sLabels[i] })
-  }
-
-  const items = []
-  let scIdx = 0, scCount = 0
-  posts.forEach((post, i) => {
-    if (i > 0 && i % SHOWCASE_EVERY === 0 && pool.length > 0) {
-      items.push({ key: `sc-${scCount}`, showcase: { ...pool[scIdx % pool.length], index: scCount + 1 }, post: null })
-      scIdx++; scCount++
-    }
-    items.push({ key: `p-${post.id}`, post, showcase: null })
-  })
-  return items
+  return posts.map(post => ({ key: `p-${post.id}`, post }))
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
@@ -442,15 +500,17 @@ function ThemePicker({ currentIdx, onSelect }) {
 // MAIN FEED
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function Feed({ crateId = null, crateName = null }) {
+export default function Feed() {
   const [openKey, setOpenKey]         = useState(null)
   const [hoverId, setHoverId]         = useState(null)
   const [themeIdx, setThemeIdx]       = useState(-1)
   const [pickerOpen, setPickerOpen]   = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch]           = useState('')
   const hoverTimers                   = useRef({})
   const shelfItems                    = useRef([])
-  const lastPostCount                 = useRef(0)
+  const lastPostsSignature             = useRef(null)
   const userInteracted                = useRef(false)
   const queryClient                   = useQueryClient()
   const { feedRef, handleFeedScroll } = useLayout() || {}
@@ -462,26 +522,34 @@ export default function Feed({ crateId = null, crateName = null }) {
     return () => clearInterval(t)
   }, [themeIdx])
 
+  // Debounce search input → search (300ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   // Data
-  const { data: raw } = useQuery({
-    queryKey: ['posts', crateId || 'LATEST'],
+  const { data: raw, isFetching: searching } = useQuery({
+    queryKey: ['posts', search ? 'SEARCH' : 'LATEST', search],
     queryFn: async () => {
-      const url = crateId ? `${API}/crates/${crateId}` : `${API}/posts?limit=60`
+      const url = search
+        ? `${API}/posts?limit=60&search=${encodeURIComponent(search)}`
+        : `${API}/posts?limit=60`
       const res = await fetch(url)
       if (!res.ok) return []
       const d = await res.json()
-      if (crateId) return d.records || []
       return Array.isArray(d) ? d : (d.posts || [])
     },
-    refetchInterval: 30000,
+    refetchInterval: search ? false : 30000,
   })
   const posts = Array.isArray(raw) ? raw : []
 
-  if (posts.length !== lastPostCount.current) {
+  const postsSignature = posts.map(p => p.id).join(',')
+  if (postsSignature !== lastPostsSignature.current) {
     shelfItems.current = buildShelfItems(posts)
-    lastPostCount.current = posts.length
-    // On first load: open the first post, hover the first item
-    if (shelfItems.current.length > 0 && !userInteracted.current) {
+    lastPostsSignature.current = postsSignature
+    // On first load (or a new search result set): open the first post, hover the first item
+    if (shelfItems.current.length > 0 && (!userInteracted.current || search)) {
       const firstKey = shelfItems.current[0].key
       setHoverId(firstKey)
       setOpenKey(firstKey)
@@ -530,8 +598,16 @@ export default function Feed({ crateId = null, crateName = null }) {
   }
 
   function getCardBg(item, idx) {
-    if (item.showcase) return 'var(--theme-showcase)'
+    if (item.post?.is_spotlight) return 'var(--theme-showcase)'
     return `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
+  }
+
+  // Spotlight card → "view all" filters the feed to that subject, reusing
+  // the search bar (Phase 7) rather than a separate filter mechanism.
+  function filterToSubject(name) {
+    setSearchInput(name)
+    setSearch(name)
+    userInteracted.current = true
   }
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
@@ -542,14 +618,28 @@ export default function Feed({ crateId = null, crateName = null }) {
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'auto', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
         {!posts.length && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
-            No posts yet — share the first record.
+            {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
           </div>
         )}
         {shelfItems.current.map((item, idx) => (
           <FeedCard key={item.key} item={item} isOpen={openKey === item.key} isHovered={hoverId === item.key}
             cardBg={getCardBg(item, idx)} flip={idx % 2 !== 0} onHoverStart={() => startHover(item.key)}
-            onHoverEnd={() => endHover(item.key)} onClick={() => handleClick(item.key)} />
+            onHoverEnd={() => endHover(item.key)} onClick={() => handleClick(item.key)} onFilterSubject={filterToSubject} />
         ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, display: 'flex', alignItems: 'center', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '6px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+        <span style={{ color: 'var(--theme-text-ter)', fontSize: 13, marginRight: 6 }}>{searching ? '◐' : '⌕'}</span>
+        <input
+          value={searchInput}
+          onChange={e => { setSearchInput(e.target.value); userInteracted.current = true }}
+          placeholder="search artists, genres, labels, tracks…"
+          style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 12, width: 220 }}
+        />
+        {searchInput && (
+          <button onClick={() => setSearchInput('')} style={{ background: 'none', border: 'none', color: 'var(--theme-text-ter)', cursor: 'pointer', fontSize: 13, padding: 0, marginLeft: 4 }}>×</button>
+        )}
       </div>
 
       {/* Theme button */}

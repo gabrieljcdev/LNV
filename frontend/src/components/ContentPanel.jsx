@@ -1,46 +1,34 @@
 import { useEffect } from 'react';
 import { useLayout } from '../context/LayoutContext';
-import HDD from '../pages/HDD';
-import FDD from '../pages/FDD';
-import CratePage from '../pages/CratePage';
 import Artists from '../pages/Artists';
 import Genres from '../pages/Genres';
 import Labels from '../pages/Labels';
-import Profile from '../pages/Profile';
-import CollectionLogs from '../pages/CollectionLogs';
+import Logs from '../pages/Logs';
 
 const TITLES = {
-  hdd:     'My Collection',
-  fdd:     'Community Crates',
-  crate:   'Crate',
   artists: 'Artists',
   genres:  'Genres',
   labels:  'Labels',
-  profile: 'Profile',
-  logs:    'Activity Logs',
+  logs:    'Activity Stream',
   files:   'Files',
 };
 
 // Narrow panels — lists, single-column content
-const NARROW = new Set(['artists', 'genres', 'labels', 'logs', 'profile', 'files']);
-// Wide panels — grids, multi-column content
-const WIDE   = new Set(['hdd', 'fdd', 'crate']);
+const NARROW = new Set(['artists', 'genres', 'labels', 'logs', 'files']);
+// Wide panels — grids, multi-column content (none left after crates/walls removal)
+const WIDE   = new Set([]);
 
 const COMPONENTS = {
-  hdd:     (props) => <HDD {...props} />,
-  fdd:     (props) => <FDD {...props} />,
-  crate:   (props) => <CratePage crateId={props.id} {...props} />,
   artists: (props) => <Artists {...props} />,
   genres:  (props) => <Genres {...props} />,
   labels:  (props) => <Labels {...props} />,
-  profile: (props) => <Profile username={props.username} {...props} />,
-  logs:    (props) => <CollectionLogs {...props} />,
+  logs:    (props) => <Logs {...props} />,
   files:   (props) => <FilesPage {...props} />,
 };
 
 function FilesPage() {
   const files = [
-    { key: 'readme',  lines: ['WELCOME TO LATE NIGHT VIBES', '────────────────────────────────', 'A community for serious music lovers.', 'Dig deep. Share your crate.', '', '> Browse the feed', '> Save records to your collection', '> Discover what others are digging', '> Click ▶ for a random track'] },
+    { key: 'readme',  lines: ['WELCOME TO LATE NIGHT VIBES', '────────────────────────────────', 'A blog for serious music lovers.', 'Dig deep. Post what you\'re playing.', '', '> Browse the feed', '> Post a record', '> Discover what others are digging', '> Click ▶ for a random track'] },
     { key: 'about',   lines: ['ABOUT LATE NIGHT VIBES', '────────────────────────────────', 'A sophisticated music community', 'for serious collectors.', '', 'Built with React, Node.js,', 'Discogs API and YouTube API.', '', 'EST. 2024'] },
     { key: 'donate',  lines: ['DONATE', '────────────────────────────────', 'LNV is free and always will be.', 'If you enjoy it, consider', 'supporting the project.', '', '> hello@latenightvibes.com'] },
     { key: 'contact', lines: ['CONTACT', '────────────────────────────────', '> hello@latenightvibes.com', '> @latenightvibes', '', 'WE DIG DEEP'] },

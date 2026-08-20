@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { getUser, getUserId } from '../lib/auth'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -76,8 +77,11 @@ function PlatformChip({ platform, suffix = '' }) {
 }
 
 export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
- const user = sessionStorage.getItem('user') || 'lnv_admin'
- const userId = sessionStorage.getItem('userId') || 1
+ // No admin fallback: composing requires a real (password-less) username —
+ // Feed.jsx only opens this modal when one is set, but guard here too in
+ // case something else ever mounts it directly.
+ const user = getUser()
+ const userId = getUserId()
 
  const [inputUrl, setInputUrl] = useState(initialUrl)
  const [title, setTitle] = useState('')
@@ -284,7 +288,6 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (!postRes.ok) throw new Error(`POST failed: ${postRes.status}`)
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId
- try { await fetch(`${API}/netlink/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: title.trim(), body: comment.trim() || title.trim(), user_id: 1, post_id: savedPostId }) }) } catch { /* optional */ }
  setDone(true)
  setTimeout(() => { onPosted?.({ postId: savedPostId }); onClose() }, 800)
  } catch (err) { setFetchError(`FAILED TO POST — ${err.message}`) } finally { setPosting(false) }
@@ -294,6 +297,21 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const fetchBtnStyle = activePlatform && !isDiscogs
  ? { ...pillBtn('dark', { flexShrink: 0 }), background: activePlatform.color, color: activePlatform.textColor, opacity: fetching ? 0.6 : 1 }
  : { ...pillBtn('orange'), opacity: fetching ? 0.6 : 1, flexShrink: 0 }
+
+ if (!user || !userId) {
+ return (
+ <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{ position: 'fixed', inset: 0, background: 'rgba(30,33,38,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' }}>
+ <div style={{ width: 340, background: '#fff', borderRadius: 16, padding: '24px 22px', textAlign: 'center', boxShadow: '0 24px 80px rgba(0,0,0,0.3)' }}>
+ <div style={{ fontFamily: 'Barlow, sans-serif', fontWeight: 900, fontSize: 15, color: '#1e2126', marginBottom: 8 }}>PICK A USERNAME FIRST</div>
+ <div style={{ fontFamily: 'VT323, monospace', fontSize: 12, color: '#8a929c', marginBottom: 16, lineHeight: 1.5 }}>Posting is attributed to a username — no password, just pick one to continue.</div>
+ <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+ <button style={pillBtn('outlined')} onClick={onClose}>CANCEL</button>
+ <a href="/login" style={{ textDecoration: 'none' }}><button style={pillBtn('orange')}>CHOOSE USERNAME</button></a>
+ </div>
+ </div>
+ </div>
+ )
+ }
 
  return (
  <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{ position: 'fixed', inset: 0, background: 'rgba(30,33,38,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' }}>
@@ -363,10 +381,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
 
  {duplicate && (
  <div style={{ background: '#fff8f0', border: '1.5px solid #e85d04', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
- <div style={{ fontFamily: 'VT323, monospace', fontSize: 12, color: '#e85d04', marginBottom: 4 }}>⚠ ALREADY IN CRATE</div>
+ <div style={{ fontFamily: 'VT323, monospace', fontSize: 12, color: '#e85d04', marginBottom: 4 }}>⚠ ALREADY POSTED</div>
  <div style={{ fontFamily: 'Barlow, sans-serif', fontSize: 12, color: '#3a3d42', marginBottom: 8 }}><strong>{duplicate.title?.toUpperCase()}</strong> — posted by @{duplicate.username || 'lnv_admin'}</div>
  <div style={{ display: 'flex', gap: 6 }}>
- <button style={pillBtn('outlined')} onClick={() => window.open('/crate', '_self')}>VIEW POST</button>
+ <button style={pillBtn('outlined')} onClick={onClose}>CLOSE</button>
  <button style={pillBtn('dark')} onClick={() => setDuplicate(null)}>POST ANYWAY</button>
  </div>
  </div>
