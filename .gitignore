@@ -1,0 +1,17 @@
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?
+
+# Dependencies
+node_modules/
+
+# Env files
+.env
+.env.local
+
+# Logs
+logs/
+*.log

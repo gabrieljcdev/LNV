@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Barlow:wght@300;400;500;700;900&display=swap');
+
+:root {
+  /* ── Existing brand colours ── */
+  --pastel-blue: #c8daf0;
+  --pastel-blue-mid: #a8c4e8;
+  --pastel-blue-dark: #7aa8d8;
+  --charcoal: #3a3d42;
+  --gunmetal: #2a2d32;
+  --gunmetal-dark: #1e2126;
+  --off-white: #f4f6f9;
+  --white: #ffffff;
+  --grey-light: #e8ecf0;
+  --grey-mid: #b0b8c4;
+  --grey-text: #6a7480;
+  --border: rgba(0,0,0,0.07);
+  --orange: #e85d04;
+  --orange-dark: #c44d00;
+
+  /* ── Time-based theme variables (defaults = Deep Night) ── */
+  --theme-bg:       #08090B;
+  --theme-sidebar:  #08090B;
+  --theme-dark1:    #08090B;
+  --theme-dark2:    #17191D;
+  --theme-dark3:    #2B2F36;
+  --theme-light1:   #6B7380;
+  --theme-light2:   #F2F4F7;
+  --theme-showcase: #2B2F36;
+  --theme-accent:   #6B7380;
+  --theme-text-pri: rgba(255,255,255,0.65);
+  --theme-text-sec: rgba(255,255,255,0.35);
+  --theme-text-ter: rgba(255,255,255,0.18);
+  --theme-border:   rgba(255,255,255,0.06);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--theme-bg);
+}
+
+/* ── Avantt-style scroll architecture ──
+ scroll-outer: fixed, full viewport, captures all scroll input
+ scroll-inner: sticky top:0, horizontal grid, content flows sideways
+ scroll-spacer: creates scrollable height range
+*/
+
+#scroll-outer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden scroll;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background: var(--theme-bg);
+}
+
+#scroll-outer::-webkit-scrollbar {
+  display: none;
+}
+
+#scroll-inner {
+  position: sticky;
+  top: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  height: 100vh;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+#scroll-spacer {
+  /* Height set by JS = total content width */
+  width: 1px;
+  pointer-events: none;
+}
+
+/* ── Pulse animation ── */
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+/* ── Blink for loading ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink { animation: blink 1s step-end infinite; }
+
+/* ── Hide all scrollbars ── */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { display: none; }
+
+/* ── Theme transitions — smooth colour changes ── */
+:root {
+  transition:
+    --theme-bg 0.8s ease,
+    --theme-sidebar 0.8s ease;
+}
+/* ── Stop left panel wheel events from advancing the scroll-outer layout ── */
+#lnv-strip,
+#lnv-drawer,
+#lnv-landing {
+  overscroll-behavior: contain;
+}
