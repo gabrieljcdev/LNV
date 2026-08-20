@@ -2,6 +2,15 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { LayoutContext } from './LayoutContext';
 import { applyPalette, getAutoIndex } from '../services/themeService';
 
+// Horizontal feed px moved per vertical wheel/trackpad px that #scroll-outer
+// receives. #scroll-outer's scrollTop is the SINGLE source of truth for feed
+// position — the RAF ticker below reads it every frame and writes the
+// (damped) result to feedRef.scrollLeft. Anything that wants to move the
+// feed (drag-to-scroll, scrollToPost) must go through scrollTop too, via
+// driveFeedScroll — writing feedRef.scrollLeft directly gets silently
+// undone on the very next animation frame by the ticker.
+const PX_PER_SCROLL = 1.5;
+
 export function LayoutProvider({ children }) {
  const [d3Content, setD3Content] = useState(null);
  const [d3Props, setD3Props] = useState({});
@@ -16,6 +25,17 @@ export function LayoutProvider({ children }) {
  function closeD3() { setD3Content(null); setD3Props({}); }
  function registerPostRef(postId, ref) { postRefs.current.set(postId, ref); }
 
+ // Move the feed to an absolute horizontal pixel position by driving
+ // #scroll-outer's scrollTop (see PX_PER_SCROLL comment above) — the RAF
+ // ticker then glides feedRef.scrollLeft toward it with its own damping, so
+ // callers don't need their own animation loop.
+ const driveFeedScroll = useCallback((scrollX) => {
+   const so = document.getElementById('scroll-outer');
+   if (!so) return;
+   const maxOuter = Math.max(0, so.scrollHeight - so.clientHeight);
+   so.scrollTop = Math.max(0, Math.min(scrollX / PX_PER_SCROLL, maxOuter));
+ }, []);
+
  const scrollToPost = useCallback((postId) => {
    closeD3();
    const feed = feedRef.current;
@@ -23,24 +43,18 @@ export function LayoutProvider({ children }) {
    if (!feed || !postEl) return;
    const feedRect = feed.getBoundingClientRect();
    const postRect = postEl.getBoundingClientRect();
-   const distance = Math.abs(postRect.left - feedRect.left);
-   const duration = Math.min(1200, Math.max(200, (distance / 3000) * 1000));
-   const start = feed.scrollLeft;
-   const target = feed.scrollLeft + (postRect.left - feedRect.left);
-   const startTime = performance.now();
-   function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
-   function step(now) {
-     const p = Math.min((now - startTime) / duration, 1);
-     feed.scrollLeft = start + (target - start) * ease(p);
-     if (p < 1) { requestAnimationFrame(step); } else {
-       postEl.style.transition = 'box-shadow 0.15s';
-       postEl.style.boxShadow = '0 0 0 3px #e85d04';
-       setTimeout(() => { postEl.style.boxShadow = ''; }, 600);
-     }
-   }
-   requestAnimationFrame(step);
+   const maxFeed = Math.max(0, feed.scrollWidth - feed.clientWidth);
+   const target = Math.max(0, Math.min(feed.scrollLeft + (postRect.left - feedRect.left), maxFeed));
+   driveFeedScroll(target);
+   // Highlight once the damped scroll (DAMPING=12, settles in ~150-200ms
+   // per scroll-distance step, capped well under a second here) has landed.
+   setTimeout(() => {
+     postEl.style.transition = 'box-shadow 0.15s';
+     postEl.style.boxShadow = '0 0 0 3px #e85d04';
+     setTimeout(() => { postEl.style.boxShadow = ''; }, 600);
+   }, 500);
    // eslint-disable-next-line react-hooks/exhaustive-deps
- }, []);
+ }, [driveFeedScroll]);
 
  // Scroll-driven strip chrome: as the user scrolls into the feed, the
  // strip narrows from 320px (room for the tab labels + brand wordmark) down
@@ -79,9 +93,18 @@ export function LayoutProvider({ children }) {
    const scrollSpacer = document.getElementById('scroll-spacer');
    const scrollInner = document.getElementById('scroll-inner');
    window.lnvSpacerLocked = false;
+
+   function neededSpacerHeight() {
+     const baseWidth = scrollInner ? scrollInner.scrollWidth : 0;
+     const feed = feedRef.current;
+     const maxFeed = feed ? Math.max(0, feed.scrollWidth - feed.clientWidth) : 0;
+     // Enough vertical range to reach the end of the feed at PX_PER_SCROLL,
+     // plus room for the non-feed layout width and a full viewport of slack.
+     return Math.max(baseWidth, maxFeed / PX_PER_SCROLL) + window.innerHeight;
+   }
    function updateSpacer() {
      if (window.lnvSpacerLocked) return;
-     if (scrollInner && scrollSpacer) scrollSpacer.style.height = (scrollInner.scrollWidth + window.innerHeight) + 'px';
+     if (scrollSpacer) scrollSpacer.style.height = neededSpacerHeight() + 'px';
    }
    updateSpacer();
    const resizeObs = new ResizeObserver(updateSpacer);
@@ -90,12 +113,14 @@ export function LayoutProvider({ children }) {
    // ── Smooth scroll ticker ──────────────────────────────────────────────
    // Native wheel/trackpad/touch input drives #scroll-outer's real scrollTop
    // (no custom wheel handler — let the browser's own momentum happen). Every
-   // animation frame we read that scrollTop as a *target* and damp-lerp a
-   // `current` value toward it, then apply `current` to the feed and to
-   // handleFeedScroll's layout writes. This is what makes it glide instead of
-   // snapping frame-to-frame with raw scroll events — same technique as
-   // avantt.displaay.net's ScrollContainer (target = native scroll position,
-   // visual position chases it via framerate-independent damping each tick).
+   // animation frame we read that scrollTop and derive a *pixel* target
+   // (scrollTop * PX_PER_SCROLL, clamped to the feed's actual scrollable
+   // width) and damp-lerp a `current` value toward it, then apply `current`
+   // to the feed and to handleFeedScroll's layout writes. This is what makes
+   // it glide instead of snapping frame-to-frame with raw scroll events —
+   // same technique as avantt.displaay.net's ScrollContainer (target =
+   // native scroll position, visual position chases it via
+   // framerate-independent damping each tick).
    let raf = null;
    let lastTime = performance.now();
    let current = 0;
@@ -106,20 +131,29 @@ export function LayoutProvider({ children }) {
      lastTime = now;
      const so = document.getElementById('scroll-outer');
      if (so) {
-       const maxOuter = so.scrollHeight - so.clientHeight;
-       const target = maxOuter > 0 ? so.scrollTop / maxOuter : 0;
+       const target = so.scrollTop * PX_PER_SCROLL;
        const factor = Math.min(1, DAMPING * dt);
        current += (target - current) * factor;
-       if (Math.abs(target - current) < 0.0002) current = target;
+       if (Math.abs(target - current) < 0.5) current = target;
 
        if (feedRef.current) {
          const maxFeed = Math.max(0, feedRef.current.scrollWidth - feedRef.current.clientWidth);
-         const scrollX = current * maxFeed;
+         const scrollX = Math.min(current, maxFeed);
          feedRef.current.scrollLeft = scrollX;
          handleFeedScroll(scrollX);
+         // Keep the spacer sized to the live feed width so the vertical
+         // range always has enough room to reach the end of the content —
+         // card widths/counts change (search, new posts) after mount, and
+         // the ResizeObserver above can't see scrollWidth-only changes.
+         if (scrollSpacer && !window.lnvSpacerLocked) {
+           const needed = neededSpacerHeight();
+           if (Math.abs(parseFloat(scrollSpacer.style.height) - needed) > 40) {
+             scrollSpacer.style.height = needed + 'px';
+           }
+         }
        } else {
-         // No feed mounted — same fixed-range fallback the old handler used
-         handleFeedScroll(current * 5000 * 0.4);
+         // No feed mounted — pass the raw pixel target through
+         handleFeedScroll(current);
        }
      }
      raf = requestAnimationFrame(tick);
@@ -137,7 +171,7 @@ export function LayoutProvider({ children }) {
      stripRef, brandRef,
      d3Content, d3Props, openD3, closeD3,
      currentTrack, setCurrentTrack,
-     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll,
+     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll,
    }}>
      {children}
    </LayoutContext.Provider>

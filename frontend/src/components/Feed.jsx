@@ -1,12 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { usePlayer } from '../context/PlayerContext'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
 import { getUserId } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+
+// Fixed card widths — no hover/open resize states. Each post is ONE
+// individual, self-contained card (identity header + media + tracklist +
+// note + footer, all always visible) — not split across separate cards.
+// Livemix cards get extra width for the embed. Spotlights use the same
+// standard width so they read as "one of these cards," not a special size.
+const CARD_WIDTH = 460
+const CARD_WIDTH_LIVEMIX = 620
+const SPOTLIGHT_CARD_WIDTH = CARD_WIDTH
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -33,10 +41,11 @@ function detectType(p) {
   return 'album'
 }
 
-function ytId(url) {
-  if (!url) return null
-  const m = url.match(/(?:v=|youtu\.be\/)([^&\s]{11})/)
-  return m ? m[1] : null
+const PLATFORM_COLORS = {
+  youtube: '#f00', soundcloud: '#f50', bandcamp: '#1da0c3',
+  spotify: '#1db954', mixcloud: '#5000ff', deezer: '#a238ff',
+  applemusic: '#fc3c44', tidal: '#000', beatport: '#01ff95',
+  ra: '#f03', boilerroom: '#111', discogs: '#333',
 }
 
 const POST_BG_CYCLE = ['dark1','dark2','dark3','dark1','dark2','light1','dark3','dark1','dark2','dark3','light1','dark1','dark2']
@@ -55,7 +64,7 @@ function CoverArt({ post, style = {}, children }) {
   )
 }
 
-// ── Open card — split layout (top: palette colour + media, bottom: theme colour + meta)
+// ── Comments ──────────────────────────────────────────────────────────────────
 
 function CommentThread({ postId, onCountChange }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
@@ -97,7 +106,7 @@ function CommentThread({ postId, onCountChange }) {
   }
 
   return (
-    <div onClick={e => e.stopPropagation()} style={{ padding: '8px 14px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 160, overflowY: 'auto' }}>
+    <div style={{ padding: '8px 16px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'auto' }}>
       {comments === null ? (
         <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>loading…</div>
       ) : comments.length === 0 ? (
@@ -133,38 +142,35 @@ function CommentThread({ postId, onCountChange }) {
   )
 }
 
-function OpenCardContent({ post, cardBg, flip }) {
-  const { openD3 } = useLayout() || {}
+// ── Post card — ONE individual, self-contained card per post ───────────────────
+// Avantt-inspired: bold identity header (huge wordmark, minimal chrome) up top,
+// like the type-specimen reference, then the reference's image-dominant lower
+// zone — cover/embed, tracklist, note, footer, comments — all in the SAME card.
+// Fixed width, always full detail, no hover/open resize states.
+
+function PostCard({ post, cardBg }) {
+  const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
-  const type   = detectType(post)
-  const note   = cleanNote(post.notes || post.body)
-  const genres = post.genres || []
-  const tracks = post.tracks || []
+
+  const type = detectType(post)
   const artist = artistName(post)
-  const label  = labelName(post)
-  const catNo  = post.labels?.[0]?.catalogue_number || post.catNo || ''
+  const label = labelName(post)
+  const catNo = post.labels?.[0]?.catalogue_number || post.catNo || ''
+  const genres = post.genres || []
+  const note = cleanNote(post.notes || post.body)
+  const tracks = post.tracks || []
   const channel = post.channel || ''
   const platform = post.platform || ''
+  const isLiveMix = type === 'livemix'
+  const width = isLiveMix ? CARD_WIDTH_LIVEMIX : CARD_WIDTH
+  const tagLabel = isLiveMix ? 'LIVE SET' : type === 'single' ? 'SINGLE' : 'ALBUM'
+  const tagColor = isLiveMix ? '#e85d04' : type === 'single' ? '#4a90d9' : '#555'
 
-  const topFlex = type === 'livemix' ? '0 0 62%' : '0 0 50%'
-  const botFlex = type === 'livemix' ? '0 0 38%' : '0 0 50%'
-
-  const tagLabel = type === 'livemix' ? 'LIVE SET' : type === 'single' ? 'SINGLE' : 'ALBUM'
-  const tagColor = type === 'livemix' ? '#e85d04' : type === 'single' ? '#4a90d9' : '#555'
-
-  // Platform badge colours
-  const platformColors = {
-    youtube: '#f00', soundcloud: '#f50', bandcamp: '#1da0c3',
-    spotify: '#1db954', mixcloud: '#5000ff', deezer: '#a238ff',
-    applemusic: '#fc3c44', tidal: '#000', beatport: '#01ff95',
-    ra: '#f03', boilerroom: '#111', discogs: '#333',
-  }
-  const platformColor = platformColors[platform] || 'var(--theme-accent)'
+  const platformColor = PLATFORM_COLORS[platform] || 'var(--theme-accent)'
   const platformLabel = platform?.toUpperCase()
 
-  // Build embed URL — activeTrackUrl (track click) overrides post stream_url
   const streamUrl = activeTrackUrl || post.stream_url || post.embed_url || tracks[0]?.youtube_url || tracks[0]?.stream_url || ''
   const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
   const ytId = ytMatch ? ytMatch[1] : null
@@ -179,137 +185,125 @@ function OpenCardContent({ post, cardBg, flip }) {
     ? `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(mcUrl.replace('https://www.mixcloud.com',''))}`
     : null
 
-  const textPri = 'var(--theme-text-pri)'
   const textSec = 'var(--theme-text-sec)'
   const textTer = 'var(--theme-text-ter)'
-  const pillBg  = 'var(--theme-dark3)'
-  const pillTxt = 'var(--theme-text-sec)'
   const divider = 'var(--theme-border)'
-  const noteBg  = 'var(--theme-dark3)'
-  const noteBdr = 'var(--theme-border)'
-  const botBg   = 'var(--theme-dark2)'
-  const topBg   = cardBg
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div
+      ref={el => registerPostRef?.(post.id, el)}
+      style={{ flexShrink: 0, width, height: '100%', background: cardBg, borderRight: '1px solid var(--theme-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+    >
+      {/* Identity header — huge bold name, minimal chrome */}
+      <div style={{ padding: '18px 18px 14px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: tagColor, color: '#fff', fontFamily: 'VT323, monospace' }}>{tagLabel}</span>
+          <span style={{ fontSize: 10, fontFamily: 'monospace', color: textTer }}>#{String(post.id).padStart(3, '0')}</span>
+        </div>
 
-      {/* TOP — media */}
-      <div style={{ flex: topFlex, background: topBg, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {type === 'livemix' ? (
+        <div
+          onClick={() => artist && openD3?.('artists', { filter: artist })}
+          style={{ fontSize: 28, fontWeight: 900, lineHeight: 1.02, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', letterSpacing: '-0.5px', cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
+        >{artist || post.title}</div>
+
+        <div style={{ fontSize: 13, color: textSec, marginTop: 6, fontFamily: 'Barlow, sans-serif', lineHeight: 1.4 }}>
+          {post.title}
+          {label && <> · <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span></>}
+          {catNo && <> · {catNo}</>}
+          {post.year && <> · {post.year}</>}
+        </div>
+
+        {genres.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+            {genres.slice(0, 6).map(g => (
+              <span key={g} onClick={() => openD3?.('genres', { filter: g })}
+                style={{ fontSize: 11, background: 'var(--theme-dark3)', color: textSec, padding: '3px 10px', borderRadius: 99, fontFamily: 'Barlow, sans-serif', cursor: 'pointer' }}
+              >{g}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Caption row — platform/source badges */}
+      {(platformLabel || post.source === 'discogs') && (
+        <div style={{ padding: '0 16px', display: 'flex', gap: 5, flexWrap: 'wrap', flexShrink: 0, marginBottom: 6 }}>
+          {platformLabel && (
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', padding: '3px 8px', borderRadius: 3, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: 'VT323, monospace' }}>{platformLabel}</span>
+          )}
+          {post.source === 'discogs' && (
+            <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 3, background: 'rgba(255,255,255,0.12)', color: textSec, fontFamily: 'VT323, monospace' }}>◈ DISCOGS</span>
+          )}
+        </div>
+      )}
+
+      {/* Media — dominates the lower half of the card, like the reference's large photo */}
+      <div style={{ flex: isLiveMix ? '0 0 40%' : '0 0 34%', margin: '0 16px', borderRadius: 6, overflow: 'hidden', position: 'relative', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+        {isLiveMix ? (
           embedSrc ? (
             <iframe src={embedSrc}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen title={post.title} />
           ) : (
-            <>
+            <div style={{ width: '100%', height: '100%', background: '#1e2126', position: 'relative' }}>
               {coverSrc(post) && <img src={coverSrc(post)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }} />}
-              <div style={{ position: 'relative', zIndex: 2, fontFamily: 'VT323, monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
-            </>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'VT323, monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
+              {channel && <div style={{ position: 'absolute', bottom: 8, left: 10, fontFamily: 'Barlow, sans-serif', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{channel}</div>}
+            </div>
           )
         ) : (
-          <div style={{ width: '72%', aspectRatio: '1', position: 'relative', borderRadius: 4, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-            <CoverArt post={post} style={{ width: '100%', height: '100%' }} />
-          </div>
+          <CoverArt post={post} style={{ width: '100%', height: '100%' }} />
         )}
       </div>
 
-      {/* BOTTOM — metadata */}
-      <div style={{ flex: botFlex, background: botBg, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden' }}>
+      {/* Everything below — scrolls internally if the card runs out of room */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', marginTop: 8 }}>
 
-        {/* Meta block */}
-        <div style={{ padding: '12px 14px 8px', flexShrink: 0, borderBottom: `0.5px solid ${divider}` }}>
-
-          {/* Tags row — type + platform */}
-          <div style={{ display: 'flex', gap: 5, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: tagColor, color: '#fff', fontFamily: 'VT323, monospace' }}>{tagLabel}</span>
-            {platformLabel && (
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', padding: '3px 8px', borderRadius: 3, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: 'VT323, monospace' }}>{platformLabel}</span>
-            )}
-            {post.source === 'discogs' && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 3, background: 'rgba(255,255,255,0.12)', color: textSec, fontFamily: 'VT323, monospace' }}>◈ DISCOGS</span>
-            )}
+        {!isLiveMix && tracks.length > 0 && (
+          <div style={{ padding: '0 16px', flexShrink: 0 }}>
+            {tracks.slice(0, 6).map((t, i) => {
+              const tUrl = t.stream_url || t.youtube_url || null
+              const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
+              return (
+                <div key={i}
+                  onClick={() => { if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
+                  style={{ display: 'flex', gap: 6, alignItems: 'baseline', padding: '3px 4px', borderRadius: 4, cursor: tUrl ? 'pointer' : 'default', background: isActive ? 'rgba(232,93,4,0.12)' : 'transparent' }}>
+                  <span style={{ fontSize: 9, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: 'monospace', flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
+                  <span style={{ fontSize: 12, color: isActive ? 'var(--theme-text-pri)' : textSec, fontWeight: isActive ? 600 : 400, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  {t.duration && <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>{t.duration}</span>}
+                </div>
+              )
+            })}
+            {tracks.length > 6 && <div style={{ fontSize: 10, color: textTer, fontFamily: 'VT323, monospace', marginTop: 2 }}>+{tracks.length - 6} more</div>}
           </div>
+        )}
 
-          {/* Artist */}
-          <div
-            onClick={e => { e.stopPropagation(); artist && openD3?.('artists', { filter: artist }) }}
-            style={{ fontSize: 18, fontWeight: 900, color: textPri, lineHeight: 1.15, marginBottom: 2, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: artist ? 'pointer' : 'default' }}
-          >{artist || post.title}</div>
-
-          {/* Title / channel */}
-          <div style={{ fontSize: 13, color: textSec, marginBottom: 6, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {type === 'livemix'
-              ? [post.title, channel].filter(Boolean).join(' · ')
-              : <>
-                  {post.title}
-                  {label && <> · <span onClick={e => { e.stopPropagation(); openD3?.('labels', { filter: label }) }} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span></>}
-                  {catNo && <> · {catNo}</>}
-                  {post.year && <> · {post.year}</>}
-                </>
-            }
-          </div>
-
-          {/* Genres */}
-          {genres.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-              {genres.slice(0, 6).map(g => (
-                <span key={g}
-                  onClick={e => { e.stopPropagation(); openD3?.('genres', { filter: g }) }}
-                  style={{ fontSize: 11, background: pillBg, color: pillTxt, padding: '3px 10px', borderRadius: 99, fontFamily: 'Barlow, sans-serif', cursor: 'pointer' }}
-                >{g}</span>
-              ))}
-            </div>
-          )}
-
-          {/* Tracklist — albums/singles only, compact */}
-          {type !== 'livemix' && tracks.length > 0 && (
-            <div style={{ marginTop: 4, maxHeight: 80, overflowY: 'auto' }}>
-              {tracks.slice(0, 6).map((t, i) => {
-                const tUrl = t.stream_url || t.youtube_url || null
-                const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
-                return (
-                  <div key={i}
-                    onClick={e => { e.stopPropagation(); if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
-                    style={{ display: 'flex', gap: 6, alignItems: 'baseline', padding: '2px 4px', borderRadius: 4, cursor: tUrl ? 'pointer' : 'default', background: isActive ? 'rgba(232,93,4,0.12)' : 'transparent' }}>
-                    <span style={{ fontSize: 9, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: 'monospace', flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
-                    <span style={{ fontSize: 11, color: isActive ? textPri : textSec, fontWeight: isActive ? 600 : 400, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                    {t.duration && <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>{t.duration}</span>}
-                  </div>
-                )
-              })}
-              {tracks.length > 6 && <div style={{ fontSize: 10, color: textTer, fontFamily: 'VT323, monospace', marginTop: 2 }}>+{tracks.length - 6} more</div>}
-            </div>
-          )}
-        </div>
-
-        {/* Poster note */}
         {note && (
-          <div style={{ padding: '8px 14px', flexShrink: 0, borderBottom: `0.5px solid ${divider}` }}>
+          <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: 'var(--theme-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
                 {(post.user?.username || post.username || '?').charAt(0).toUpperCase()}
               </div>
-              <div style={{ flex: 1, background: noteBg, borderRadius: '0 8px 8px 8px', padding: '6px 10px', border: `0.5px solid ${noteBdr}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textPri, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{post.user?.username || post.username}</div>
-                <div style={{ fontSize: 12, color: textSec, lineHeight: 1.45, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{note}</div>
+              <div style={{ flex: 1, background: 'var(--theme-dark3)', borderRadius: '0 8px 8px 8px', padding: '6px 10px', border: `0.5px solid ${divider}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-pri)', marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{post.user?.username || post.username}</div>
+                <div style={{ fontSize: 12, color: textSec, lineHeight: 1.45, fontFamily: 'Barlow, sans-serif' }}>{note}</div>
               </div>
             </div>
           </div>
         )}
 
         {/* Footer */}
-        <div style={{ padding: '6px 14px 10px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: commentsOpen ? 0 : 'auto' }}>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button onClick={e => { e.stopPropagation(); setCommentsOpen(v => !v) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>
+        <div style={{ padding: '10px 16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', borderTop: `0.5px solid ${divider}` }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>
               <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
             </button>
             {post.discogs_url && (
-              <a href={post.discogs_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+              <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 11, color: textTer, fontFamily: 'Barlow, sans-serif', textDecoration: 'none' }}>↗ discogs</a>
             )}
-            {type === 'livemix' && streamUrl && (
-              <a href={streamUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            {isLiveMix && streamUrl && (
+              <a href={streamUrl} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 11, color: textTer, fontFamily: 'Barlow, sans-serif', textDecoration: 'none' }}>↗ {platformLabel || 'stream'}</a>
             )}
           </div>
@@ -324,20 +318,25 @@ function OpenCardContent({ post, cardBg, flip }) {
   )
 }
 
-// ── Showcase open content ─────────────────────────────────────────────────────
+// ── Spotlight card — one fixed-size card, not split into title/detail ──────────
+// Real posts (post.is_spotlight, created server-side by posts.js's
+// triggerSpotlights once a subject crosses a post-count milestone — see
+// spotlightType/spotlightCount/spotlightCovers, enriched by getFullPost).
+// Not a client-side random shuffle.
 
-// Spotlight cards are real posts (post.is_spotlight, created server-side by
-// posts.js's triggerSpotlights once a subject crosses a post-count
-// milestone — see spotlightType/spotlightCount/spotlightCovers on the post,
-// enriched by getFullPost). Not a client-side random shuffle.
-function SpotlightOpenContent({ post, cardBg, flip, onFilterSubject }) {
+function SpotlightCard({ post, cardBg, flip, onFilterSubject }) {
+  const { registerPostRef } = useLayout() || {}
   const name = post.spotlight_subject
   const type = post.spotlightType
   const count = post.spotlightCount || 0
   const covers = post.spotlightCovers || []
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* TOP HALF — avatar always on top, bg colour alternates */}
+    <div
+      ref={el => registerPostRef?.(post.id, el)}
+      style={{ flexShrink: 0, width: SPOTLIGHT_CARD_WIDTH, height: '100%', background: cardBg, borderRight: '1px solid var(--theme-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+    >
+      {/* TOP HALF — collage + badge avatar */}
       <div style={{ flex: '0 0 50%', background: flip ? '#fff' : cardBg, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         {covers.slice(0, 4).map((p, i) => coverSrc(p) && (
           <img key={p.id || i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.2 }} />
@@ -351,7 +350,7 @@ function SpotlightOpenContent({ post, cardBg, flip, onFilterSubject }) {
             </div>
         }
       </div>
-      {/* BOTTOM HALF — info always bottom, bg colour alternates */}
+      {/* BOTTOM HALF — info */}
       <div style={{ flex: '0 0 50%', background: flip ? cardBg : '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '10px 12px 8px', flexShrink: 0, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.15)' : '#f0ede6'}` }}>
           <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.09em', padding: '2px 6px', borderRadius: 3, display: 'inline-block', marginBottom: 5, background: 'var(--theme-accent)', color: '#fff', fontFamily: 'VT323, monospace' }}>
@@ -360,7 +359,9 @@ function SpotlightOpenContent({ post, cardBg, flip, onFilterSubject }) {
           <div style={{ fontSize: 14, fontWeight: 700, color: flip ? '#fff' : '#111', lineHeight: 1.25, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{name}</div>
           <div style={{ fontSize: 11, color: flip ? 'rgba(255,255,255,0.6)' : '#777', marginBottom: 6, fontFamily: 'VT323, monospace', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>{count} post{count !== 1 ? 's' : ''} in the feed</span>
-            <span onClick={e => { e.stopPropagation(); onFilterSubject?.(name) }} style={{ color: 'var(--theme-accent)', cursor: 'pointer', textDecoration: 'underline' }}>view all →</span>
+            {onFilterSubject && (
+              <span onClick={() => onFilterSubject(name)} style={{ cursor: 'pointer', color: 'var(--theme-accent)', textDecoration: 'underline' }}>view all →</span>
+            )}
           </div>
         </div>
         <div style={{ flex: 1, overflow: 'hidden', padding: '6px 12px' }}>
@@ -385,89 +386,18 @@ function SpotlightOpenContent({ post, cardBg, flip, onFilterSubject }) {
   )
 }
 
-// ── Three-state Feed Card ─────────────────────────────────────────────────────
-
-function FeedCard({ item, isOpen, isHovered, cardBg, flip, onHoverStart, onHoverEnd, onClick, onFilterSubject }) {
-  const { post } = item
-  const isShowcase = !!post?.is_spotlight
-
-  const restW  = isShowcase ? 300 : 160
-  const hoverW = isShowcase ? 400 : 240
-  const openW  = isShowcase ? 500
-    : !isShowcase && detectType(post) === 'livemix' ? 560
-    : 340
-  const isLiveMix = !isShowcase && detectType(post) === 'livemix'
-  const width  = isOpen
-    ? (isLiveMix ? 'calc((100vw - 108px) * 0.5)' : openW)
-    : isHovered ? hoverW : restW
-
-  const typeLabel = !isShowcase ? (() => {
-    const t = detectType(post)
-    return t === 'livemix' ? 'Live set' : t === 'single' ? 'Single' : 'Album'
-  })() : null
-
-  const idLabel = isShowcase ? `S–${String(post.id).padStart(3, '0')}` : `#${String(post?.id || '').padStart(3, '0')}`
-  const subLabel = isShowcase ? (post.spotlightType === 'artist' ? 'Artist spotlight' : post.spotlightType === 'label' ? 'Label spotlight' : 'Genre spotlight') : 'Post'
-
-  return (
-    <div
-      style={{ flexShrink: 0, position: 'relative', width, height: '100%', background: cardBg, borderRight: '1px solid var(--theme-border)', overflow: 'hidden', cursor: 'pointer', transition: 'width 0.38s cubic-bezier(0.4,0,0.2,1)' }}
-      onMouseEnter={onHoverStart}
-      onMouseLeave={onHoverEnd}
-      onClick={onClick}
-    >
-
-      {/* REST */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '22px 16px', opacity: isHovered || isOpen ? 0 : 1, transform: isHovered || isOpen ? 'translateX(-12px)' : 'none', transition: 'opacity 0.15s, transform 0.32s', pointerEvents: 'none' }}>
-        <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: '0.11em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', fontFamily: 'Barlow, sans-serif' }}>{subLabel}</span>
-        {isShowcase && <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: 'var(--theme-text-sec)', fontFamily: 'Barlow, sans-serif' }}>{post.spotlight_subject}</span>}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--theme-text-ter)' }}>{idLabel}</span>
-          {!isShowcase && typeLabel && <span style={{ writingMode: 'vertical-rl', fontSize: 8, fontWeight: 500, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', fontFamily: 'Barlow, sans-serif' }}>{typeLabel}</span>}
-        </div>
-      </div>
-
-      {/* HOVER */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', opacity: isHovered && !isOpen ? 1 : 0, transform: isHovered && !isOpen ? 'none' : isOpen ? 'translateX(-14px)' : 'translateX(14px)', transition: 'opacity 0.18s, transform 0.38s', pointerEvents: isHovered && !isOpen ? 'all' : 'none' }}>
-        {isShowcase
-          ? <div style={{ flex: 1, background: cardBg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-              {(post.spotlightCovers || []).slice(0, 4).map((p, i) => coverSrc(p) && <img key={p.id || i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.25 }} />)}
-              <div style={{ position: 'relative', zIndex: 2, width: 72, height: 72, borderRadius: post.spotlightType === 'artist' ? '50%' : 10, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
-                {post.spotlight_subject.charAt(0).toUpperCase()}
-              </div>
-            </div>
-          : <CoverArt post={post} style={{ flex: 1 }} />
-        }
-        <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 3, background: 'var(--theme-dark2)', flexShrink: 0, height: 88 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-pri)', lineHeight: 1.25, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isShowcase ? post.spotlight_subject : (artistName(post) || post?.title)}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--theme-text-sec)', fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isShowcase ? `${post.spotlightCount || 0} posts in feed` : post?.title}
-          </div>
-          <div style={{ fontSize: 8, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', marginTop: 3, fontFamily: 'Barlow, sans-serif' }}>click to open</div>
-        </div>
-      </div>
-
-      {/* OPEN */}
-      <div style={{ position: 'absolute', inset: 0, opacity: isOpen ? 1 : 0, transform: isOpen ? 'none' : 'translateX(14px)', transition: 'opacity 0.2s 0.06s, transform 0.38s', pointerEvents: isOpen ? 'all' : 'none' }}>
-        {isShowcase
-          ? <SpotlightOpenContent post={post} cardBg={cardBg} flip={flip} onFilterSubject={onFilterSubject} />
-          : <OpenCardContent post={post} cardBg={cardBg} flip={flip} />
-        }
-      </div>
-    </div>
-  )
-}
-
 // ── Build shelf items ─────────────────────────────────────────────────────────
-// One item per post, in feed order. Spotlight cards (post.is_spotlight) are
-// real posts returned by /api/posts alongside everything else — server-side
-// (posts.js's triggerSpotlights), not a client-side shuffle — so no separate
-// injection pass is needed here.
+// One card per post — a spotlight post renders as a SpotlightCard, every
+// other post renders as one self-contained PostCard. Spotlights are real
+// posts returned by /api/posts in feed order (posts.js's triggerSpotlights)
+// — no client-side injection needed.
 
 function buildShelfItems(posts) {
-  return posts.map(post => ({ key: `p-${post.id}`, post }))
+  return posts.map(post => (
+    post.is_spotlight
+      ? { key: `p-${post.id}-spotlight`, kind: 'spotlight', post }
+      : { key: `p-${post.id}`, kind: 'post', post }
+  ))
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
@@ -501,19 +431,15 @@ function ThemePicker({ currentIdx, onSelect }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function Feed() {
-  const [openKey, setOpenKey]         = useState(null)
-  const [hoverId, setHoverId]         = useState(null)
   const [themeIdx, setThemeIdx]       = useState(-1)
   const [pickerOpen, setPickerOpen]   = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch]           = useState('')
-  const hoverTimers                   = useRef({})
   const shelfItems                    = useRef([])
-  const lastPostsSignature             = useRef(null)
-  const userInteracted                = useRef(false)
+  const lastPostsSignature            = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, handleFeedScroll } = useLayout() || {}
+  const { feedRef, handleFeedScroll, driveFeedScroll } = useLayout() || {}
 
   // Theme
   useEffect(() => { applyPalette(themeIdx === -1 ? getAutoIndex() : themeIdx) }, [themeIdx])
@@ -548,12 +474,8 @@ export default function Feed() {
   if (postsSignature !== lastPostsSignature.current) {
     shelfItems.current = buildShelfItems(posts)
     lastPostsSignature.current = postsSignature
-    // On first load (or a new search result set): open the first post, hover the first item
-    if (shelfItems.current.length > 0 && (!userInteracted.current || search)) {
-      const firstKey = shelfItems.current[0].key
-      setHoverId(firstKey)
-      setOpenKey(firstKey)
-    }
+    // New result set (e.g. a search) — jump the shelf back to the start.
+    if (feedRef?.current) feedRef.current.scrollLeft = 0
   }
 
   // Scroll drag
@@ -561,53 +483,33 @@ export default function Feed() {
     const el = feedRef?.current
     if (!el) return
     let down = false, sx = 0, sl = 0
+    // Drag-to-scroll drives the feed through #scroll-outer (driveFeedScroll),
+    // same as wheel input — the RAF ticker in LayoutProvider owns
+    // feedRef.scrollLeft every frame, so writing it directly here would just
+    // get overwritten on the very next tick.
     const onDown  = e => { down = true; sx = e.pageX - el.offsetLeft; sl = el.scrollLeft; el.style.cursor = 'grabbing' }
     const onUp    = () => { down = false; el.style.cursor = 'default' }
-    const onMove  = e => { if (!down) return; e.preventDefault(); const ns = sl - (e.pageX - el.offsetLeft - sx) * 1.5; el.scrollLeft = ns; handleFeedScroll?.(ns) }
-    const onScroll = () => handleFeedScroll?.(el.scrollLeft)
+    const onMove  = e => { if (!down) return; e.preventDefault(); const ns = sl - (e.pageX - el.offsetLeft - sx) * 1.5; driveFeedScroll?.(ns) }
     el.addEventListener('mousedown', onDown); el.addEventListener('mouseleave', onUp)
-    el.addEventListener('mouseup', onUp); el.addEventListener('mousemove', onMove); el.addEventListener('scroll', onScroll)
-    return () => { el.removeEventListener('mousedown', onDown); el.removeEventListener('mouseleave', onUp); el.removeEventListener('mouseup', onUp); el.removeEventListener('mousemove', onMove); el.removeEventListener('scroll', onScroll) }
-  }, [feedRef, handleFeedScroll])
+    el.addEventListener('mouseup', onUp); el.addEventListener('mousemove', onMove)
+    return () => { el.removeEventListener('mousedown', onDown); el.removeEventListener('mouseleave', onUp); el.removeEventListener('mouseup', onUp); el.removeEventListener('mousemove', onMove) }
+  }, [feedRef, driveFeedScroll])
 
   // Keyboard
   useEffect(() => {
-    const h = e => { if (e.key === 'Escape') { setOpenKey(null); setPickerOpen(false) } }
+    const h = e => { if (e.key === 'Escape') setPickerOpen(false) }
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
   }, [])
 
-  // Hover
-  function startHover(key) {
-    clearTimeout(hoverTimers.current[key + 'c'])
-    userInteracted.current = true
-    if (hoverId !== key) setHoverId(null)
-    hoverTimers.current[key + 'o'] = setTimeout(() => { if (openKey !== key) setHoverId(key) }, 100)
-  }
-  function endHover(key) {
-    clearTimeout(hoverTimers.current[key + 'o'])
-    hoverTimers.current[key + 'c'] = setTimeout(() => setHoverId(prev => prev === key ? null : prev), 260)
-  }
-  function handleClick(key) {
-    if (openKey === key) return  // stay open — only another card click closes
-    setOpenKey(key)
-    userInteracted.current = true
-    const items = shelfItems.current
-    const idx = items.findIndex(item => item.key === key)
-    const nextItem = items[idx + 1]
-    setHoverId(nextItem ? nextItem.key : null)
-  }
-
-  function getCardBg(item, idx) {
-    if (item.post?.is_spotlight) return 'var(--theme-showcase)'
+  function getCardBg(idx, item) {
+    if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
     return `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
   }
 
-  // Spotlight card → "view all" filters the feed to that subject, reusing
-  // the search bar (Phase 7) rather than a separate filter mechanism.
   function filterToSubject(name) {
     setSearchInput(name)
     setSearch(name)
-    userInteracted.current = true
+    if (feedRef?.current) feedRef.current.scrollLeft = 0
   }
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
@@ -621,11 +523,11 @@ export default function Feed() {
             {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
           </div>
         )}
-        {shelfItems.current.map((item, idx) => (
-          <FeedCard key={item.key} item={item} isOpen={openKey === item.key} isHovered={hoverId === item.key}
-            cardBg={getCardBg(item, idx)} flip={idx % 2 !== 0} onHoverStart={() => startHover(item.key)}
-            onHoverEnd={() => endHover(item.key)} onClick={() => handleClick(item.key)} onFilterSubject={filterToSubject} />
-        ))}
+        {shelfItems.current.map((item, idx) => {
+          const cardBg = getCardBg(idx, item)
+          if (item.kind === 'spotlight') return <SpotlightCard key={item.key} post={item.post} cardBg={cardBg} flip={idx % 2 !== 0} onFilterSubject={filterToSubject} />
+          return <PostCard key={item.key} post={item.post} cardBg={cardBg} />
+        })}
       </div>
 
       {/* Search */}
@@ -633,7 +535,7 @@ export default function Feed() {
         <span style={{ color: 'var(--theme-text-ter)', fontSize: 13, marginRight: 6 }}>{searching ? '◐' : '⌕'}</span>
         <input
           value={searchInput}
-          onChange={e => { setSearchInput(e.target.value); userInteracted.current = true }}
+          onChange={e => setSearchInput(e.target.value)}
           placeholder="search artists, genres, labels, tracks…"
           style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 12, width: 220 }}
         />
