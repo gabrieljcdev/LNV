@@ -106,7 +106,18 @@ function CommentThread({ postId, onCountChange }) {
   }
 
   return (
-    <div style={{ padding: '8px 16px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'auto' }}>
+    // overflowY was 'auto' — this is exactly the same class of bug as
+    // feedRef's overflowX fix, just on the vertical axis: whenever the
+    // cursor is over this comment box (or the tracklist/note wrapper below,
+    // see PostCard), a vertical wheel gesture gets consumed HERE (native
+    // scroll of this element) instead of bubbling to #scroll-outer. That's
+    // avantt's real trick — nothing inside their horizontally-moving content
+    // has its own native scroll at all, so there's never anything to compete
+    // with the one wheel-capturing container. 'hidden' means long comment
+    // threads get clipped rather than internally wheel-scrollable; there's
+    // no other way to preserve independent inner scrolling AND have wheel
+    // always drive the main feed when hovering over this area.
+    <div style={{ padding: '8px 16px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'hidden' }}>
       {comments === null ? (
         <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>loading…</div>
       ) : comments.length === 0 ? (
@@ -256,8 +267,19 @@ function PostCard({ post, cardBg }) {
         )}
       </div>
 
-      {/* Everything below — scrolls internally if the card runs out of room */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', marginTop: 8 }}>
+      {/* Everything below used to scroll internally (overflowY:'auto') if the
+          card ran out of room — same wheel-capture conflict as the comment
+          box above and feedRef's old overflowX:'auto': this wrapper covers
+          most of the card's height, so it was very likely THE dominant
+          reason wheel scroll felt broken (cursor is over this area most of
+          the time). 'hidden' means overflowing content (long tracklists,
+          notes, comments) gets clipped instead of internally scrollable —
+          this is also exactly what avantt's own design avoids needing:
+          nothing inside its horizontally-moving content has native scroll
+          of its own. If long content needs to stay reachable, that wants a
+          deliberate affordance (truncate + "show more", or an expand-to-
+          modal) rather than reintroducing a competing scroll surface. */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'hidden', overflowX: 'hidden', marginTop: 8 }}>
 
         {!isLiveMix && tracks.length > 0 && (
           <div style={{ padding: '0 16px', flexShrink: 0 }}>
@@ -426,6 +448,53 @@ function ThemePicker({ currentIdx, onSelect }) {
   )
 }
 
+// ── FeedIntro ─────────────────────────────────────────────────────────────────
+// First slide in the feed, before any real post — a landing panel, fully
+// visible at scroll position 0. Modeled on avantt.displaay.net's own main
+// content area (per gabriel's 2026-08-21 reference screenshot: their two
+// nav columns, then a large open panel before any real content) rather
+// than avantt's literal black — themed with the site's own palette instead.
+// It's just the first child of feedRef's row, so it rides the exact same
+// scrollLeft/RAF-damping mechanics every post card already uses — no new
+// scroll logic, and its width is included in feedRef.scrollWidth
+// automatically, so LayoutProvider's spacer-height math already accounts
+// for it. As a side effect, this also resolves the nav rail/secondary
+// strip overlapping real post content when open at rest: they now overlap
+// this intro panel instead of post #1's card.
+// Content TBD (gabriel: time/date, or the about page) — this is the
+// structural shell only.
+//
+// ROUND 14-15 (2026-08-21): widened this panel to 1.4x, then 2.3x the
+// viewport, purely to buy the old separate secondary strip more scroll
+// room to collapse slower than the rail. REVERTED round 17 — the rail and
+// secondary strip are now one merged element (Strip.jsx) sharing a single
+// collapse curve, so there's no second, slower-needing element to give
+// extra room to anymore. Back to exactly 100% of the viewport, matching
+// round 8's original shape.
+
+function FeedIntro() {
+  return (
+    <div style={{
+      flexShrink: 0,
+      width: '100%',
+      minWidth: '100%',
+      height: '100%',
+      background: 'var(--theme-showcase)',
+      borderRight: '1px solid var(--theme-border)',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-end',
+      padding: 32,
+      boxSizing: 'border-box',
+      transition: 'background 0.8s, border-color 0.8s',
+    }}>
+      <div style={{ fontFamily: 'VT323, monospace', fontSize: 14, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', textTransform: 'uppercase' }}>
+        ▾ scroll to begin
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN FEED
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -439,7 +508,7 @@ export default function Feed() {
   const shelfItems                    = useRef([])
   const lastPostsSignature            = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, handleFeedScroll, driveFeedScroll } = useLayout() || {}
+  const { feedRef, driveFeedScroll } = useLayout() || {}
 
   // Theme
   useEffect(() => { applyPalette(themeIdx === -1 ? getAutoIndex() : themeIdx) }, [themeIdx])
@@ -517,7 +586,21 @@ export default function Feed() {
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--theme-bg)', position: 'relative' }}>
 
-      <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'auto', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
+      {/* overflowX must stay 'hidden', NOT 'auto' — #scroll-outer is meant to be
+          the ONLY element that natively captures wheel/trackpad input (see
+          LayoutProvider's RAF ticker). With 'auto' here, Chrome's own
+          vertical-wheel-to-horizontal-scroll fallback (kicks in on any element
+          with horizontal-but-not-vertical overflow) intercepted the wheel
+          event directly, moving feedRef.scrollLeft natively — which the RAF
+          ticker then immediately fought/overwrote from #scroll-outer's
+          (unchanged, since it never got the event) scrollTop every frame.
+          That fight is exactly the "wheel doesn't work / feels stuck" bug —
+          native drag-to-scroll worked because it goes through driveFeedScroll
+          -> #scroll-outer.scrollTop instead. 'hidden' still allows
+          programmatic .scrollLeft writes (which is all this ever needs), it
+          just stops the browser from independently claiming wheel input. */}
+      <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
+        <FeedIntro />
         {!posts.length && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
             {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
