@@ -99,6 +99,25 @@ html, body, #root {
 }
 .blink { animation: blink 1s step-end infinite; }
 
+/* ── FADE F-bars logomark — idle "live EQ" bounce (Strip.jsx #lnv-fbars) ──
+   Ported from the verified ScrollReveal.dc.html canvas prototype. Each bar
+   is an absolutely-positioned .bar-outer (rotation lives here, written per
+   frame by LayoutProvider) wrapping a .bar-inner (this bounce lives here).
+   transform-origin:'right center' is NOT arbitrary: CSS rotate() is
+   clockwise, so a bar's ORIGINAL right edge is what ends up at the visual
+   BOTTOM once .bar-outer is rotated toward 90deg (idle/vertical state) —
+   anchoring the scaleX bounce on the right edge (not the left, an earlier
+   bug) keeps the bottom pinned to the baseline and lets the top do the
+   dancing, matching gabriel's reference image (a red baseline with arrows
+   showing motion above it, not below). */
+.bar-inner {
+  transform-origin: right center;
+}
+@keyframes eqBounce {
+  0%, 100% { transform: scaleX(0.5); }
+  50% { transform: scaleX(1); }
+}
+
 /* ── Hide all scrollbars ── */
 * { scrollbar-width: none; -ms-overflow-style: none; }
 *::-webkit-scrollbar { display: none; }

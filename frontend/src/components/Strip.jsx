@@ -81,7 +81,18 @@ export const SECONDARY_STRIP_WIDTH = 210;  // secondary zone's width at full res
 export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 — combined resting width
 
 export default function Strip({ activeView }) {
-  const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, secondaryWordmarkRef, d3Content, openD3 } = useLayout();
+  const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
+
+  // Non-panel tabs (main feed / readme / about) swap the feed-zone content
+  // itself — they should also close the artist/genre/label drawer
+  // (ContentPanel, opened via openD3) if one happens to be open, so
+  // navigating away from a drawer doesn't leave it sitting open over
+  // content it no longer relates to.
+  function handleTabClick(tab) {
+    if (tab.panel) { openD3(tab.id); return; }
+    closeD3();
+    window.lnvNavigate?.(tab.id);
+  }
   const user = getUser();
 
   function handleLogout() {
@@ -104,77 +115,146 @@ export default function Strip({ activeView }) {
           down to RAIL_WIDTH (108px), written every frame by
           LayoutProvider's handleFeedScroll from the same `raw` that drives
           the outer box — same formula the pre-round-17 rail always used. */}
-      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s' }} />
-      {/* Zone 2 — the old "secondary strip" color. Only its `left` is
-          written by JS, to the exact same railZoneWidth value zone 1's
-          width was just set to — `right:0` (plain CSS) tracks the outer
-          box's own shrinking right edge on its own. Zone 2 therefore
-          always starts exactly where zone 1 ends: both edges come from one
-          shared number, so there's no separate rounding to drift apart. */}
-      <div ref={secondaryStripRef} style={{ position:'absolute', left:`${RAIL_OPEN_WIDTH}px`, right:0, top:0, bottom:0, background:'var(--theme-dark2)', transition:'background 0.8s', display:'flex', flexDirection:'column', justifyContent:'flex-end', paddingBottom:'40px', overflow:'hidden' }}>
-        {/* Zone 2's content — the relocated brand wordmark. Lives as a
-            normal flex child of zone 2 now (not its own separately-
-            positioned wrapper), so it automatically tracks zone 2's own
-            (now-animated) box with no extra left-tracking needed. Its
-            opacity fade is written by handleFeedScroll from the same
-            `raw` as everything else. */}
+      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s', overflow:'hidden' }}>
+        {/* FADE text wordmark. FIXED position (round 23) — never moves as
+            the rail collapses, only opacity animates (fadeTextOpacity,
+            LayoutProvider). ROUND 24: gabriel wants this centered for the
+            SETTLED (fully collapsed, RAIL_WIDTH=108px) rail width, not the
+            at-rest 320px one — round 23's left:'115px' was centered for the
+            wrong (open) width and read as "too far right." At ~90px wide,
+            "FADE" barely fits the 108px collapsed rail at all, so centered-
+            for-108 unavoidably sits close to the edge (~9px each side) —
+            that's not a bug, it's the only way it centers in the narrower
+            state without overflowing it. fontSize/letterSpacing/lineHeight
+            are the exact values gabriel confirmed "perfect" in an earlier
+            round. */}
         <div
           id="lnv-brand"
-          ref={secondaryWordmarkRef}
+          ref={railWordmarkRef}
           style={{
+            position: 'absolute',
+            left: '28px',
+            bottom: '40px',
             writingMode: 'vertical-rl',
             transform: 'rotate(180deg)',
             fontFamily: 'Barlow, sans-serif',
             fontSize: '100px',
             fontWeight: 900,
-            color: 'var(--theme-text-ter)',
+            color: 'var(--pastel-blue-mid)',
             letterSpacing: '-3px',
             lineHeight: '36px',
             whiteSpace: 'nowrap',
-            opacity: 1,
-            paddingLeft: '50px',
-            paddingRight: '30px',
-            transition: 'color 0.8s',
+            opacity: 0,
           }}
         >
           FADE
         </div>
       </div>
+      {/* Zone 2 — the old "secondary strip" color. Only its `left` is
+          written by JS, to the exact same railZoneWidth value zone 1's
+          width was just set to — `right:0` (plain CSS) tracks the outer
+          box's own shrinking right edge on its own. Zone 2 therefore always
+          starts exactly where zone 1 ends: both edges come from one shared
+          number, so there's no separate rounding to drift apart. No content
+          of its own anymore — the F-bars graphic that used to live here
+          moved out to be a direct sibling below (see ROUND 22 comment
+          there) so its bigger size can't be clipped by this zone's own
+          overflow:hidden as it narrows during the reveal window. */}
+      <div ref={secondaryStripRef} style={{ position:'absolute', left:`${RAIL_OPEN_WIDTH}px`, right:0, top:0, bottom:0, background:'var(--theme-dark2)', transition:'background 0.8s', overflow:'hidden' }} />
 
-      {/* Always visible/clickable at every scroll position — this is core
-          navigation (artists/genres/labels/readme/about, random play,
-          identity), so it can't disappear once you've scrolled into the
-          feed. Pinned at left:0 regardless of zone 1's current animated
-          width — it's a sibling, not nested inside zone 1. */}
-      <div id="lnv-tabs" style={{ position:'absolute', left:0, top:0, width:'36px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'3px', opacity:1 }}>
+      {/* F-bars logomark — the animated equalizer-to-F graphic. ROUND 22
+          (2026-08-22): moved OUT of zone 2 to be a direct child of the
+          outer strip (like #lnv-tabs below) — zone 2 actually NARROWS
+          during the early part of the reveal window (both the outer strip
+          and zone 1 shrink at different rates as `raw` advances), so a
+          bigger graphic nested inside zone 2's own overflow:hidden risked
+          getting clipped right as it needed the most room. `left` is now
+          written every frame by LayoutProvider's handleFeedScroll as
+          `railZoneWidth + F_BARS_LEFT_GAP` — always just past the rail's
+          own (animated) right edge, same visual spot as before, just not
+          clipped by it. The inline `left` below is only the at-rest
+          fallback.
+          Idle at rest (raw=0): 4 bars stand as vertical live-EQ columns
+          with a bounce (`eqBounce`, index.css) staggered per-bar, anchored
+          to a shared baseline (see ScrollReveal.dc.html's transform-origin
+          fix on `.bar-inner` in index.css — CSS rotate() is clockwise, so a
+          bar's ORIGINAL right edge is what lands at the visual BOTTOM once
+          rotated 90deg, which is why the bounce is anchored there and not
+          the left edge). As raw advances through the reveal window
+          (LayoutProvider's REVEAL_RANGE, shortened this round so the
+          handoff reads faster/crisper) each bar rotates 90deg -> 0deg and
+          slides into its settled, left-aligned F-stroke position, while
+          this whole graphic fades OUT in lockstep with the FADE text (zone
+          1, above) fading IN. Exactly 4 children (no more, no less) —
+          LayoutProvider's applyFBarLayout indexes them positionally via
+          fBarsRef.current.children[i].
+          Sized up again this round (168 -> 200) per gabriel's ask — bare
+          positioning wrapper only, no visible badge box (dropped last
+          round), just the bars themselves against zone 2's background. */}
+      <div
+        id="lnv-fbars"
+        ref={fBarsRef}
+        style={{
+          position: 'absolute',
+          left: '328px',
+          bottom: '40px',
+          width: '200px',
+          height: '200px',
+        }}
+      >
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="bar-outer" style={{ position: 'absolute' }}>
+            <div className="bar-inner" style={{ width: '100%', height: '100%', borderRadius: '5px', background: 'var(--off-white)' }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Core navigation (artists/genres/labels/readme/about, random play,
+          identity) — always CLICKABLE at every scroll position, but per
+          gabriel's ask it's now hidden at rest and fades in over the last
+          20% of the collapse (see LayoutProvider's handleFeedScroll /
+          tabsOpacity), landing fully visible right as the rail finishes
+          narrowing. Pinned at left:0 regardless of zone 1's current animated
+          width — it's a sibling, not nested inside zone 1.
+          Padding sized to match BrowseGrid.jsx's BrowseTile drawer pills
+          (11px/19px) — but axis-swapped: these buttons are vertical text
+          (writingMode:'vertical-rl'), so the padding that runs ALONG the
+          text (top/bottom here, vs. left/right for the drawer's horizontal
+          pills) gets the bigger 19px value, and the padding ACROSS the text
+          (left/right here) gets 11px. `width:34px` stays fixed — it's the
+          pill's cross-axis thickness, bounded by #lnv-tabs' own 44px
+          column, not something to size up the way the drawer pills did.
+          Not verified live — worth checking the tab stack doesn't run past
+          100vh on a shorter screen now that each tab is taller. */}
+      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
-          if (!tab) return <div key={'d'+i} style={{ width:'18px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
+          if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
           const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id;
           return (
             <button key={tab.id} data-tab={tab.id}
-              onClick={() => tab.panel ? openD3(tab.id) : window.lnvNavigate?.(tab.id)}
-              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:'VT323, monospace', fontSize:'11px', letterSpacing:'2px', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'10px 4px', width:'26px', textAlign:'center', whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
+              onClick={() => handleTabClick(tab)}
+              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:'VT323, monospace', fontSize:'13px', letterSpacing:'2px', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 11px', width:'34px', textAlign:'center', whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
             >{tab.label}</button>
           );
         })}
-        <div style={{ width:'18px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
         <button onClick={handleRandom} title="Play random track"
-          style={{ color:'var(--theme-accent)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'26px', height:'26px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', transition:'background 0.2s, border-color 0.8s' }}
+          style={{ color:'var(--theme-accent)', fontSize:'16px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', transition:'background 0.2s, border-color 0.8s' }}
           onMouseEnter={e => e.currentTarget.style.background='var(--theme-dark3)'}
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
-        <div style={{ width:'18px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
         {/* Identity — username only, no password (see lib/auth.js). Click
             when logged in to log out; when logged out, links to /login. */}
         {user ? (
           <button onClick={handleLogout} title={`${user} — click to log out`}
-            style={{ color:'var(--theme-text-pri)', fontSize:'11px', fontWeight:700, fontFamily:'Barlow, sans-serif', background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'26px', height:'26px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}
+            style={{ color:'var(--theme-text-pri)', fontSize:'13px', fontWeight:700, fontFamily:'Barlow, sans-serif', background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}
           >{user.charAt(0).toUpperCase()}</button>
         ) : (
           <a href="/login" title="Choose a username"
-            style={{ color:'var(--theme-text-ter)', fontSize:'12px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'26px', height:'26px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
+            style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}
       </div>

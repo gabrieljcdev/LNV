@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useLayout } from '../context/LayoutContext';
+import { RAIL_WIDTH } from './Strip';
 import Artists from '../pages/Artists';
 import Genres from '../pages/Genres';
 import Labels from '../pages/Labels';
@@ -38,8 +39,8 @@ function FilesPage() {
       {files.map(f => (
         <div key={f.key} style={{ flex: '1 1 260px', background: 'var(--theme-dark3)', borderRadius: '8px', padding: '20px', border: '1px solid var(--theme-border)' }}>
           {f.lines.map((line, i) => (
-            <div key={i} style={{ fontFamily: 'VT323, monospace', fontSize: '13px', lineHeight: '1.8', height: line === '' ? '8px' : undefined, color: line.startsWith('─') ? 'rgba(0,0,0,0.15)' : line.startsWith('>') ? 'var(--grey-text)' : 'var(--charcoal)' }}>
-              {line || '\u00A0'}
+            <div key={i} style={{ fontFamily: 'VT323, monospace', fontSize: '13px', lineHeight: '1.8', height: line === '' ? '8px' : undefined, color: line.startsWith('─') ? 'var(--theme-border)' : line.startsWith('>') ? 'var(--theme-text-sec)' : 'var(--theme-text-pri)' }}>
+              {line || ' '}
             </div>
           ))}
         </div>
@@ -49,22 +50,38 @@ function FilesPage() {
 }
 
 export default function ContentPanel() {
-  const { d3Content, d3Props, closeD3 } = useLayout();
+  const { d3Content, d3Props, d3Width, closeD3 } = useLayout();
 
   const isOpen    = !!d3Content;
   const title     = TITLES[d3Content] || '';
   const Component = COMPONENTS[d3Content];
 
-  // Panel width based on content density
-  const panelWidth = WIDE.has(d3Content)
+  // Panel width. `d3Width` is a content-reported px value (see
+  // BrowseGrid.jsx's useReportPanelWidth, used by the artist/genre/label
+  // pages) — when present the panel scales to fit what's actually inside
+  // it. Falls back to the old static density-based guess for content types
+  // that don't report a width (Logs, Files) or while a reported width
+  // hasn't landed yet (briefly, on open, before the first render).
+  const panelWidth = d3Width
+    ? `${d3Width}px`
+    : WIDE.has(d3Content)
     ? 'min(90vw, 900px)'
     : NARROW.has(d3Content)
     ? 'min(75vw, 480px)'
     : 'min(80vw, 680px)';
 
-  // Strip (108px compressed) + Drawer (260px) = 368px
-  // Panel sits immediately to the right of the drawer
-  const LEFT_OFFSET = 368;
+  // Anchored flush to the strip's fully-collapsed width (Strip.jsx's
+  // RAIL_WIDTH, 108px) — not a separate "drawer" width. Round 17 merged the
+  // old two-piece strip (icon rail + a persistent secondary drawer) into
+  // one element (see Strip.jsx's round-17/18 comments); there's no longer a
+  // standing 260px drawer to add on top of the rail. The panel-opening tabs
+  // (#lnv-tabs) only fade in/become clickable over the last 20% of the
+  // strip's collapse anyway (LayoutProvider's tabsOpacity), so by the time
+  // this panel can actually be opened the strip is already at, or almost
+  // at, RAIL_WIDTH — anchoring here is what makes the panel read as flush
+  // against the rail instead of leaving a stale gap where the old drawer
+  // used to be.
+  const LEFT_OFFSET = RAIL_WIDTH;
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') closeD3(); };
@@ -74,53 +91,82 @@ export default function ContentPanel() {
 
   return (
     <>
-      {/* Backdrop — clicks outside close the panel */}
+      {/* Backdrop — dims the feed and catches outside clicks to close.
+          `id="lnv-drawer-backdrop"` is what LayoutProvider's global wheel
+          handler checks for so hovering it (or the panel below) doesn't
+          scroll the main feed while the drawer's open. */}
       {isOpen && (
         <div
+          id="lnv-drawer-backdrop"
           onClick={closeD3}
           style={{
             position:   'fixed',
             inset:      0,
             zIndex:     39,
-            background: 'transparent',
+            background: 'rgba(0,0,0,0.35)',
+            transition: 'opacity 0.3s',
           }}
         />
       )}
 
-      {/* Panel — anchored to right edge of drawer */}
-      <div style={{
+      {/* Panel — anchored flush to the collapsed rail's right edge.
+          `id="lnv-drawer"` matches: (1) index.css's existing
+          `overscroll-behavior: contain` rule, which was already written
+          for this id but had never actually been applied to anything until
+          now; (2) LayoutProvider's wheel handler, see above. */}
+      <div id="lnv-drawer" style={{
         position:      'fixed',
         top:           0,
         left:          `${LEFT_OFFSET}px`,
         bottom:        0,
         width:         panelWidth,
-        background:    'var(--white)',
+        background:    'var(--theme-bg)',
         zIndex:        40,
         display:       'flex',
         flexDirection: 'column',
-        // Slide in from left (off screen when closed), slide out back behind drawer
+        borderLeft:    '1px solid var(--theme-border)',
+        // Slide in from left (off screen when closed, tucked behind the rail)
         transform:     isOpen ? 'translateX(0)' : `translateX(calc(-100% - ${LEFT_OFFSET}px))`,
-        transition:    'transform 0.4s cubic-bezier(0.4,0,0.2,1), width 0.35s cubic-bezier(0.4,0,0.2,1)',
-        boxShadow:     isOpen ? '4px 0 40px rgba(0,0,0,0.1)' : 'none',
+        transition:    'transform 0.4s cubic-bezier(0.4,0,0.2,1), width 0.35s cubic-bezier(0.4,0,0.2,1), background 0.8s, border-color 0.8s',
+        boxShadow:     isOpen ? '4px 0 40px rgba(0,0,0,0.35)' : 'none',
       }}>
 
         {/* Header */}
         <div style={{
           height:         '48px',
-          background:     'var(--pastel-blue)',
+          background:     'var(--theme-dark2)',
           display:        'flex',
           alignItems:     'center',
           padding:        '0 18px',
           justifyContent: 'space-between',
           flexShrink:     0,
-          borderBottom:   '1px solid rgba(0,0,0,0.06)',
+          borderBottom:   '1px solid var(--theme-border)',
+          transition:     'background 0.8s, border-color 0.8s',
         }}>
-          <span style={{ fontSize: '16px', fontWeight: 900, color: 'var(--theme-text-pri)', letterSpacing: '-0.5px' }}>
-            {title}
+          <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '2px', background: 'var(--pastel-blue-mid)', flexShrink: 0 }} />
+            <span style={{ fontFamily: 'Barlow, sans-serif', fontSize: '16px', fontWeight: 900, color: 'var(--theme-text-pri)', letterSpacing: '-0.5px', textTransform: 'uppercase' }}>
+              {title}
+            </span>
           </span>
           <button
             onClick={closeD3}
-            style={{ background: 'var(--theme-border)', border: 'none', cursor: 'pointer', color: 'var(--theme-text-pri)', width: '28px', height: '28px', borderRadius: '4px', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{
+              background:    'var(--theme-dark3)',
+              border:        '1px solid var(--theme-border)',
+              cursor:        'pointer',
+              color:         'var(--theme-text-sec)',
+              width:         '28px',
+              height:        '28px',
+              borderRadius:  '50%',
+              fontSize:      '15px',
+              display:       'flex',
+              alignItems:    'center',
+              justifyContent: 'center',
+              transition:    'background 0.15s, color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--theme-accent)'; e.currentTarget.style.color = '#fff'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--theme-dark3)'; e.currentTarget.style.color = 'var(--theme-text-sec)'; }}
           >
             ×
           </button>

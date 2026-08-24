@@ -4,17 +4,168 @@ import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
 import { getUserId } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
+import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
-// Fixed card widths — no hover/open resize states. Each post is ONE
-// individual, self-contained card (identity header + media + tracklist +
-// note + footer, all always visible) — not split across separate cards.
-// Livemix cards get extra width for the embed. Spotlights use the same
-// standard width so they read as "one of these cards," not a special size.
-const CARD_WIDTH = 460
-const CARD_WIDTH_LIVEMIX = 620
-const SPOTLIGHT_CARD_WIDTH = CARD_WIDTH
+// PLATE CARD (2026-08-22) — reworked from gabriel's own sketch: a numbered
+// plate instead of a wordmark-scale artist name, tracklist/description as
+// their own hairline-divided zones, art framed on a solid mat instead of
+// bleeding to the card edges. Fixed card widths — no hover/open resize
+// states. Spotlights use the same standard width so they read as "one of
+// these cards," not a special size.
+//
+// 2026-08-22 (designer pass): gabriel tuned these in the Plate Card Designer
+// artifact and asked for one set of numbers across both card types — so
+// livemix no longer gets extra width or a wider rail. Album/single and live
+// set are now dimensionally identical; only their zone CONTENT differs
+// (tracklist vs. channel, art vs. embed).
+// ── Card design ───────────────────────────────────────────────────────────────
+// Pasted from the Plate Card Designer artifact's JSON export
+// (https://claude.ai/code/artifact/87c62e7f-3ba5-4ff7-92b7-dca51d524539).
+//
+// FREE-FORM LAYOUT. Every box is absolutely positioned inside its column:
+// <box>Col picks the column, <box>X / <box>Y place it, <box>W sets its width.
+// Nothing flows, so nothing pushes anything else. The nine boxes are
+// plate, track, desc, comments, pills, replies, stamp, mat and caption.
+//
+// DESIGN_BASE is the shared baseline; DESIGN_VARIANTS holds per-slot overrides
+// keyed `v<way>:<type>`, so "v2:live" is way 3's live-set design. Each post
+// resolves to base overlaid with its slot.
+//
+// To take a new export: replace the two objects below verbatim and set
+// ROTATION to the export's "rotation". Nothing else should need touching.
+const ROTATION = 2
+
+const DESIGN_BASE = {
+  // ── placement ───────────────────────────────────────────────────────────────
+  // ONE text column in the rail. The plate and tracklist carry their own 20px
+  // padding, so the pills / replies / byline boxes are inset 20px and 40px
+  // narrower (85.51% of 276) to land on exactly the same x 20-256 column.
+  // Nothing in the rail runs to the card edge any more.
+  //
+  // Pills mirror with the card (justifyContent is derived from plateAlign in
+  // PostCard). Replies and the byline do NOT mirror: they share one Y and form
+  // a footer row, replies hard left, byline hard right, under one dashed rule.
+  //
+  // Y values live in the PLATE_TOP / PLATE_BOTTOM / LIVE blocks below.
+  plateCol:'rail',     plateX:0,    plateW:100,
+  trackCol:'rail',     trackX:0,    trackW:100,
+  pillsCol:'rail',     pillsX:20,   pillsW:85.51,
+  repliesCol:'rail',   repliesX:20, repliesW:85.51,
+  stampCol:'rail',     stampX:20,   stampW:85.51,
+  commentsCol:'rail',  commentsX:0, commentsY:201, commentsW:100,
+  matCol:'media',      matX:0,      matW:100,
+  captionCol:'media',  captionX:52.4, captionW:80,
+  descCol:'media',     descX:32.4,    descW:87.63,
+
+  mediaSide:'right',
+  cardW:800, cardH:820, cardRadius:0, infoW:276,
+  railBorder:1, zoneDivider:1,
+  platePt:20, platePx:20, platePb:16, plateAlign:'right',
+  badgeSize:9, badgeWeight:700, badgeLs:0.1, badgePy:3, badgePx:8,
+  badgeRadius:3, badgeMb:9,
+  artistFf:"'Barlow',sans-serif", artistSize:21, artistWeight:700,
+  artistLh:1.25, artistLs:0, artistCase:'none',
+  metalineSize:15, metalineLh:1.4, metalineMt:2,
+  numeralFf:"'Barlow',sans-serif", numeralSize:7, numeralWeight:900,
+  numeralLh:0.78, numeralLs:-0.03, numeralMt:10, numeralColor:'#111111',
+  trackPy:14, trackPx:20, trackSize:12, trackTitleW:100,
+  tracknumSize:9, trackGap:8, trackRowpad:4,
+  descPy:14, descPx:20, descPb:16, descSize:12.5, descLh:1.55,
+  pillSize:11, pillPy:3, pillPx:10, pillRadius:99, pillGap:4, pillBg:'#e8e8e8',
+  metarowSize:11, metarowPt:12, stampSize:10,
+  cmPy:8, cmPx:16, cmSize:12,
+  labelFf:"'VT323',monospace", zlabelSize:11, zlabelLs:0.06, zlabelMb:8,
+  colPad:0, captionAlign:'space-between',
+  matGrow:'1', matFill:'none', matColor:'#cfe3f0', matRadius:0, matPad:0,
+  frameRadius:0, frameRatio:'1/1', artFill:80, artRadius:40,
+  artOffsetY:0, artOffsetX:0,
+  artShadowY:0, artShadowB:0, artShadowA:0,
+  embedPreset:'soundcloud', embedW:560, embedH:315,
+  captionPt:12, captionSize:12.5, captionNameSize:13.5, captionNameWeight:700,
+  captionColor:'#2b4553', captionNameColor:'#102430',
+  bodyFf:"'Barlow',sans-serif",
+  badge2Color:'#4a90d9',
+
+  // The export also carries cBg / cPri / cSec / cTer / cAccent / cLine.
+  // Those are DELIBERATELY NOT APPLIED: the palette system owns text,
+  // background, accent and border colours through the --theme-* custom
+  // properties, and hardcoding them would break the theme picker and the
+  // auto clock palette.
+}
+
+// ---------------------------------------------------------------------------
+// The four ways are two mirrored pairs. Measured off gabriel's five reference
+// screenshots (2026-08-23) and then normalised, so every pair is exact.
+//
+//   W1 <-> W3   PLATE_TOP      plate at the top of the rail, artwork at the top
+//   W2 <-> W4   PLATE_BOTTOM   byline at the top, plate low, artwork at the base
+//
+// Within a pair every Y is IDENTICAL; only `mediaSide` and `plateAlign` flip.
+//
+// The top and bottom halves are exact VERTICAL mirrors of one another. The rail
+// is one 450px group (plate 252 + tracklist 134 + 10 + pills 22) plus a 30px
+// footer row, and the two are swapped end for end:
+//
+//   PLATE_TOP     [45] plate track pills ....327.... footer [0]
+//   PLATE_BOTTOM  [0] footer ....327.... plate track pills [45]
+//
+// The media column mirrors the same way: artwork/caption/description reading
+// downward in the top ways, description/caption/artwork in the bottom ways,
+// with the 80px outer margin swapping ends.
+//
+// Slot heights are worst-case, so nothing ever collides: a 2-line artist name
+// makes the plate 252 tall, and the tracklist is capped at 3 rows + "+n more"
+// (see `tracks.slice(0, 3)` in PostCard) which caps it at 134.
+// ---------------------------------------------------------------------------
+
+// Artwork is 80% of the 524px media column => 419.2px, centred, so it sits at
+// x 52.4-471.6 and, inside a 1:1 mat, 52.4px down from the mat's own top.
+const PLATE_TOP = {   // W1 / W3
+  plateY:45,  trackY:297, pillsY:441, repliesY:790, stampY:790,
+  matY:28,    captionY:508, descY:568,
+}
+const PLATE_BOTTOM = { // W2 / W4 - rail reads byline, plate, tracklist, pills
+  repliesY:0, stampY:0,  plateY:357, trackY:609, pillsY:753,
+  descY:125,  captionY:282, matY:268,
+}
+// Live sets have no tracklist (the zone becomes Channel) and no bottom variant -
+// the plate stays at the top on all four ways. Values are gabriel's own, taken
+// from the live-set reference screenshot; only the side and alignment mirror.
+// Live-set embeds are not square and their height depends on the platform
+// (YouTube 560x315, SoundCloud 480x166, Mixcloud 400x60), so the caption sits
+// below the TALLEST of them - 278 + 315 = 593 - rather than below the
+// SoundCloud embed in the reference screenshot. A short embed therefore leaves
+// more air above the caption than a tall one.
+const LIVE = {
+  plateY:206, trackY:438, pillsY:512, repliesY:790, stampY:790,
+  matY:278,   captionY:601, descY:654,
+}
+
+const DESIGN_VARIANTS = {
+  'v0:album': { ...PLATE_TOP,    mediaSide:'right', plateAlign:'right' },
+  'v1:album': { ...PLATE_BOTTOM, mediaSide:'right', plateAlign:'right' },
+  'v2:album': { ...PLATE_TOP,    mediaSide:'left',  plateAlign:'left'  },
+  'v3:album': { ...PLATE_BOTTOM, mediaSide:'left',  plateAlign:'left'  },
+
+  'v0:live':  { ...LIVE, mediaSide:'right', plateAlign:'right' },
+  'v1:live':  { ...LIVE, mediaSide:'right', plateAlign:'right' },
+  'v2:live':  { ...LIVE, mediaSide:'left',  plateAlign:'left'  },
+  'v3:live':  { ...LIVE, mediaSide:'left',  plateAlign:'left'  },
+}
+
+// idx is the post's position in the feed, so consecutive posts step through
+// the rotation. ROTATION 2 uses ways 1-2 only; raise it to 4 to bring the
+// other two in (they flip mediaSide, which puts two media columns next to
+// each other at the seam between cards -- check that before switching).
+function designFor(idx, isLiveMix) {
+  const way = ((idx % ROTATION) + ROTATION) % ROTATION
+  const slot = 'v' + way + ':' + (isLiveMix ? 'live' : 'album')
+  return Object.assign({}, DESIGN_BASE, DESIGN_VARIANTS[slot] || {})
+}
+
+const SPOTLIGHT_CARD_WIDTH = DESIGN_BASE.cardW
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +217,7 @@ function CoverArt({ post, style = {}, children }) {
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-function CommentThread({ postId, onCountChange }) {
+function CommentThread({ postId, onCountChange, d }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -117,7 +268,7 @@ function CommentThread({ postId, onCountChange }) {
     // threads get clipped rather than internally wheel-scrollable; there's
     // no other way to preserve independent inner scrolling AND have wheel
     // always drive the main feed when hovering over this area.
-    <div style={{ padding: '8px 16px 12px', borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'hidden' }}>
+    <div style={{ padding: `${d?.cmPy ?? 8}px ${d?.cmPx ?? 16}px 12px`, borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'hidden' }}>
       {comments === null ? (
         <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>loading…</div>
       ) : comments.length === 0 ? (
@@ -125,7 +276,7 @@ function CommentThread({ postId, onCountChange }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {comments.map(c => (
-            <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: 12, fontFamily: 'Barlow, sans-serif', lineHeight: 1.4 }}>
+            <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
               <span style={{ fontWeight: 700, color: 'var(--theme-text-pri)', flexShrink: 0 }}>{c.username || c.display_name || 'anon'}</span>
               <span style={{ color: 'var(--theme-text-sec)' }}>{c.content}</span>
             </div>
@@ -153,13 +304,16 @@ function CommentThread({ postId, onCountChange }) {
   )
 }
 
-// ── Post card — ONE individual, self-contained card per post ───────────────────
-// Avantt-inspired: bold identity header (huge wordmark, minimal chrome) up top,
-// like the type-specimen reference, then the reference's image-dominant lower
-// zone — cover/embed, tracklist, note, footer, comments — all in the SAME card.
-// Fixed width, always full detail, no hover/open resize states.
+// ── Post card — free-form "plate" layout ────────────────────────────────────────
+// Nine boxes, each absolutely positioned inside whichever column it belongs to
+// (see DESIGN_BASE above). Nothing flows and nothing pushes anything else, so
+// what was dragged in the designer is exactly what renders here.
+//
+// All the original interactive behavior is unchanged: click a track to preview
+// it, the replies button toggles the same CommentThread, discogs/stream links
+// are unchanged, genre pills still filter via openD3.
 
-function PostCard({ post, cardBg }) {
+function PostCard({ post, cardBg, spectrum, d }) {
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -175,9 +329,8 @@ function PostCard({ post, cardBg }) {
   const channel = post.channel || ''
   const platform = post.platform || ''
   const isLiveMix = type === 'livemix'
-  const width = isLiveMix ? CARD_WIDTH_LIVEMIX : CARD_WIDTH
   const tagLabel = isLiveMix ? 'LIVE SET' : type === 'single' ? 'SINGLE' : 'ALBUM'
-  const tagColor = isLiveMix ? '#e85d04' : type === 'single' ? '#4a90d9' : '#555'
+  const tagColor = isLiveMix ? 'var(--theme-accent)' : d.badge2Color
 
   const platformColor = PLATFORM_COLORS[platform] || 'var(--theme-accent)'
   const platformLabel = platform?.toUpperCase()
@@ -196,145 +349,237 @@ function PostCard({ post, cardBg }) {
     ? `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(mcUrl.replace('https://www.mixcloud.com',''))}`
     : null
 
+  // The embed's size comes from the platform actually detected in the post's
+  // URL, not from the designer's preset — the preset only picks which one the
+  // preview mocks up.
+  const [embedW, embedH] = ytId ? [560, 315]
+    : scUrl ? [480, 166]
+    : mcUrl ? [400, 60]
+    : [d.embedW, d.embedH]
+
+  const textPri = 'var(--theme-text-pri)'
   const textSec = 'var(--theme-text-sec)'
   const textTer = 'var(--theme-text-ter)'
   const divider = 'var(--theme-border)'
 
-  return (
-    <div
-      ref={el => registerPostRef?.(post.id, el)}
-      style={{ flexShrink: 0, width, height: '100%', background: cardBg, borderRight: '1px solid var(--theme-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-    >
-      {/* Identity header — huge bold name, minimal chrome */}
-      <div style={{ padding: '18px 18px 14px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: tagColor, color: '#fff', fontFamily: 'VT323, monospace' }}>{tagLabel}</span>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: textTer }}>#{String(post.id).padStart(3, '0')}</span>
-        </div>
+  // A transparent mat puts the caption on the card background, which is dark
+  // in most palettes — so it must use the theme tokens rather than the
+  // export's literal navy, exactly as the designer does.
+  //
+  // `spectrum` (idx >= SPECTRUM_START, see postSpectrum.js) forces the mat
+  // out of transparent and onto the live spectrum color (`cardBg`) instead
+  // of the design export's flat `d.matColor` — the export's literal navy
+  // caption color isn't legible against a color that shifts per post, so
+  // the caption falls back to theme tokens whenever the mat isn't the
+  // design's own flat literal, exactly like the transparent case already did.
+  //
+  // The spectrum paints the WHOLE CARD (both columns), not the mat — the mat
+  // stays transparent exactly as it is today, art sitting directly on the
+  // card's own color rather than in a differently-colored frame. See the
+  // card container's own `background` below for where the spectrum color
+  // actually lands.
+  const matTransparent = d.matFill === 'none'
+  const captionColor = matTransparent ? textSec : d.captionColor
+  const captionNameColor = matTransparent ? textPri : d.captionNameColor
 
-        <div
-          onClick={() => artist && openD3?.('artists', { filter: artist })}
-          style={{ fontSize: 28, fontWeight: 900, lineHeight: 1.02, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', letterSpacing: '-0.5px', cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
-        >{artist || post.title}</div>
+  // Position one box inside its column.
+  const box = id => ({
+    position: 'absolute',
+    left: d[id + 'X'],
+    top: d[id + 'Y'],
+    width: `${d[id + 'W']}%`,
+  })
 
-        <div style={{ fontSize: 13, color: textSec, marginTop: 6, fontFamily: 'Barlow, sans-serif', lineHeight: 1.4 }}>
-          {post.title}
-          {label && <> · <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span></>}
-          {catNo && <> · {catNo}</>}
-          {post.year && <> · {post.year}</>}
-        </div>
+  // Rail content hugs the edge nearest the media column, so the four ways read
+  // as two mirrored pairs. Deriving it here means the pills and meta rows can
+  // never be nudged past the rail edge and clipped.
+  const railJustify = d.plateAlign === 'right' ? 'flex-end' : d.plateAlign === 'center' ? 'center' : 'flex-start'
 
-        {genres.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
-            {genres.slice(0, 6).map(g => (
-              <span key={g} onClick={() => openD3?.('genres', { filter: g })}
-                style={{ fontSize: 11, background: 'var(--theme-dark3)', color: textSec, padding: '3px 10px', borderRadius: 99, fontFamily: 'Barlow, sans-serif', cursor: 'pointer' }}
-              >{g}</span>
-            ))}
-          </div>
+  const zlabel = {
+    fontFamily: d.labelFf, fontSize: d.zlabelSize, letterSpacing: `${d.zlabelLs}em`,
+    textTransform: 'uppercase', color: textTer, marginBottom: d.zlabelMb,
+  }
+  const artShadow = (d.artShadowY || d.artShadowB)
+    ? `0 ${d.artShadowY}px ${d.artShadowB}px rgba(0,0,0,${d.artShadowA})`
+    : 'none'
+  const artTransform = (d.artOffsetX || d.artOffsetY)
+    ? `translate(${d.artOffsetX}px, ${d.artOffsetY}px)`
+    : undefined
+
+  // ── the nine boxes ──────────────────────────────────────────────────────────
+  const BOX = {}
+
+  BOX.plate = (
+    <div key="plate" style={{ ...box('plate'), padding: `${d.platePt}px ${d.platePx}px ${d.platePb}px`, textAlign: d.plateAlign }}>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: d.badgeMb, justifyContent: d.plateAlign === 'right' ? 'flex-end' : d.plateAlign === 'center' ? 'center' : 'flex-start' }}>
+        <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: tagColor, color: '#fff', fontFamily: d.labelFf }}>{tagLabel}</span>
+        {platformLabel && (
+          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: d.labelFf }}>{platformLabel}</span>
+        )}
+        {post.source === 'discogs' && (
+          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'var(--theme-dark3)', color: textSec, fontFamily: d.labelFf }}>◈ DISCOGS</span>
         )}
       </div>
+      <div
+        onClick={() => artist && openD3?.('artists', { filter: artist })}
+        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
+      >{artist || post.title}</div>
+      <div style={{ fontSize: d.metalineSize, color: textSec, marginTop: d.metalineMt, fontFamily: d.bodyFf, lineHeight: d.metalineLh }}>
+        {post.title}
+        {label && <> · <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span></>}
+        {post.year && <> · {post.year}</>}
+      </div>
+      <div style={{ fontSize: `${d.numeralSize}rem`, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, color: textPri, fontFamily: d.numeralFf, marginTop: d.numeralMt }}>
+        {String(post.id).padStart(2, '0')}
+      </div>
+    </div>
+  )
 
-      {/* Caption row — platform/source badges */}
-      {(platformLabel || post.source === 'discogs') && (
-        <div style={{ padding: '0 16px', display: 'flex', gap: 5, flexWrap: 'wrap', flexShrink: 0, marginBottom: 6 }}>
-          {platformLabel && (
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', padding: '3px 8px', borderRadius: 3, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: 'VT323, monospace' }}>{platformLabel}</span>
-          )}
-          {post.source === 'discogs' && (
-            <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 3, background: 'rgba(255,255,255,0.12)', color: textSec, fontFamily: 'VT323, monospace' }}>◈ DISCOGS</span>
-          )}
-        </div>
-      )}
-
-      {/* Media — dominates the lower half of the card, like the reference's large photo */}
-      <div style={{ flex: isLiveMix ? '0 0 40%' : '0 0 34%', margin: '0 16px', borderRadius: 6, overflow: 'hidden', position: 'relative', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+  const trackRows = !isLiveMix && tracks.length > 0
+  if (trackRows || (isLiveMix && channel)) {
+    BOX.track = (
+      <div key="track" style={{ ...box('track'), padding: `${d.trackPy}px ${d.trackPx}px`, overflow: 'hidden' }}>
+        <div style={zlabel}>{isLiveMix ? 'Channel' : 'Album listing'}</div>
         {isLiveMix ? (
-          embedSrc ? (
-            <iframe src={embedSrc}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen title={post.title} />
-          ) : (
-            <div style={{ width: '100%', height: '100%', background: '#1e2126', position: 'relative' }}>
-              {coverSrc(post) && <img src={coverSrc(post)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }} />}
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'VT323, monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
-              {channel && <div style={{ position: 'absolute', bottom: 8, left: 10, fontFamily: 'Barlow, sans-serif', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{channel}</div>}
-            </div>
-          )
+          <div style={{ fontSize: d.trackSize, color: textPri, fontFamily: d.bodyFf }}>{channel}</div>
         ) : (
-          <CoverArt post={post} style={{ width: '100%', height: '100%' }} />
-        )}
-      </div>
-
-      {/* Everything below used to scroll internally (overflowY:'auto') if the
-          card ran out of room — same wheel-capture conflict as the comment
-          box above and feedRef's old overflowX:'auto': this wrapper covers
-          most of the card's height, so it was very likely THE dominant
-          reason wheel scroll felt broken (cursor is over this area most of
-          the time). 'hidden' means overflowing content (long tracklists,
-          notes, comments) gets clipped instead of internally scrollable —
-          this is also exactly what avantt's own design avoids needing:
-          nothing inside its horizontally-moving content has native scroll
-          of its own. If long content needs to stay reachable, that wants a
-          deliberate affordance (truncate + "show more", or an expand-to-
-          modal) rather than reintroducing a competing scroll surface. */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'hidden', overflowX: 'hidden', marginTop: 8 }}>
-
-        {!isLiveMix && tracks.length > 0 && (
-          <div style={{ padding: '0 16px', flexShrink: 0 }}>
-            {tracks.slice(0, 6).map((t, i) => {
+          <>
+            {tracks.slice(0, 3).map((t, i) => {
               const tUrl = t.stream_url || t.youtube_url || null
               const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
               return (
                 <div key={i}
                   onClick={() => { if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
-                  style={{ display: 'flex', gap: 6, alignItems: 'baseline', padding: '3px 4px', borderRadius: 4, cursor: tUrl ? 'pointer' : 'default', background: isActive ? 'rgba(232,93,4,0.12)' : 'transparent' }}>
-                  <span style={{ fontSize: 9, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: 'monospace', flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
-                  <span style={{ fontSize: 12, color: isActive ? 'var(--theme-text-pri)' : textSec, fontWeight: isActive ? 600 : 400, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                  {t.duration && <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>{t.duration}</span>}
+                  style={{ display: 'flex', gap: d.trackGap, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: `1px dotted ${divider}`, cursor: tUrl ? 'pointer' : 'default', background: isActive ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
+                  <span style={{ fontSize: d.tracknumSize, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: 'monospace', flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
+                  <span style={{ flex: `0 1 ${d.trackTitleW}%`, fontSize: d.trackSize, color: isActive ? textPri : textSec, fontWeight: isActive ? 600 : 400, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  {t.duration && <span style={{ fontSize: d.tracknumSize, color: textTer, fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{t.duration}</span>}
                 </div>
               )
             })}
-            {tracks.length > 6 && <div style={{ fontSize: 10, color: textTer, fontFamily: 'VT323, monospace', marginTop: 2 }}>+{tracks.length - 6} more</div>}
-          </div>
+            {tracks.length > 3 && <div style={{ fontSize: d.tracknumSize, color: textTer, fontFamily: 'VT323, monospace', marginTop: 4 }}>+{tracks.length - 3} more</div>}
+          </>
         )}
+      </div>
+    )
+  }
 
-        {note && (
-          <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: 'var(--theme-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: 'Barlow, sans-serif' }}>
-                {(post.user?.username || post.username || '?').charAt(0).toUpperCase()}
-              </div>
-              <div style={{ flex: 1, background: 'var(--theme-dark3)', borderRadius: '0 8px 8px 8px', padding: '6px 10px', border: `0.5px solid ${divider}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-pri)', marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{post.user?.username || post.username}</div>
-                <div style={{ fontSize: 12, color: textSec, lineHeight: 1.45, fontFamily: 'Barlow, sans-serif' }}>{note}</div>
-              </div>
+  BOX.desc = (
+    <div key="desc" style={{ ...box('desc'), padding: `${d.descPy}px ${d.descPx}px ${d.descPb}px`, overflow: 'hidden' }}>
+      <div style={zlabel}>Post description</div>
+      {note ? (
+        <p style={{ fontSize: d.descSize, color: textSec, lineHeight: d.descLh, fontFamily: d.bodyFf, margin: 0 }}>{note}</p>
+      ) : (
+        <p style={{ fontSize: d.descSize, color: textTer, fontStyle: 'italic', fontFamily: d.bodyFf, margin: 0 }}>No description</p>
+      )}
+    </div>
+  )
+
+  BOX.pills = genres.length > 0 ? (
+    <div key="pills" style={{ ...box('pills'), display: 'flex', flexWrap: 'wrap', gap: d.pillGap, justifyContent: railJustify }}>
+      {genres.slice(0, 6).map(g => (
+        <span key={g} onClick={() => openD3?.('genres', { filter: g })}
+          style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: textSec, padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, cursor: 'pointer' }}
+        >{g}</span>
+      ))}
+    </div>
+  ) : null
+
+  BOX.replies = (
+    <div key="replies" style={{ ...box('replies'), display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-start', paddingTop: d.metarowPt, borderTop: `1px dashed ${divider}`, fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }}>
+      <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: d.metarowSize, color: textTer, padding: 0, fontFamily: d.bodyFf }}>
+        <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
+      </button>
+      {post.discogs_url && (
+        <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
+          style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ discogs</a>
+      )}
+      {isLiveMix && streamUrl && (
+        <a href={streamUrl} target="_blank" rel="noopener noreferrer"
+          style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ {platformLabel || 'stream'}</a>
+      )}
+    </div>
+  )
+
+  BOX.stamp = (
+    <div key="stamp" style={{ ...box('stamp'), display: 'flex', justifyContent: 'flex-end', paddingTop: d.metarowPt, fontSize: d.stampSize, color: textTer, fontFamily: 'VT323, monospace' }}>
+      <span style={{ color: textSec, fontWeight: 500 }}>{post.user?.username || post.username}</span> · {timeAgo(post.created_at)}
+    </div>
+  )
+
+  BOX.comments = commentsOpen ? (
+    <div key="comments" style={{ ...box('comments'), zIndex: 3, background: 'var(--theme-bg)' }}>
+      <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
+    </div>
+  ) : null
+
+  BOX.mat = (
+    <div key="mat" style={{ ...box('mat'), background: matTransparent ? 'transparent' : d.matColor, borderRadius: d.matRadius, padding: d.matPad, transition: 'background 0.8s' }}>
+      <div style={{ width: '100%', ...(isLiveMix ? { height: embedH } : { aspectRatio: d.frameRatio.replace('/', ' / ') }), borderRadius: d.frameRadius, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {isLiveMix ? (
+          embedSrc ? (
+            <iframe src={embedSrc}
+              style={{ width: '100%', maxWidth: embedW, height: embedH, border: 'none', borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen title={post.title} />
+          ) : (
+            <div style={{ width: '100%', height: '100%', borderRadius: d.artRadius, overflow: 'hidden', background: '#1e2126', position: 'relative' }}>
+              {coverSrc(post) && <img src={coverSrc(post)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }} />}
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'VT323, monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
             </div>
-          </div>
+          )
+        ) : (
+          <CoverArt post={post} style={{ width: `${d.artFill}%`, height: `${d.artFill}%`, borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform }} />
         )}
+      </div>
+    </div>
+  )
 
-        {/* Footer */}
-        <div style={{ padding: '10px 16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', borderTop: `0.5px solid ${divider}` }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: textTer, padding: 0, fontFamily: 'Barlow, sans-serif' }}>
-              <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
-            </button>
-            {post.discogs_url && (
-              <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, color: textTer, fontFamily: 'Barlow, sans-serif', textDecoration: 'none' }}>↗ discogs</a>
-            )}
-            {isLiveMix && streamUrl && (
-              <a href={streamUrl} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, color: textTer, fontFamily: 'Barlow, sans-serif', textDecoration: 'none' }}>↗ {platformLabel || 'stream'}</a>
-            )}
-          </div>
-          <span style={{ fontSize: 10, color: textTer, fontFamily: 'VT323, monospace' }}>
-            <span style={{ color: textSec, fontWeight: 500 }}>{post.user?.username || post.username}</span> · {timeAgo(post.created_at)}
-          </span>
-        </div>
+  BOX.caption = (
+    <div key="caption" style={{ ...box('caption'), display: 'flex', justifyContent: d.captionAlign, alignItems: 'baseline', gap: 10, paddingTop: d.captionPt, fontFamily: d.labelFf, fontSize: d.captionSize, color: captionColor }}>
+      <span style={{ fontFamily: d.artistFf, fontWeight: d.captionNameWeight, fontSize: d.captionNameSize, color: captionNameColor }}>{label || '—'}</span>
+      <span>{[catNo, post.year].filter(Boolean).join(' · ')}</span>
+    </div>
+  )
 
-        {commentsOpen && <CommentThread postId={post.id} onCountChange={setCommentCount} />}
+  const ORDER = ['plate', 'track', 'desc', 'pills', 'replies', 'stamp', 'comments', 'mat', 'caption']
+  const inColumn = which => ORDER
+    .filter(id => BOX[id] && (d[id + 'Col'] === 'media') === (which === 'media'))
+    .map(id => BOX[id])
+
+  // The card fills the full height of the feed row so that its two vertical
+  // rules -- the seam between cards and the rail/media divider -- run from the
+  // top of the page to the bottom. The layout itself still lives in a cardH-tall
+  // band centred in that height: `band` is the positioning context every
+  // absolutely-placed box measures from, so all the Y values in the design table
+  // stay relative to the card, not to the viewport.
+  const band = {
+    position: 'absolute', left: 0, right: 0, top: '50%',
+    height: d.cardH, transform: 'translateY(-50%)',
+  }
+
+  return (
+    <div
+      ref={el => registerPostRef?.(post.id, el)}
+      style={{
+        flexShrink: 0, width: d.cardW, height: '100%', alignSelf: 'stretch',
+        background: spectrum ? cardBg : 'var(--theme-bg)',
+        borderRight: `1px solid ${divider}`,
+        borderRadius: d.cardRadius || undefined,
+        display: 'flex',
+        flexDirection: d.mediaSide === 'left' ? 'row-reverse' : 'row',
+        overflow: 'hidden',
+        transition: 'background 0.8s',
+      }}
+    >
+      <div style={{
+        width: d.infoW, flexShrink: 0, position: 'relative', overflow: 'hidden',
+        [d.mediaSide === 'left' ? 'borderLeft' : 'borderRight']: `${d.railBorder}px solid ${divider}`,
+      }}>
+        <div style={band}>{inColumn('rail')}</div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden', padding: d.colPad }}>
+        <div style={band}>{inColumn('media')}</div>
       </div>
     </div>
   )
@@ -572,6 +817,7 @@ export default function Feed() {
 
   function getCardBg(idx, item) {
     if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
+    if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
     return `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
   }
 
@@ -609,7 +855,7 @@ export default function Feed() {
         {shelfItems.current.map((item, idx) => {
           const cardBg = getCardBg(idx, item)
           if (item.kind === 'spotlight') return <SpotlightCard key={item.key} post={item.post} cardBg={cardBg} flip={idx % 2 !== 0} onFilterSubject={filterToSubject} />
-          return <PostCard key={item.key} post={item.post} cardBg={cardBg} />
+          return <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} />
         })}
       </div>
 
