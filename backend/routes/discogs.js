@@ -1,5 +1,5 @@
 import express from 'express';
-import { searchDiscogs, getRelease, getMaster } from '../services/discogsService.js';
+import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, getArtistReleases, getLabelReleases } from '../services/discogsService.js';
 import db from '../db/database.js';
 
 const router = express.Router();
@@ -97,6 +97,54 @@ router.get('/master/:id', async (req, res, next) => {
   try {
     const master = await getMaster(Number(req.params.id));
     res.json(master);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/discogs/artist/:id — artist photo for spotlight cards (Feed.jsx).
+// Most artists have no photo on Discogs; imageUrl comes back null in that
+// case and the frontend falls back to its own mark rather than erroring.
+router.get('/artist/:id', async (req, res, next) => {
+  try {
+    const artist = await getArtist(Number(req.params.id));
+    res.json(artist);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/discogs/label/:id — label logo for spotlight cards (Feed.jsx).
+router.get('/label/:id', async (req, res, next) => {
+  try {
+    const label = await getLabel(Number(req.params.id));
+    res.json(label);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/discogs/artist/:id/releases?page=1 — artist discography, added
+// 2026-08-25 for the spotlight "unknown artist" backfill (Feed.jsx): fills
+// a brand-new artist's "Recent adds" list with their real Discogs releases
+// when they have no prior LNV posts. Summary only — no tracklist/videos;
+// the frontend fetches a specific release's full detail via
+// GET /discogs/release/:id, lazily, only once the user clicks one.
+router.get('/artist/:id/releases', async (req, res, next) => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const releases = await getArtistReleases(Number(req.params.id), page);
+    res.json(releases);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/label/:id/releases', async (req, res, next) => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const releases = await getLabelReleases(Number(req.params.id), page);
+    res.json(releases);
   } catch (err) {
     next(err);
   }

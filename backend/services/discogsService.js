@@ -70,6 +70,143 @@ export async function getMaster(masterId) {
   return data;
 }
 
+// Artist/label photo & logo lookups — used by Feed.jsx's spotlight cards
+// (artist headshot / label logo in place of the generic mark when Discogs
+// has one). Same cache table/TTL as releases; profile photos and logos
+// change rarely enough that 30 days is fine here too.
+
+export async function getArtist(artistId) {
+  const key = `artist:${artistId}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const url = `${DISCOGS_BASE}/artists/${artistId}`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch artist ${artistId}: ${res.status}`);
+  const data = normaliseProfile(await res.json());
+  setCache(key, data);
+  return data;
+}
+
+export async function getLabel(labelId) {
+  const key = `label:${labelId}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const url = `${DISCOGS_BASE}/labels/${labelId}`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch label ${labelId}: ${res.status}`);
+  const data = normaliseProfile(await res.json());
+  setCache(key, data);
+  return data;
+}
+
+// Artist discography — added 2026-08-25 for the spotlight "unknown artist"
+// backfill: when someone posts a single by an artist with no prior LNV
+// posts, Feed.jsx's spotlight fills that artist's "Recent adds" slot with
+// their real Discogs releases instead of (nonexistent) other community
+// posts. Deliberately a SUMMARY list only (id/title/year/thumb, no
+// tracklist or videos) — Discogs' own /artists/{id}/releases endpoint
+// doesn't return that detail anyway, and fetching full detail for every
+// release up front would multiply the request count for no reason. The
+// frontend fetches one release's full detail (getRelease, above) lazily,
+// only for whichever release the user actually clicks. Same cache
+// table/TTL as everything else here — an artist's back catalogue doesn't
+// change day to day.
+export async function getArtistReleases(artistId, page = 1) {
+  const key = `artist-releases:${artistId}:${page}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const url = `${DISCOGS_BASE}/artists/${artistId}/releases?page=${page}&per_page=25&sort=year&sort_order=desc`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch releases for artist ${artistId}: ${res.status}`);
+  const data = normaliseArtistReleases(await res.json());
+  setCache(key, data);
+  return data;
+}
+
+// 2026-08-25 (spotlight discography, generalized pass) — same shape as
+// getArtistReleases above, for labels. Discogs' /labels/{id}/releases has
+// no year=desc sort param the way /artists/{id}/releases does, so results
+// come back in Discogs' own catalogue order rather than newest-first.
+export async function getLabelReleases(labelId, page = 1) {
+  const key = `label-releases:${labelId}:${page}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const url = `${DISCOGS_BASE}/labels/${labelId}/releases?page=${page}&per_page=25`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch releases for label ${labelId}: ${res.status}`);
+  const data = normaliseLabelReleases(await res.json());
+  setCache(key, data);
+  return data;
+}
+
+// Shared shape for both artists and labels — Discogs returns the same
+// `images` array structure for each. Most artists/labels have none at all
+// (the field is just absent), which is expected and handled by the caller
+// (Feed.jsx falls back to the generic spotlight mark when imageUrl is null).
+function normaliseProfile(data) {
+  const images = data.images || [];
+  const primary = images.find(i => i.type === 'primary') || images[0] || null;
+  return {
+    discogsId: data.id,
+    name: data.name,
+    profile: data.profile || null,
+    imageUrl: primary?.uri150 || primary?.uri || null,
+  };
+}
+
+// Discogs' /artists/{id}/releases returns a flat mix of "release" and
+// "master" entries (a master groups pressings/reissues of the same release
+// under one canonical id) — kept both rather than filtering, since a solo
+// artist's discography is small enough that de-duplicating precisely isn't
+// worth the risk of dropping something real. `role` (Main/Appearance/Remix/
+// etc.) is passed through but not filtered on for the same reason — Discogs
+// data is inconsistent enough that a "Main only" filter sometimes drops an
+// artist's own releases that happen to be tagged oddly.
+function normaliseArtistReleases(data) {
+  return {
+    pagination: {
+      page: data.pagination?.page || 1,
+      pages: data.pagination?.pages || 1,
+      items: data.pagination?.items || 0,
+    },
+    releases: (data.releases || [])
+      .filter(r => r.type === 'release' || r.type === 'master')
+      .map(r => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        year: r.year || null,
+        role: r.role || null,
+        thumb: r.thumb || null,
+      })),
+  };
+}
+
+// Label releases endpoint has no `type` field the way artist releases do
+// (a label's release list is always actual releases, never masters), so
+// unlike normaliseArtistReleases this doesn't filter on type.
+function normaliseLabelReleases(data) {
+  return {
+    pagination: {
+      page: data.pagination?.page || 1,
+      pages: data.pagination?.pages || 1,
+      items: data.pagination?.items || 0,
+    },
+    releases: (data.releases || []).map(r => ({
+      id: r.id,
+      type: 'release',
+      title: r.title,
+      year: r.year || null,
+      role: null,
+      thumb: r.thumb || null,
+    })),
+  };
+}
+
 function normaliseRelease(data) {
   return {
     discogsId: data.id,

@@ -141,6 +141,13 @@ const migrations = [
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
   )`,
+  // Live-set channel/venue (e.g. "Boiler Room", "HÖR"). ComposeModal has
+  // always had the CHANNEL / VENUE field and sent it on POST /posts, and
+  // media.js's YouTube-title parser has always returned one to prefill it —
+  // but posts had no column to land in, so it was silently dropped on every
+  // save. That's why PostCard's Channel box (and now the channel spotlight)
+  // read empty: not a rendering bug, a missing column.
+  'ALTER TABLE posts ADD COLUMN channel TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

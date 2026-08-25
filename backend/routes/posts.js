@@ -109,8 +109,9 @@ router.get('/', (req, res, next) => {
            OR LOWER(pl.label_name) LIKE LOWER(?)
            OR LOWER(pg.genre) LIKE LOWER(?)
            OR LOWER(pt.title) LIKE LOWER(?)
+           OR LOWER(p.channel) LIKE LOWER(?)
         ORDER BY p.id DESC LIMIT ? OFFSET ?
-      `).all(q, q, q, q, q, Number(limit), offset).map(r => r.id);
+      `).all(q, q, q, q, q, q, Number(limit), offset).map(r => r.id);
     }
     else if (artist) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_artists WHERE LOWER(artist_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+artist+'%', Number(limit), offset).map(r => r.post_id); }
     else if (label) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_labels WHERE LOWER(label_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+label+'%', Number(limit), offset).map(r => r.post_id); }
@@ -138,19 +139,20 @@ router.post('/', (req, res, next) => {
     const {
       user_id = 1, discogs_id, discogs_type = 'release',
       title, year, country, cover_image, thumb_image, notes, discogs_url,
-      stream_url, embed_url, platform, post_type = 'album',
+      stream_url, embed_url, platform, post_type = 'album', channel,
       artists = [], labels = [], genres = [], tracks = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const resolvedDiscogsId = discogs_id || (discogs_url ? discogs_url.match(/release\/(\d+)/)?.[1] : null);
     const result = db.prepare(`
-      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type, channel)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       user_id, resolvedDiscogsId ? Number(resolvedDiscogsId) : null,
       discogs_type, title, year || null, country || null,
       cover_image || null, thumb_image || null, notes || null, discogs_url || null,
-      stream_url || null, embed_url || null, platform || null, post_type || 'album'
+      stream_url || null, embed_url || null, platform || null, post_type || 'album',
+      channel || null
     );
     if (!result.lastInsertRowid) return res.status(409).json({ error: 'A post with this Discogs release already exists' });
     const postId = result.lastInsertRowid;
@@ -162,7 +164,12 @@ router.post('/', (req, res, next) => {
     for (const g of genres) ig.run(postId, g);
     const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url) VALUES (?, ?, ?, ?, ?, ?)');
     for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null);
-    triggerSpotlights(postId);
+    // triggerSpotlights(postId); — disabled 2026-08-24: spotlights are now
+    // computed client-side per feed load (Feed.jsx buildSpotlightPool),
+    // every SPOTLIGHT_EVERYth post, randomized and not repeated within a
+    // load. Nothing is persisted for them any more, so this no longer needs
+    // to run on insert. Left in place (unused) rather than deleted in case
+    // we want DB-persisted milestone spotlights back later.
     res.status(201).json(getFullPost(postId));
   } catch (err) { next(err); }
 });
@@ -172,7 +179,7 @@ router.patch('/:id', (req, res, next) => {
     const id = Number(req.params.id);
     const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type'];
+    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type', 'channel'];
     const updates = []; const values = [];
     for (const field of allowed) { if (req.body[field] !== undefined) { updates.push(field + ' = ?'); values.push(req.body[field]); } }
     if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });

@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
+import Clock from './Clock'
+import { RAIL_WIDTH, STRIP_OPEN_WIDTH } from './Strip'
 import { getUserId } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -67,7 +69,7 @@ const DESIGN_BASE = {
   badgeRadius:3, badgeMb:9,
   artistFf:"'Barlow',sans-serif", artistSize:21, artistWeight:700,
   artistLh:1.25, artistLs:0, artistCase:'none',
-  metalineSize:15, metalineLh:1.4, metalineMt:2,
+  metalineSize:17, metalineLh:1.4, metalineMt:2,
   numeralFf:"'Barlow',sans-serif", numeralSize:7, numeralWeight:900,
   numeralLh:0.78, numeralLs:-0.03, numeralMt:10, numeralColor:'#111111',
   trackPy:14, trackPx:20, trackSize:12, trackTitleW:100,
@@ -122,13 +124,43 @@ const DESIGN_BASE = {
 
 // Artwork is 80% of the 524px media column => 419.2px, centred, so it sits at
 // x 52.4-471.6 and, inside a 1:1 mat, 52.4px down from the mat's own top.
+// Y and (where they've drifted from DESIGN_BASE's shared X) X values below are
+// gabriel's own, dragged in the Post Card Rail Editor artifact and pasted back
+// verbatim (2026-08-24). trackX/captionX/descX/matX overrides are per-pair
+// (W1/W3 vs W2/W4) rather than shared, since the rail editor let them diverge
+// between the plate-top and plate-bottom cards.
+// 2026-08-25: repliesY/stampY (the footer row: replies count + byline) nudged
+// off the edge it used to sit flush against, on all three variants below --
+// gabriel flagged (with a screenshot, red lines marking the empty band above
+// and below a card's real content) that the footer sitting right at the card
+// edge read as lopsided padding once you look at a single card on its own,
+// even though PLATE_TOP/PLATE_BOTTOM were always meant to mirror EACH OTHER
+// rather than be internally symmetric. PLATE_TOP: repliesY/stampY 790->726
+// (was flush against cardH:820, now ~64px clear -- matches its own top gap,
+// plateY:44 + platePt:20). PLATE_BOTTOM: repliesY/stampY 0->52 (was flush
+// against the top, now ~64px clear, matching PLATE_TOP's new number). LIVE:
+// repliesY/stampY 790->726, same fix as PLATE_TOP's bottom -- LIVE's own top
+// (plateY:5) is still tight (~25px) and NOT touched here: pushing it out to
+// 64px like the others would need plateY up near 44, which starts to eat
+// into the ~236px gap before trackY:280 (worst-case 2-line artist name is
+// assumed 252 tall elsewhere in this file -- 44+252 would just clear 280,
+// close enough to want it re-checked live, not shipped blind). PLATE_BOTTOM's
+// OTHER edge (pillsY:684, ~114px clear at the bottom) is untouched for the
+// same reason -- closing it the rest of the way means moving plate/track/
+// pills, not just the footer, without a live render to verify against. No
+// browser access this session (standing limitation) -- numbers are computed
+// from the styles' own padding values, not measured off a render. Re-check
+// with the Post Card / Live Set Rail Editor artifacts (2026-08-24) before
+// trusting these are pixel-exact.
 const PLATE_TOP = {   // W1 / W3
-  plateY:45,  trackY:297, pillsY:441, repliesY:790, stampY:790,
+  plateY:44,  trackY:318, pillsY:482, repliesY:726, stampY:726,
   matY:28,    captionY:508, descY:568,
+  trackX:-1,  captionX:60.4, descX:55.4,
 }
 const PLATE_BOTTOM = { // W2 / W4 - rail reads byline, plate, tracklist, pills
-  repliesY:0, stampY:0,  plateY:357, trackY:609, pillsY:753,
-  descY:125,  captionY:282, matY:268,
+  repliesY:52, stampY:52, plateY:308, trackY:550, pillsY:684,
+  descY:198,  captionY:289, matY:292,
+  descX:57.4, captionX:61.4, matX:4,
 }
 // Live sets have no tracklist (the zone becomes Channel) and no bottom variant -
 // the plate stays at the top on all four ways. Values are gabriel's own, taken
@@ -138,9 +170,15 @@ const PLATE_BOTTOM = { // W2 / W4 - rail reads byline, plate, tracklist, pills
 // below the TALLEST of them - 278 + 315 = 593 - rather than below the
 // SoundCloud embed in the reference screenshot. A short embed therefore leaves
 // more air above the caption than a tall one.
+// Y values and cardW below are gabriel's own, dragged in the Live Set Rail
+// Editor artifact and pasted back verbatim (2026-08-24). cardW:900 (vs the
+// shared DESIGN_BASE.cardW:800) is live-only — designFor() only merges LIVE
+// in for isLiveMix posts, so this widens live-set cards without touching
+// album cards, no other code changes needed.
 const LIVE = {
-  plateY:206, trackY:438, pillsY:512, repliesY:790, stampY:790,
-  matY:278,   captionY:601, descY:654,
+  plateY:5,   trackY:280, pillsY:346, repliesY:726, stampY:726,
+  matY:169,   captionY:488, descY:536,
+  cardW:900,
 }
 
 const DESIGN_VARIANTS = {
@@ -165,7 +203,14 @@ function designFor(idx, isLiveMix) {
   return Object.assign({}, DESIGN_BASE, DESIGN_VARIANTS[slot] || {})
 }
 
-const SPOTLIGHT_CARD_WIDTH = DESIGN_BASE.cardW
+// Spotlights are now purely client-side (see buildSpotlightPool /
+// buildShelfItems below) — not DB-persisted posts. SPOTLIGHT_EVERY sets
+// feed-position cadence (every Nth real post gets a spotlight after it);
+// SPOTLIGHT_MIN_POSTS is how many posts a subject needs in the currently
+// loaded feed to be spotlight-eligible (below this the recent-adds list /
+// collage look sparse).
+const SPOTLIGHT_EVERY = 5
+const SPOTLIGHT_MIN_POSTS = 3
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -181,6 +226,7 @@ function timeAgo(d) {
 function cleanNote(t)  { return (t || '').replace(/https?:\/\/\S+/g, '').trim() }
 function artistName(p) { return p.artists?.[0]?.artist_name || p.artists?.[0]?.name || p.artist_name || '' }
 function labelName(p)  { return p.labels?.[0]?.label_name  || p.labels?.[0]?.name  || p.label_name  || '' }
+function channelName(p){ return p.channel || '' }
 function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image || p.thumbImage || p.cover_art || '' }
 
 function detectType(p) {
@@ -585,86 +631,506 @@ function PostCard({ post, cardBg, spectrum, d }) {
   )
 }
 
-// ── Spotlight card — one fixed-size card, not split into title/detail ──────────
-// Real posts (post.is_spotlight, created server-side by posts.js's
-// triggerSpotlights once a subject crosses a post-count milestone — see
-// spotlightType/spotlightCount/spotlightCovers, enriched by getFullPost).
-// Not a client-side random shuffle.
+// ── Spotlight card — two variants (artist / label) ─────────────────────────────
+// Purely client-side now — see buildSpotlightPool/buildShelfItems below.
+// `subject` is derived from posts already loaded in this fetch; nothing is
+// written to the backend and nothing here is a real post.id. Built on the
+// same rail/media anatomy as PostCard (DESIGN_BASE.cardW/cardH), not the
+// per-post design table, and no plate numeral — a numeral read as "this
+// post's index," which doesn't apply to something that isn't a post. Each
+// type gets its own mark in that spot instead: a sunburst for artists, a
+// vinyl label-disc for labels — a distinct silhouette per type at a glance.
 
-function SpotlightCard({ post, cardBg, flip, onFilterSubject }) {
-  const { registerPostRef } = useLayout() || {}
-  const name = post.spotlight_subject
-  const type = post.spotlightType
-  const count = post.spotlightCount || 0
-  const covers = post.spotlightCovers || []
+const SPOTLIGHT_MARK = {
+  artist: (
+    <svg width="110" height="110" viewBox="0 0 100 100" style={{ color: 'var(--theme-text-pri)' }}>
+      <circle cx="50" cy="50" r="9" fill="currentColor" />
+      <g stroke="currentColor" strokeWidth="4" strokeLinecap="round">
+        <line x1="50" y1="18" x2="50" y2="2" />
+        <line x1="50" y1="82" x2="50" y2="98" />
+        <line x1="18" y1="50" x2="2" y2="50" />
+        <line x1="82" y1="50" x2="98" y2="50" />
+        <line x1="27" y1="27" x2="15" y2="15" />
+        <line x1="73" y1="73" x2="85" y2="85" />
+        <line x1="73" y1="27" x2="85" y2="15" />
+        <line x1="27" y1="73" x2="15" y2="85" />
+      </g>
+    </svg>
+  ),
+  label: (
+    <svg width="110" height="110" viewBox="0 0 100 100" style={{ color: 'var(--theme-text-pri)' }}>
+      <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" strokeWidth="3" />
+      <circle cx="50" cy="50" r="34" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.5" />
+      <circle cx="50" cy="50" r="7" style={{ fill: 'var(--theme-showcase)' }} stroke="currentColor" strokeWidth="3" />
+    </svg>
+  ),
+  // Channel spotlight mark — an EQ-bar silhouette rather than the sunburst
+  // (artist) or label-disc (label), echoing the same live-EQ language as
+  // Strip.jsx's #lnv-fbars idle bounce (see index.css's eqBounce comment) so
+  // "channel" reads as live/broadcast at a glance, not as a third flavour of
+  // the same mark.
+  channel: (
+    <svg width="110" height="110" viewBox="0 0 100 100" style={{ color: 'var(--theme-text-pri)' }}>
+      <g stroke="currentColor" strokeWidth="8" strokeLinecap="round">
+        <line x1="20" y1="65" x2="20" y2="35" />
+        <line x1="38" y1="80" x2="38" y2="20" />
+        <line x1="56" y1="90" x2="56" y2="10" opacity="0.9" />
+        <line x1="74" y1="72" x2="74" y2="28" />
+        <line x1="92" y1="58" x2="92" y2="42" />
+      </g>
+    </svg>
+  ),
+}
+
+// Finds the Discogs id for a spotlighted subject from whatever posts
+// carried it (post_artists.discogs_artist_id / post_labels.discogs_label_id,
+// already present on every post the feed returns — see getFullPost).
+// Used to fetch an artist photo / label logo below; returns null when no
+// loaded post has one, which is common (plenty of posts are hand-entered
+// without a Discogs link).
+function subjectDiscogsId(subject) {
+  // Channels aren't a Discogs entity — no artist/label id to look up, so
+  // SpotlightCard falls straight through to SPOTLIGHT_MARK.channel below.
+  if (subject.type === 'channel') return null
+  for (const p of subject.posts) {
+    if (subject.type === 'artist') {
+      const m = (p.artists || []).find(a => a.artist_name === subject.name)
+      if (m?.discogs_artist_id) return m.discogs_artist_id
+    } else {
+      const m = (p.labels || []).find(l => l.label_name === subject.name)
+      if (m?.discogs_label_id) return m.discogs_label_id
+    }
+  }
+  return null
+}
+
+// SPOTLIGHT CARD SIDE PADDING — change this one number to adjust every
+// spotlight card (artist/label/channel) at once. Flat px, same on all
+// cards regardless of width — NOT a percentage (that was tried on
+// 2026-08-25 via `ART_INSET = (100 - DESIGN_BASE.artFill) / 2`, matching
+// PostCard's 80%-art-fill convention, but at the real 800px card width
+// that worked out to 80px/side — much bigger than intended, so it was
+// reverted back to a flat value here). Applies to the whole card (badge,
+// name, metaline, media, caption, list, cta all share this one inset via
+// the root div's `padding: 65px ${SPOTLIGHT_PAD}px`), not just the media.
+const SPOTLIGHT_PAD = 60
+
+// TEMP (2026-08-25) — placeholder discography data, purely so the visual
+// design of this feature (list layout, on-site/not-yet split, embed zone,
+// cta) can be reviewed before the real wiring exists. Checked directly:
+// every post_artists.discogs_artist_id and post_labels.discogs_label_id
+// row in the DB is NULL right now — ComposeModal drops the id before a
+// post ever reaches the DB (see claude/2026-08-25-search-todo.md) — so
+// subjectDiscogsId() never resolves for any real subject and the feature
+// would otherwise show nothing at all to look at. Split into two arrays
+// (rather than fake posts.discogs_id matching) so both list sections and
+// the cta's on-site/not-yet branching are all visible without depending on
+// real id matching. DELETE this block, the `usingPlaceholders` branches
+// below, and restore hasDiscography's `&& !!discogsId` once ComposeModal
+// keeps real ids and there's real data to test against instead.
+const PLACEHOLDER_ON_SITE = [
+  { id: -1, title: 'Placeholder — On The Site A', year: 2021, thumb: null, role: null },
+  { id: -2, title: 'Placeholder — On The Site B', year: 2019, thumb: null, role: null },
+]
+const PLACEHOLDER_NOT_YET = [
+  { id: -3, title: 'Placeholder — Not Yet Uploaded A', year: 2023, thumb: null, role: null },
+  { id: -4, title: 'Placeholder — Not Yet Uploaded B', year: 2022, thumb: null, role: null },
+  { id: -5, title: 'Placeholder — Not Yet Uploaded C', year: 2020, thumb: null, role: null },
+]
+
+function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
+  const { registerPostRef, openD3 } = useLayout() || {}
+  const { type, name, posts } = subject
+  const recent = posts.slice(0, 4)
+  // Artists and labels have a real browse page behind them (ContentPanel's
+  // 'artists'/'labels' drawers). Channels don't yet — no Channels page
+  // exists — so the title/"view all" click-through is disabled for that
+  // type rather than opening a drawer with nothing in it.
+  const browsable = type !== 'channel'
+
+  // Artist headshot / label logo, when Discogs has one — falls back to
+  // SPOTLIGHT_MARK below when there's no discogs id on any loaded post, the
+  // fetch fails, or Discogs simply has no image for that artist/label
+  // (the common case). Backend caches the Discogs response for 30 days;
+  // staleTime here just avoids re-fetching within this session.
+  const discogsId = subjectDiscogsId(subject)
+  const { data: discogsProfile } = useQuery({
+    queryKey: ['spotlight-media', type, discogsId],
+    queryFn: async () => {
+      const res = await fetch(`${API}/discogs/${type}/${discogsId}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!discogsId,
+    staleTime: Infinity,
+  })
+  const markImageUrl = discogsProfile?.imageUrl || null
+
+  // Discogs discography — 2026-08-25, generalized in a fourth pass. Used
+  // to be gated on buildSpotlightPool tagging a subject `unknown` (exactly
+  // one loaded post, the only case a discography backfill made sense in
+  // when this started); gabriel then asked for it to apply to every artist
+  // AND every label spotlight regardless of post count. The gate is now
+  // just "has a Discogs id and isn't a channel" — channels aren't a
+  // Discogs entity (see subjectDiscogsId above), so there's nothing to
+  // fetch for them and they keep the plain real-posts grid/list.
+  //
+  // Fetches a lean release list first (no tracklist/videos — see
+  // discogsService's getArtistReleases/getLabelReleases), then lazily
+  // fetches ONE release's full detail (including videos) only once the
+  // user has picked it, rather than pulling full detail for every release
+  // upfront — keeps this well inside Discogs' rate limit even for an
+  // artist or label with a large catalogue.
+  // TEMP (2026-08-25): gate is "not a channel" only, not `&& !!discogsId`
+  // — see PLACEHOLDER_ON_SITE/PLACEHOLDER_NOT_YET's comment above. Restore
+  // the discogsId condition once real ids exist to test with.
+  const hasDiscography = type !== 'channel'
+  const usingPlaceholders = hasDiscography && !discogsId
+  const [selectedReleaseId, setSelectedReleaseId] = useState(null)
+  const { data: discography } = useQuery({
+    queryKey: ['spotlight-discography', type, discogsId],
+    queryFn: async () => {
+      const endpoint = type === 'label' ? 'label' : 'artist'
+      const res = await fetch(`${API}/discogs/${endpoint}/${discogsId}/releases`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: hasDiscography && !!discogsId,
+    staleTime: Infinity,
+  })
+  // Releases already posted to LNV (their Discogs release id matches one
+  // of this subject's loaded posts) sort to the top, ahead of everything
+  // not yet uploaded. Only checked against `posts` — the loaded feed
+  // window, not a DB-wide query — same caveat as the rest of this feature:
+  // a release posted outside the currently loaded ~60 posts won't be
+  // flagged even if it's really on the site.
+  const allReleases = discography?.releases || []
+  const onSiteIds = new Set(posts.map(p => p.discogs_id).filter(Boolean))
+  const onSiteItems = usingPlaceholders ? PLACEHOLDER_ON_SITE : allReleases.filter(r => onSiteIds.has(r.id))
+  const notYetItems = usingPlaceholders ? PLACEHOLDER_NOT_YET : allReleases.filter(r => !onSiteIds.has(r.id))
+  const discographyItems = [...onSiteItems, ...notYetItems]
+  // Derived, not stored: falls back to the first release (an already-
+  // on-site one when there is one, otherwise Discogs' own top-of-list
+  // pick) once the list loads, so the visual zone shows something real
+  // immediately — an embed loads without waiting for a click — rather
+  // than an effect+setState round trip (which would trigger an extra
+  // render pass). A real click always wins once one happens
+  // (selectedReleaseId is then one of discographyItems' own ids).
+  const selectedRelease = discographyItems.find(r => r.id === selectedReleaseId) || discographyItems[0] || null
+
+  const { data: selectedFull } = useQuery({
+    queryKey: ['spotlight-release', selectedRelease?.id],
+    queryFn: async () => {
+      const res = await fetch(`${API}/discogs/release/${selectedRelease.id}`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!selectedRelease && selectedRelease.id > 0, // skip placeholder (negative-id) releases — nothing real to fetch
+    staleTime: Infinity,
+  })
+  const selectedYtId = (() => {
+    const v = (selectedFull?.videos || []).find(v => /youtube\.com|youtu\.be/.test(v.url || ''))
+    if (!v) return null
+    const m = v.url.match(/(?:v=|youtu\.be\/)([^&\s]{11})/)
+    return m ? m[1] : null
+  })()
+  const selectedOnSite = !!selectedRelease && (usingPlaceholders
+    ? PLACEHOLDER_ON_SITE.some(r => r.id === selectedRelease.id)
+    : onSiteIds.has(selectedRelease.id))
+
+  const textPri = 'var(--theme-text-pri)'
+  const textSec = 'var(--theme-text-sec)'
+  const textTer = 'var(--theme-text-ter)'
+  const divider = 'var(--theme-border)'
+  // Literal font stacks pulled straight from DESIGN_BASE (bodyFf/artistFf,
+  // labelFf) so this card uses exactly the same fonts as PostCard rather
+  // than falling back to the browser default — there's no global
+  // font-family rule in this app, PostCard sets it per-element, and every
+  // text node here needs to do the same.
+  const BODY_FF = "'Barlow',sans-serif"
+  const LABEL_FF = "'VT323',monospace"
+  const postsLine = `${posts.length} ${type === 'channel' ? 'live set' : 'post'}${posts.length !== 1 ? 's' : ''} in the feed`
+
+  // 2026-08-25 (Spotlight Card Editor, second pass) — replaces the old
+  // rail(276px)/media two-column split with one stacked layout shared by
+  // all three subject types: badge+mark, name, metaline, dashed rule, a
+  // visual zone, a caption line, a recent/discography list, then a cta
+  // row. Same skeleton gabriel built and tuned in the editor artifact
+  // (https://claude.ai/code/artifact/30033b88-ff72-41a6-8063-ba4ed822de7e),
+  // ported with two adjustments the editor's absolute-px mockup couldn't
+  // capture on its own: card width stays DESIGN_BASE.cardW (800, matching
+  // every other card in the feed — "Spotlights use the same standard width
+  // so they read as 'one of these cards'", see the comment above
+  // DESIGN_BASE — rather than the editor's own 700px preview canvas), and
+  // the card's real rendered height is whatever the feed row is (100vh via
+  // #scroll-inner, not the editor's fixed 702px mock), so the vertical
+  // rhythm below is expressed as flex padding/gaps with the visual zone as
+  // the one flex:1 element, instead of the editor's baked-in Y coordinates.
+  // Horizontal padding is SPOTLIGHT_PAD (see its own comment above),
+  // shared card-wide so every element sits at the same inset instead of
+  // the media sitting further in than the text around it.
 
   return (
     <div
-      ref={el => registerPostRef?.(post.id, el)}
-      style={{ flexShrink: 0, width: SPOTLIGHT_CARD_WIDTH, height: '100%', background: cardBg, borderRight: '1px solid var(--theme-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      ref={el => registerPostRef?.(cardKey, el)}
+      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, borderRight: `1px solid ${divider}`, display: 'flex', flexDirection: 'column', padding: `65px ${SPOTLIGHT_PAD}px`, overflow: 'hidden', transition: 'background 0.8s' }}
     >
-      {/* TOP HALF — collage + badge avatar */}
-      <div style={{ flex: '0 0 50%', background: flip ? '#fff' : cardBg, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {covers.slice(0, 4).map((p, i) => coverSrc(p) && (
-          <img key={p.id || i} src={coverSrc(p)} alt="" style={{ position: 'absolute', width: '50%', height: '50%', left: `${(i % 2) * 50}%`, top: `${Math.floor(i / 2) * 50}%`, objectFit: 'cover', opacity: 0.2 }} />
-        ))}
-        {type === 'artist'
-          ? <div style={{ position: 'relative', zIndex: 2, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 900, color: '#fff', fontFamily: 'Barlow, sans-serif', backdropFilter: 'blur(8px)' }}>
-              {name.charAt(0).toUpperCase()}
-            </div>
-          : <div style={{ position: 'relative', zIndex: 2, width: 80, height: 80, borderRadius: 12, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, color: 'rgba(255,255,255,0.7)', fontFamily: 'Barlow, sans-serif', backdropFilter: 'blur(8px)', letterSpacing: 1 }}>
-              {name.substring(0, 3).toUpperCase()}
-            </div>
-        }
+      {/* badge + mark */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: 'var(--theme-accent)', color: '#fff', fontFamily: LABEL_FF, textTransform: 'uppercase' }}>{type} spotlight</span>
+        <div style={{ width: type === 'channel' ? 66 : 70, height: 70, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {markImageUrl ? (
+            type === 'artist' ? (
+              <img src={markImageUrl} alt="" style={{ width: 70, height: 70, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${divider}` }} />
+            ) : (
+              <div style={{ width: 70, height: 70, borderRadius: 12, background: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, overflow: 'hidden' }}>
+                <img src={markImageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              </div>
+            )
+          ) : SPOTLIGHT_MARK[type]}
+        </div>
       </div>
-      {/* BOTTOM HALF — info */}
-      <div style={{ flex: '0 0 50%', background: flip ? cardBg : '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '10px 12px 8px', flexShrink: 0, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.15)' : '#f0ede6'}` }}>
-          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.09em', padding: '2px 6px', borderRadius: 3, display: 'inline-block', marginBottom: 5, background: 'var(--theme-accent)', color: '#fff', fontFamily: 'VT323, monospace' }}>
-            {type === 'artist' ? 'Artist spotlight' : type === 'label' ? 'Label spotlight' : 'Genre spotlight'}
-          </span>
-          <div style={{ fontSize: 14, fontWeight: 700, color: flip ? '#fff' : '#111', lineHeight: 1.25, marginBottom: 2, fontFamily: 'Barlow, sans-serif' }}>{name}</div>
-          <div style={{ fontSize: 11, color: flip ? 'rgba(255,255,255,0.6)' : '#777', marginBottom: 6, fontFamily: 'VT323, monospace', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>{count} post{count !== 1 ? 's' : ''} in the feed</span>
-            {onFilterSubject && (
-              <span onClick={() => onFilterSubject(name)} style={{ cursor: 'pointer', color: 'var(--theme-accent)', textDecoration: 'underline' }}>view all →</span>
-            )}
-          </div>
-        </div>
-        <div style={{ flex: 1, overflow: 'hidden', padding: '6px 12px' }}>
-          {covers.slice(0, 3).map((p, i) => (
-            <div key={p.id || i} style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 5, borderBottom: `0.5px solid ${flip ? 'rgba(255,255,255,0.1)' : '#f5f5f5'}`, marginBottom: 5 }}>
-              <div style={{ width: 28, height: 28, borderRadius: 3, flexShrink: 0, overflow: 'hidden', background: flip ? 'rgba(255,255,255,0.15)' : '#eee' }}>
-                {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: flip ? '#fff' : '#222', fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
-                <div style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : '#aaa', fontFamily: 'VT323, monospace' }}>{timeAgo(p.created_at)}</div>
-              </div>
+
+      {/* name */}
+      <div
+        onClick={browsable ? () => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name }) : undefined}
+        style={{ flexShrink: 0, marginTop: 14, fontSize: 21, fontWeight: 700, lineHeight: 1.25, color: textPri, fontFamily: BODY_FF, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
+      >{name}</div>
+
+      {/* metaline */}
+      <div style={{ flexShrink: 0, marginTop: 6, fontSize: 17, color: textSec, fontFamily: BODY_FF }}>
+        {hasDiscography && discography
+          ? `${postsLine} · ${discography.pagination?.items ?? allReleases.length} on Discogs`
+          : postsLine}
+      </div>
+
+      {/* dashed rule */}
+      <div style={{ flexShrink: 0, marginTop: 10, borderTop: `1px dashed ${divider}` }} />
+
+      {/* visual zone — recent covers, or (artist/label with a Discogs id)
+          the selected release's embed/cover. No padding of its own — see
+          SPOTLIGHT_PAD's own comment and the outer container's padding
+          above, which now cover this along with everything else in the card. */}
+      <div style={{ flex: 1, minHeight: 0, marginTop: 20, position: 'relative' }}>
+        {hasDiscography ? (
+          selectedRelease ? (
+            <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', background: divider, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {selectedRelease.id < 0 ? (
+                // Placeholder release (see PLACEHOLDER_ON_SITE/_NOT_YET) —
+                // no real artwork or video to show, so a plainly-labeled
+                // stand-in instead of an empty box, sized the same as a
+                // real embed would be so the layout reads the same either way.
+                <div style={{ width: '100%', maxWidth: 560, height: 315, borderRadius: 4, background: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
+                  <span style={{ fontFamily: LABEL_FF, fontSize: 13, color: textTer, letterSpacing: '0.04em' }}>PLACEHOLDER EMBED<br />{selectedRelease.title}</span>
+                </div>
+              ) : selectedYtId ? (
+                // Same fixed size as a live-set card's YouTube embed
+                // (DESIGN_BASE / PostCard's isLiveMix branch: [embedW,
+                // embedH] = [560, 315] for YouTube) — not a stretch-to-fill
+                // iframe, so a video here looks exactly like a video
+                // anywhere else in the feed.
+                <iframe
+                  src={`https://www.youtube.com/embed/${selectedYtId}?rel=0&modestbranding=1`}
+                  style={{ width: '100%', maxWidth: 560, height: 315, border: 'none', borderRadius: 4 }}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen title={selectedRelease.title} />
+              ) : (
+                (selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb) && (
+                  <img src={selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                )
+              )}
             </div>
-          ))}
-        </div>
-        <div style={{ padding: '5px 12px 8px', flexShrink: 0, borderTop: `0.5px solid ${flip ? 'rgba(255,255,255,0.15)' : '#f0ede6'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)', letterSpacing: '0.05em', fontFamily: 'VT323, monospace' }}>Spotlight · read only</span>
-          <span style={{ fontSize: 9, color: flip ? 'rgba(255,255,255,0.4)' : '#ccc', fontFamily: 'VT323, monospace' }}><span style={{ color: flip ? 'rgba(255,255,255,0.7)' : '#aaa' }}>LNV</span> · editorial</span>
-        </div>
+          ) : (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
+              {discography === undefined ? 'fetching discography…' : 'no Discogs history found'}
+            </div>
+          )
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, recent.length))}, 1fr)`, gap: 2, borderRadius: 12, overflow: 'hidden', background: divider }}>
+            {recent.slice(0, 4).map((p, i) => coverSrc(p)
+              ? <img key={p.id} src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <div key={i} style={{ background: 'var(--theme-dark3)' }} />)}
+          </div>
+        )}
+      </div>
+
+      {/* caption */}
+      <p style={{ flexShrink: 0, margin: 0, marginTop: 14, fontSize: 12.5, lineHeight: 1.55, color: textSec, fontFamily: BODY_FF, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        {hasDiscography
+          ? (selectedRelease
+              ? `${selectedRelease.title}${selectedRelease.year ? ` · ${selectedRelease.year}` : ''}${selectedOnSite ? '' : ' · not in the feed yet'}`
+              : `Pulling ${name}'s Discogs catalogue…`)
+          : type === 'channel'
+            ? `${posts.length} live set${posts.length !== 1 ? 's' : ''} deep and counting — here's what's landed under this channel so far.`
+            : `${posts.length} record${posts.length !== 1 ? 's' : ''} deep and counting — here's a closer look at what's landed under this name so far.`}
+      </p>
+
+      {/* recent list / discography picker — for artist/label subjects this
+          is now always the discography list (not gated to a single-post
+          "unknown" case any more), a real scrollable list (maxHeight + its
+          own overflowY, so a big discography can't blow out the card's
+          fixed height), split into an "already on the site" section first
+          and a gap down to "not yet uploaded". Channels have no Discogs
+          entity, so they keep the plain real-posts "Recent sets" list. */}
+      <div style={{ flexShrink: 0, marginTop: 14 }}>
+        {hasDiscography ? (
+          discography === undefined ? (
+            <>
+              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Discography</div>
+              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>fetching discography…</div>
+            </>
+          ) : discographyItems.length === 0 ? (
+            <>
+              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Discography</div>
+              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>no Discogs history found</div>
+            </>
+          ) : (
+            <div style={{ maxHeight: 140, overflowY: 'auto' }}>
+              {onSiteItems.length > 0 && (
+                <>
+                  <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Already on the site</div>
+                  {onSiteItems.map(r => (
+                    <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
+                      style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
+                      {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
+                      <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+                      <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
+                    </div>
+                  ))}
+                  <div style={{ height: 14 }} />
+                </>
+              )}
+              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>
+                {onSiteItems.length > 0 ? 'Not yet uploaded' : 'From Discogs — not in the feed yet'}
+              </div>
+              {notYetItems.map(r => (
+                <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
+                  {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
+                  <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+                  <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          <>
+            <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Recent sets</div>
+            <div>
+              {recent.slice(0, 3).map(p => (
+                <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}` }}>
+                  {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
+                  <span style={{ flex: 1, fontSize: 12, color: textSec, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+                  <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{timeAgo(p.created_at)}</span>
+                </div>
+              ))}
+              {posts.length > 3 && <div style={{ fontSize: 9, color: textTer, fontFamily: LABEL_FF, marginTop: 4 }}>+{posts.length - 3} more</div>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* cta row — 2026-08-25 fourth pass: now context-sensitive to the
+          currently selected release rather than a single fixed action.
+          When one's picked and it's already on the site, "view all →"
+          (browse the artist/label) makes more sense than an add button
+          that would just re-post a duplicate; when it's not on the site
+          yet, "+ add to feed" is the useful action. Falls back to plain
+          "view all →" while discography is still loading/empty, or for
+          channels (no discography at all). */}
+      <div style={{ flexShrink: 0, marginTop: 15, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {hasDiscography && selectedRelease && !selectedOnSite ? (
+          <button
+            onClick={() => onCreateFromDiscogs?.(`https://www.discogs.com/release/${selectedRelease.id}`)}
+            style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: LABEL_FF, fontSize: 13, letterSpacing: '0.04em', cursor: 'pointer' }}
+          >+ add to feed</button>
+        ) : browsable ? (
+          <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: 11, fontWeight: 600, cursor: 'pointer', color: 'var(--theme-accent)', fontFamily: BODY_FF, borderBottom: '1px dotted currentColor' }}>view all →</span>
+        ) : <span />}
+        <span style={{ fontSize: 10, fontFamily: LABEL_FF, color: textSec }}>LNV · editorial</span>
       </div>
     </div>
   )
 }
 
-// ── Build shelf items ─────────────────────────────────────────────────────────
-// One card per post — a spotlight post renders as a SpotlightCard, every
-// other post renders as one self-contained PostCard. Spotlights are real
-// posts returned by /api/posts in feed order (posts.js's triggerSpotlights)
-// — no client-side injection needed.
+// ── Spotlight pool + shelf items ────────────────────────────────────────────────
+// Spotlights are computed entirely client-side from whatever posts this
+// fetch returned — no backend involvement (see the 2026-08-24 spotlight
+// rework notes: this replaces the old triggerSpotlights/is_spotlight DB
+// model). A subject (artist or label) is eligible once it has at least
+// SPOTLIGHT_MIN_POSTS posts in the currently loaded set. The pool is
+// shuffled once per fresh load (buildShelfItems only re-runs when the
+// fetched post-id signature changes, see Feed()), then handed out in order
+// to each spotlight slot — every SPOTLIGHT_EVERYth real post — so a load
+// never repeats a subject until the whole pool's been used once.
+
+function buildSpotlightPool(posts) {
+  const byArtist = new Map()
+  const byLabel = new Map()
+  const byChannel = new Map()
+  for (const p of posts) {
+    const a = artistName(p)
+    if (a) { if (!byArtist.has(a)) byArtist.set(a, []); byArtist.get(a).push(p) }
+    const l = labelName(p)
+    if (l) { if (!byLabel.has(l)) byLabel.set(l, []); byLabel.get(l).push(p) }
+    // Channel only makes sense for live sets — a channel name on a regular
+    // album post would be stale/copy-pasted data, not a real signal.
+    if (detectType(p) === 'livemix') {
+      const c = channelName(p)
+      if (c) { if (!byChannel.has(c)) byChannel.set(c, []); byChannel.get(c).push(p) }
+    }
+  }
+  const pool = []
+  for (const [name, ps] of byArtist) {
+    if (ps.length >= SPOTLIGHT_MIN_POSTS) { pool.push({ type: 'artist', name, posts: ps }); continue }
+    // "Unknown artist" Discogs backfill (2026-08-25): exactly one post for
+    // this artist in the currently loaded feed — as close to "they've never
+    // posted before" as this client-side, loaded-feed-only model can tell
+    // (same caveat as the rest of this pool: it's the loaded ~60 posts, not
+    // a true site-wide count). Only eligible if that post carries a Discogs
+    // artist id, since without one there's no discography to backfill with —
+    // see SpotlightCard, which fetches it and fills "Recent adds" with their
+    // Discogs releases instead of (nonexistent) other LNV posts. This never
+    // creates posts; it's spotlight-only until the user clicks "add to feed."
+    if (ps.length === 1) {
+      const discogsArtistId = subjectDiscogsId({ type: 'artist', name, posts: ps })
+      if (discogsArtistId) pool.push({ type: 'artist', name, posts: ps, unknown: true, discogsArtistId })
+    }
+  }
+  for (const [name, ps] of byLabel)   if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'label',   name, posts: ps })
+  for (const [name, ps] of byChannel) if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'channel', name, posts: ps })
+  return pool
+}
+
+// Fisher–Yates — fresh Math.random each call, so each load reshuffles.
+function shuffled(arr) {
+  const a = arr.slice()
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
 
 function buildShelfItems(posts) {
-  return posts.map(post => (
-    post.is_spotlight
-      ? { key: `p-${post.id}-spotlight`, kind: 'spotlight', post }
-      : { key: `p-${post.id}`, kind: 'post', post }
-  ))
+  // Legacy DB-persisted spotlight posts (old triggerSpotlights model) are
+  // filtered out entirely — not rendered as spotlights (that path is gone)
+  // and not rendered as ordinary posts either (they carry no artists/
+  // labels/genres and a synthetic title, so they'd look broken as a PostCard).
+  const real = posts.filter(p => !p.is_spotlight)
+  const order = shuffled(buildSpotlightPool(real))
+
+  const items = []
+  let pick = 0
+  real.forEach((post, i) => {
+    items.push({ key: `p-${post.id}`, kind: 'post', post })
+    if ((i + 1) % SPOTLIGHT_EVERY === 0 && order.length > 0) {
+      const subject = order[pick % order.length]
+      pick++
+      items.push({ key: `spotlight-${i}-${subject.type}-${subject.name}`, kind: 'spotlight', subject })
+    }
+  })
+  return items
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
@@ -717,7 +1183,15 @@ function ThemePicker({ currentIdx, onSelect }) {
 // extra room to anymore. Back to exactly 100% of the viewport, matching
 // round 8's original shape.
 
-function FeedIntro() {
+// Content settled 2026-08-24 (gabriel: "time/date + live feel") — a clock
+// (Clock.jsx, re-themed off the old hardcoded --charcoal/--grey-text onto
+// --theme-* tokens so it actually shifts with the time-of-day palette like
+// everything else) top-right, and a scroll cue bottom-right. The live post
+// count and the small "scroll to begin" caption line (2026-08-24, first
+// pass) were both dropped later that same day per gabriel's ask — the
+// scroll cue now reuses the numeral treatment instead of its own small
+// VT323 line.
+function FeedIntro({ clockWrapRef, scrollCueRef }) {
   return (
     <div style={{
       flexShrink: 0,
@@ -726,15 +1200,72 @@ function FeedIntro() {
       height: '100%',
       background: 'var(--theme-showcase)',
       borderRight: '1px solid var(--theme-border)',
+      position: 'relative',
       display: 'flex',
       flexDirection: 'column',
-      justifyContent: 'flex-end',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
       padding: 32,
       boxSizing: 'border-box',
       transition: 'background 0.8s, border-color 0.8s',
     }}>
-      <div style={{ fontFamily: 'VT323, monospace', fontSize: 14, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', textTransform: 'uppercase' }}>
-        ▾ scroll to begin
+      {/* Clock is pinned to the top-right corner — a fixed anchor point,
+          not part of the centered stack below (per gabriel's ask).
+          Starts invisible (opacity 0 below) and fades IN as the feed
+          scrolls, exactly like the FADE wordmark in Strip.jsx
+          (railWordmarkRef / LayoutProvider's fadeTextOpacity) — see
+          Feed()'s "Landing-panel clock" effect, which owns clockWrapRef's
+          opacity AND `right` (see that effect's own comment for why
+          `right` has to be live-tracked, not a flat value). Not a
+          mount-triggered CSS animation (the previous approach) — gabriel
+          didn't want the numbers visible on open. Inline `right` below is
+          only the very-first-paint fallback, before that effect's first
+          frame runs — it matches the strip's known RESTING gap
+          (STRIP_OPEN_WIDTH - RAIL_WIDTH) + the same 56px margin the effect
+          converges toward. */}
+      <div ref={clockWrapRef} style={{ position: 'absolute', top: 28, right: STRIP_OPEN_WIDTH - RAIL_WIDTH + 56, textAlign: 'right', opacity: 0, transition: 'opacity 0.15s linear' }}>
+        <Clock />
+      </div>
+      {/* Scroll cue — pinned to the bottom-right area, same numeral
+          treatment as the clock and PostCard's plate numeral (7rem/900/
+          lh 0.78/ls -0.03em, Barlow, textPri) per gabriel's ask. Arrow
+          leads (before "SCROLL") and points LEFT — matches the feed's own
+          motion: scrolling forward pulls the next card in from the right
+          while everything already on screen slides left, so a left arrow
+          reads as "this way," not down.
+          `right` FIX (2026-08-24 — gabriel's screenshot showed "SCR" cut
+          off at the actual browser window edge): the earlier vw-based
+          `right` guessed at the wrong problem. The real cause is
+          structural — Layout.jsx sizes the feed zone as
+          `calc(100vw - 108px)`, assuming the nav strip (Strip.jsx) is
+          already collapsed to its 108px floor, but AT REST (landing,
+          scrollLeft 0 — exactly when this cue needs to be visible) the
+          strip is still at its full STRIP_OPEN_WIDTH (530px). That extra
+          (530-108=422px) of strip width pushes FeedIntro's whole box
+          (and everything positioned via `right` inside it) that far
+          past the actually-visible window edge, clipped by #scroll-inner's
+          own overflow — nothing to do with viewport width at all, so no
+          vw-based value could ever fully fix it. This cue only needs to
+          read right at scroll 0 (it scrolls away with everything else in
+          FeedIntro once the user starts scrolling), so unlike the clock
+          (which stays mounted and visible well past that point — see its
+          own live-tracked `right`) a flat value computed from the strip's
+          known RESTING width is enough here.
+          Fades OUT once scrolling begins, and locked gone for good after
+          that (never reappears, even if gabriel scrolls back to position
+          0 — only a page reload brings it back) — see Feed()'s "Scroll
+          cue fade-out" effect, which owns this element's opacity and
+          animation from here on. */}
+      <div ref={scrollCueRef} style={{
+        position: 'absolute', bottom: 28, right: STRIP_OPEN_WIDTH - RAIL_WIDTH + 56,
+        display: 'flex', alignItems: 'baseline', gap: 16, whiteSpace: 'nowrap',
+        fontFamily: "'Barlow',sans-serif", fontWeight: 900, fontSize: '7rem',
+        lineHeight: 0.78, letterSpacing: '-0.03em', color: 'var(--theme-text-pri)',
+        opacity: 0.3, // pre-first-frame fallback; Feed()'s "Scroll cue fade-out" effect owns this from frame one
+      }}>
+        <span>←</span>
+        <span>SCROLL</span>
       </div>
     </div>
   )
@@ -748,10 +1279,20 @@ export default function Feed() {
   const [themeIdx, setThemeIdx]       = useState(-1)
   const [pickerOpen, setPickerOpen]   = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
+  const [composeInitialUrl, setComposeInitialUrl] = useState('')
+  // "Add to feed" from a spotlight's Discogs discography preview — opens
+  // the normal compose flow pre-loaded with that release's Discogs URL, so
+  // it runs through ComposeModal's own existing fetch/populate/dedupe-check
+  // pipeline exactly like pasting the link in by hand (see ComposeModal's
+  // initialUrl prop + its mount effect). Nothing is posted until the user
+  // reviews and hits post themselves.
+  function openComposeWithUrl(url) { setComposeInitialUrl(url); setComposeOpen(true) }
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch]           = useState('')
   const shelfItems                    = useRef([])
   const lastPostsSignature            = useRef(null)
+  const clockWrapRef                  = useRef(null)
+  const scrollCueRef                  = useRef(null)
   const queryClient                   = useQueryClient()
   const { feedRef, driveFeedScroll } = useLayout() || {}
 
@@ -776,13 +1317,14 @@ export default function Feed() {
         ? `${API}/posts?limit=60&search=${encodeURIComponent(search)}`
         : `${API}/posts?limit=60`
       const res = await fetch(url)
-      if (!res.ok) return []
+      if (!res.ok) return { posts: [], total: 0 }
       const d = await res.json()
-      return Array.isArray(d) ? d : (d.posts || [])
+      // /api/posts returns {posts,total,page,limit}; tolerate a bare array too.
+      return Array.isArray(d) ? { posts: d, total: d.length } : { posts: d.posts || [], total: d.total ?? (d.posts || []).length }
     },
     refetchInterval: search ? false : 30000,
   })
-  const posts = Array.isArray(raw) ? raw : []
+  const posts = raw?.posts || []
 
   const postsSignature = posts.map(p => p.id).join(',')
   if (postsSignature !== lastPostsSignature.current) {
@@ -809,6 +1351,126 @@ export default function Feed() {
     return () => { el.removeEventListener('mousedown', onDown); el.removeEventListener('mouseleave', onUp); el.removeEventListener('mouseup', onUp); el.removeEventListener('mousemove', onMove) }
   }, [feedRef, driveFeedScroll])
 
+  // Landing-panel clock — fades IN once, at the very start, mirroring
+  // Strip.jsx's FADE wordmark (railWordmarkRef / LayoutProvider's
+  // fadeTextOpacity): invisible at rest (right when the feed opens — per
+  // gabriel's ask, no numbers on load), then locked fully solid the moment
+  // it first reaches opacity 1 — it never dims again after that, even if
+  // the feed later scrolls back to position 0 (scroll-to-top, or a new
+  // search resetting feedRef.scrollLeft).
+  //
+  // Also live-tracks `right` (2026-08-24, same investigation as the
+  // scroll-cue clipping fix, see FeedIntro's own comment on it): Layout.jsx
+  // sizes the feed zone as `calc(100vw - 108px)`, assuming Strip.jsx has
+  // already collapsed to its RAIL_WIDTH floor, but the strip only reaches
+  // that floor once `raw` (the same scroll-progress value driving this
+  // clock's own fadeTextOpacity) hits 1 — well AFTER the clock is already
+  // fully opaque (fadeTextOpacity locks at raw=0.4, the strip doesn't
+  // finish collapsing until raw=1). So a flat `right` clips the clock for
+  // a long stretch of scrolling even after it's fully visible-in-principle.
+  // Unlike the scroll cue (which only has to be correct once, at rest, and
+  // scrolls off screen shortly after), the clock stays mounted and on
+  // screen well past that point, so its `right` has to keep tracking the
+  // strip's actual current width for as long as this component lives —
+  // not just until first opaque, and not one-way-locked the way opacity
+  // is (if gabriel scrolls back toward 0, the strip re-expands, and the
+  // clock must retreat with it or it'd end up rendered underneath the
+  // strip).
+  //
+  // PERF NOTE (fixed 2026-08-24 — gabriel reported the scroll had gone
+  // janky after this was first added): the first version listened for
+  // native 'scroll' events and read `el.scrollLeft` in the handler. That
+  // read is the bug — LayoutProvider's own RAF ticker writes several
+  // LAYOUT-affecting styles every single frame (stripRef/railZoneRef
+  // widths, in handleFeedScroll), and reading any layout-dependent
+  // property (scrollLeft included) shortly after those writes forces the
+  // browser to run a synchronous layout recalculation on top of the one
+  // it would already do for paint — extra forced reflow, 60x/sec, on top
+  // of an already write-heavy frame. Fix: don't read the DOM again at all.
+  // LayoutProvider already computes both numbers this needs once per frame
+  // (`fadeTextOpacity` — the same value driving the FADE wordmark — and
+  // `outerWidth`, the strip's live current width) and parks them on
+  // `window.lnvDebugStrip` — kept there specifically for reuse like this
+  // (see its own round-16 comment). Reading plain object properties isn't
+  // a layout read, so this costs nothing extra per frame; runs indefinitely
+  // (no early return) precisely because `right` must never stop tracking.
+  useEffect(() => {
+    let raf = null
+    let opacityLocked = false
+    function loop() {
+      const dbg = window.lnvDebugStrip
+      const outerWidth = dbg?.outerWidth ?? STRIP_OPEN_WIDTH // before the first frame, assume the known resting width
+      const gap = Math.max(0, outerWidth - RAIL_WIDTH) // how far past the visible window edge FeedIntro's box currently sits
+      if (clockWrapRef.current) {
+        clockWrapRef.current.style.right = `${gap + 56}px`
+        if (!opacityLocked) {
+          const opacity = dbg?.fadeTextOpacity ?? 0
+          clockWrapRef.current.style.opacity = `${opacity}`
+          if (opacity >= 1) opacityLocked = true
+        }
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => { if (raf) cancelAnimationFrame(raf) }
+  }, [])
+
+  // Scroll cue fade-out — the "← SCROLL" cue is only for the moment before
+  // any scrolling has happened; per gabriel's ask it fades out as soon as
+  // scrolling begins and stays gone for good after that (never reappears,
+  // even scrolling back to position 0 — only a fresh page load brings it
+  // back, since `locked`/`fadeStartOpacity` below live only in this
+  // effect's closure and reset on remount). FADE_OUT_RANGE is deliberately
+  // tight — the cue should read as "scrolling has started, get out of the
+  // way" rather than a slow farewell.
+  //
+  // FIXED 2026-08-24 — gabriel reported a "snappy" glitch right at the
+  // instant scrolling starts. Root cause: the first version left the idle
+  // pulse as a CSS `animation` (index.css's `pulse` keyframe, 0.3<->0.7
+  // opacity) and, the moment raw left 0, killed it with
+  // `style.animation='none'` while simultaneously writing a fresh JS
+  // opacity starting near 1. Whatever point the CSS animation's own
+  // internal cycle happened to be at (anywhere in 0.3-0.7) got replaced by
+  // ~1 in a single frame — a real, visible opacity jump, not a rendering
+  // hiccup. Fix: JS owns `opacity` from the very first frame, always — the
+  // idle "pulse" is now computed here too (same 0.3<->0.7 curve as the old
+  // CSS keyframe, via a plain sine easing off the rAF timestamp) instead
+  // of living in a separate CSS animation, so there's no handoff moment at
+  // all. And when raw does cross 0, the fade-out starts from
+  // `fadeStartOpacity` — whatever the idle pulse's actual value was on
+  // that exact frame — down to 0, rather than resetting to a hardcoded 1,
+  // so the two phases connect continuously with no discontinuity to see.
+  useEffect(() => {
+    let raf = null
+    let locked = false
+    let lastIdleOpacity = 0.3
+    let fadeStartOpacity = null
+    const FADE_OUT_RANGE = 0.05
+    const PULSE_PERIOD_MS = 2200 // matches the old CSS `pulse 2.2s`
+    function loop(ts) {
+      if (locked) return
+      const raw = window.lnvDebugStrip?.raw ?? 0
+      let opacity
+      if (raw <= 0) {
+        const phase = (ts % PULSE_PERIOD_MS) / PULSE_PERIOD_MS // 0..1, wraps every 2.2s
+        const eased = (1 - Math.cos(phase * Math.PI * 2)) / 2   // smooth 0..1..0, same shape as ease-in-out
+        opacity = 0.3 + eased * 0.4                             // 0.3..0.7, matching the old pulse keyframe's range
+        lastIdleOpacity = opacity
+      } else {
+        if (fadeStartOpacity === null) fadeStartOpacity = lastIdleOpacity // seamless handoff — start from where the pulse actually was
+        const decay = Math.min(raw / FADE_OUT_RANGE, 1)
+        opacity = fadeStartOpacity * (1 - decay)
+      }
+      if (scrollCueRef.current) {
+        scrollCueRef.current.style.opacity = `${opacity}`
+        if (raw > 0 && opacity <= 0) { locked = true; return } // gone for good until reload
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => { if (raf) cancelAnimationFrame(raf) }
+  }, [])
+
   // Keyboard
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') setPickerOpen(false) }
@@ -819,12 +1481,6 @@ export default function Feed() {
     if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
     return `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
-  }
-
-  function filterToSubject(name) {
-    setSearchInput(name)
-    setSearch(name)
-    if (feedRef?.current) feedRef.current.scrollLeft = 0
   }
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
@@ -846,7 +1502,7 @@ export default function Feed() {
           programmatic .scrollLeft writes (which is all this ever needs), it
           just stops the browser from independently claiming wheel input. */}
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
-        <FeedIntro />
+        <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {!posts.length && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
             {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
@@ -854,7 +1510,7 @@ export default function Feed() {
         )}
         {shelfItems.current.map((item, idx) => {
           const cardBg = getCardBg(idx, item)
-          if (item.kind === 'spotlight') return <SpotlightCard key={item.key} post={item.post} cardBg={cardBg} flip={idx % 2 !== 0} onFilterSubject={filterToSubject} />
+          if (item.kind === 'spotlight') return <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
           return <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} />
         })}
       </div>
@@ -891,8 +1547,9 @@ export default function Feed() {
 
       {composeOpen && (
         <ComposeModal
-          onClose={() => setComposeOpen(false)}
-          onPosted={() => { setComposeOpen(false); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
+          initialUrl={composeInitialUrl}
+          onClose={() => { setComposeOpen(false); setComposeInitialUrl('') }}
+          onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
         />
       )}
     </div>
