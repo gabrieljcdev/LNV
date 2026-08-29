@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
@@ -37,166 +37,122 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 //
 // To take a new export: replace the two objects below verbatim and set
 // ROTATION to the export's "rotation". Nothing else should need touching.
+//
+// 2026-08-28: gabriel — only 2 ways now (top plate / bottom plate, both
+// media-right). The mediaSide:'left' mirrors (the old v2/v3) are gone, not
+// just unreachable — this is the permanent design, not a placeholder.
 const ROTATION = 2
 
+// 2026-08-28 (Task B): the rail went from nine absolutely-positioned boxes
+// (each pinned to a worst-case Y so nothing could ever collide) to a plain
+// flex column — content sizes itself now, and a single flex:1 spacer
+// absorbs whatever's left over, instead of every zone reserving its own
+// worst-case slack and leaving a mismatched dead gap behind whatever a
+// particular card's content didn't use (see the 2026-08-28 "gap between
+// info" report — this is the actual fix for that, not a patch to the old
+// Y numbers). DESIGN_BASE is now just shared type/spacing tokens; the
+// per-way table (DESIGN_VARIANTS, below) is down to three switches:
+// mediaSide, plateAlign, and plateBottom (was it plate-top or plate-bottom).
+//
+// The old PLATE_TOP / PLATE_BOTTOM / LIVE Y-coordinate tables, the box()
+// absolute-positioning helper, and the *Col/*X/*Y/*W fields they fed are
+// gone — nothing else in this repo imports them (checked before deleting:
+// only Feed.jsx itself ever referenced DESIGN_VARIANTS / PLATE_TOP /
+// PLATE_BOTTOM / designFor). The standalone card-designer artifacts
+// referenced elsewhere in this file's history (Plate Card Designer, Post
+// Card / Live Set Rail Editor) are separate published Claude Artifacts,
+// not part of this codebase, so they're unaffected either way.
 const DESIGN_BASE = {
-  // ── placement ───────────────────────────────────────────────────────────────
-  // ONE text column in the rail. The plate and tracklist carry their own 20px
-  // padding, so the pills / replies / byline boxes are inset 20px and 40px
-  // narrower (85.51% of 276) to land on exactly the same x 20-256 column.
-  // Nothing in the rail runs to the card edge any more.
-  //
-  // Pills mirror with the card (justifyContent is derived from plateAlign in
-  // PostCard). Replies and the byline do NOT mirror: they share one Y and form
-  // a footer row, replies hard left, byline hard right, under one dashed rule.
-  //
-  // Y values live in the PLATE_TOP / PLATE_BOTTOM / LIVE blocks below.
-  plateCol:'rail',     plateX:0,    plateW:100,
-  trackCol:'rail',     trackX:0,    trackW:100,
-  pillsCol:'rail',     pillsX:20,   pillsW:85.51,
-  repliesCol:'rail',   repliesX:20, repliesW:85.51,
-  stampCol:'rail',     stampX:20,   stampW:85.51,
-  commentsCol:'rail',  commentsX:0, commentsY:201, commentsW:100,
-  matCol:'media',      matX:0,      matW:100,
-  captionCol:'media',  captionX:52.4, captionW:80,
-  descCol:'media',     descX:32.4,    descW:87.63,
+  mediaSide: 'right',
+  cardW: 800, cardH: 820, cardRadius: 0, infoW: 280,
+  railBorder: 1,
 
-  mediaSide:'right',
-  cardW:800, cardH:820, cardRadius:0, infoW:276,
-  railBorder:1, zoneDivider:1,
-  platePt:20, platePx:20, platePb:16, plateAlign:'right',
-  badgeSize:9, badgeWeight:700, badgeLs:0.1, badgePy:3, badgePx:8,
-  badgeRadius:3, badgeMb:9,
-  artistFf:"'Barlow',sans-serif", artistSize:21, artistWeight:700,
-  artistLh:1.25, artistLs:0, artistCase:'none',
-  metalineSize:17, metalineLh:1.4, metalineMt:2,
-  numeralFf:"'Barlow',sans-serif", numeralSize:7, numeralWeight:900,
-  numeralLh:0.78, numeralLs:-0.03, numeralMt:10, numeralColor:'#111111',
-  trackPy:14, trackPx:20, trackSize:12, trackTitleW:100,
-  tracknumSize:9, trackGap:8, trackRowpad:4,
-  descPy:14, descPx:20, descPb:16, descSize:12.5, descLh:1.55,
-  pillSize:11, pillPy:3, pillPx:10, pillRadius:99, pillGap:4, pillBg:'#e8e8e8',
-  metarowSize:11, metarowPt:12, stampSize:10,
-  cmPy:8, cmPx:16, cmSize:12,
-  labelFf:"'VT323',monospace", zlabelSize:11, zlabelLs:0.06, zlabelMb:8,
-  colPad:0, captionAlign:'space-between',
-  matGrow:'1', matFill:'none', matColor:'#cfe3f0', matRadius:0, matPad:0,
-  frameRadius:0, frameRatio:'1/1', artFill:80, artRadius:40,
-  artOffsetY:0, artOffsetX:0,
-  artShadowY:0, artShadowB:0, artShadowA:0,
-  embedPreset:'soundcloud', embedW:560, embedH:315,
-  captionPt:12, captionSize:12.5, captionNameSize:13.5, captionNameWeight:700,
-  captionColor:'#2b4553', captionNameColor:'#102430',
-  bodyFf:"'Barlow',sans-serif",
-  badge2Color:'#4a90d9',
+  // ── plate ──────────────────────────────────────────────────────────────
+  badgeSize: 9, badgeWeight: 600, badgeLs: 0.16, badgePy: 4, badgePx: 7,
+  badgeRadius: 3,
+  artistFf: "'Barlow',sans-serif", artistSize: 30, artistWeight: 700,
+  artistLh: 1.02, artistLs: -0.022, artistCase: 'none', artistMt: 15,
+  titleSize: 30, titleLh: 1.02, titleLs: -0.022,
+  metalineSize: 11, metalineLh: 1.45, metalineLs: 0.09, metalineMt: 11,
+  numeralFf: "'Barlow',sans-serif", numeralSize: 180, numeralWeight: 900,
+  numeralLh: 0.78, numeralLs: -0.055, numeralOpacity: 0.22,
+  numeralMargin: '4px 0 0 -8px', numeralColor: '#111111',
 
-  // The export also carries cBg / cPri / cSec / cTer / cAccent / cLine.
-  // Those are DELIBERATELY NOT APPLIED: the palette system owns text,
-  // background, accent and border colours through the --theme-* custom
-  // properties, and hardcoding them would break the theme picker and the
-  // auto clock palette.
+  // ── rules — standalone dividers between flow groups now, not borders on
+  // absolutely-placed boxes (see PostCard's railChildren) ─────────────────
+  ruleMy: 15, ruleSolidMy: 10,
+
+  // ── tracklist ─────────────────────────────────────────────────────────
+  trackSize: 13, trackTitleW: 100, trackGap: 10, trackRowpad: 3.5,
+  tracknumSize: 10, trackMoreSize: 11,
+  zlabelSize: 9, zlabelLs: 0.2, zlabelMb: 8,
+
+  // ── description (media column) ──────────────────────────────────────
+  descSize: 13, descLh: 1.5, descMt: 14, descMtTop: 0,
+
+  // ── byline (rail footer — replies count + handle + stamp, one row) ────
+  bylineMt: 14, handleSize: 11.5, handleWeight: 600,
+  stampSize: 10, stampLs: 0.08,
+
+  // ── genre pills / replies button — not part of the v2 typography pass;
+  // kept at their existing sizes (gabriel: keep both, just re-flowed into
+  // the tracklist group and the byline row respectively) ─────────────────
+  pillSize: 11, pillPy: 3, pillPx: 10, pillRadius: 99, pillGap: 4,
+  metarowSize: 11,
+
+  labelFf: "'Barlow',sans-serif", // was VT323 — badges/zone-labels are Barlow now
+  bodyFf: "'Barlow',sans-serif",
+  monoFf: "'IBM Plex Mono',monospace", // was VT323 for stamp/track-meta — see index.css import
+
+  // ── media column ─────────────────────────────────────────────────────
+  padY: 120, bandPadX: 32,
+  artSize: 396, artRadius: 40, // artSize: 344*1.15 per gabriel 2026-08-29; artRadius: KEEP AT 40 per gabriel
+  artOffsetY: 0, artOffsetX: 0, artMbBottom: -21, artMtTop: 40, // artMbBottom: -21 per gabriel 2026-08-29 (art top flush with rail artist-name top, not container bottom — see round 9 note below)
+  artShadowY: 0, artShadowB: 0, artShadowA: 0,
+  captionMt: 11, captionMtBottom: 0, captionMtTop: 16, captionMaxW: 344, captionSize: 12, captionLh: 1.5, // captionMtBottom: 0 per gabriel 2026-08-29 (desc/caption flush in bottom-plate stack)
+  captionNameSize: 13.5, captionNameWeight: 700,
+  catSize: 10, catLs: 0.1, catMt: 6,
+  captionColor: '#2b4553', captionNameColor: '#102430',
+
+  embedWellW: 496, embedWellH: 279, embedInnerW: 456, embedInnerH: 257,
+  embedPreset: 'soundcloud', embedW: 560, embedH: 315,
+
+  matFill: 'none', matColor: '#cfe3f0', matRadius: 0, matPad: 0, // matFill: DO NOT TOUCH
+
+  cmPy: 8, cmPx: 16, cmSize: 12,
+
+  // The export also carried cBg / cPri / cSec / cTer / cAccent / cLine, and
+  // still carries numeralColor / captionColor / captionNameColor as literal
+  // hex. Same as before 2026-08-26: DELIBERATELY NOT APPLIED — the palette
+  // system owns text/background/accent/border through --theme-* custom
+  // properties, hardcoding these would break the theme picker and the auto
+  // clock palette. PostCard reads --theme-* tokens directly instead; these
+  // fields are left in place as inert legacy values, not wired to anything.
 }
 
-// ---------------------------------------------------------------------------
-// The four ways are two mirrored pairs. Measured off gabriel's five reference
-// screenshots (2026-08-23) and then normalised, so every pair is exact.
-//
-//   W1 <-> W3   PLATE_TOP      plate at the top of the rail, artwork at the top
-//   W2 <-> W4   PLATE_BOTTOM   byline at the top, plate low, artwork at the base
-//
-// Within a pair every Y is IDENTICAL; only `mediaSide` and `plateAlign` flip.
-//
-// The top and bottom halves are exact VERTICAL mirrors of one another. The rail
-// is one 450px group (plate 252 + tracklist 134 + 10 + pills 22) plus a 30px
-// footer row, and the two are swapped end for end:
-//
-//   PLATE_TOP     [45] plate track pills ....327.... footer [0]
-//   PLATE_BOTTOM  [0] footer ....327.... plate track pills [45]
-//
-// The media column mirrors the same way: artwork/caption/description reading
-// downward in the top ways, description/caption/artwork in the bottom ways,
-// with the 80px outer margin swapping ends.
-//
-// Slot heights are worst-case, so nothing ever collides: a 2-line artist name
-// makes the plate 252 tall, and the tracklist is capped at 3 rows + "+n more"
-// (see `tracks.slice(0, 3)` in PostCard) which caps it at 134.
-// ---------------------------------------------------------------------------
-
-// Artwork is 80% of the 524px media column => 419.2px, centred, so it sits at
-// x 52.4-471.6 and, inside a 1:1 mat, 52.4px down from the mat's own top.
-// Y and (where they've drifted from DESIGN_BASE's shared X) X values below are
-// gabriel's own, dragged in the Post Card Rail Editor artifact and pasted back
-// verbatim (2026-08-24). trackX/captionX/descX/matX overrides are per-pair
-// (W1/W3 vs W2/W4) rather than shared, since the rail editor let them diverge
-// between the plate-top and plate-bottom cards.
-// 2026-08-25: repliesY/stampY (the footer row: replies count + byline) nudged
-// off the edge it used to sit flush against, on all three variants below --
-// gabriel flagged (with a screenshot, red lines marking the empty band above
-// and below a card's real content) that the footer sitting right at the card
-// edge read as lopsided padding once you look at a single card on its own,
-// even though PLATE_TOP/PLATE_BOTTOM were always meant to mirror EACH OTHER
-// rather than be internally symmetric. PLATE_TOP: repliesY/stampY 790->726
-// (was flush against cardH:820, now ~64px clear -- matches its own top gap,
-// plateY:44 + platePt:20). PLATE_BOTTOM: repliesY/stampY 0->52 (was flush
-// against the top, now ~64px clear, matching PLATE_TOP's new number). LIVE:
-// repliesY/stampY 790->726, same fix as PLATE_TOP's bottom -- LIVE's own top
-// (plateY:5) is still tight (~25px) and NOT touched here: pushing it out to
-// 64px like the others would need plateY up near 44, which starts to eat
-// into the ~236px gap before trackY:280 (worst-case 2-line artist name is
-// assumed 252 tall elsewhere in this file -- 44+252 would just clear 280,
-// close enough to want it re-checked live, not shipped blind). PLATE_BOTTOM's
-// OTHER edge (pillsY:684, ~114px clear at the bottom) is untouched for the
-// same reason -- closing it the rest of the way means moving plate/track/
-// pills, not just the footer, without a live render to verify against. No
-// browser access this session (standing limitation) -- numbers are computed
-// from the styles' own padding values, not measured off a render. Re-check
-// with the Post Card / Live Set Rail Editor artifacts (2026-08-24) before
-// trusting these are pixel-exact.
-const PLATE_TOP = {   // W1 / W3
-  plateY:44,  trackY:318, pillsY:482, repliesY:726, stampY:726,
-  matY:28,    captionY:508, descY:568,
-  trackX:-1,  captionX:60.4, descX:55.4,
-}
-const PLATE_BOTTOM = { // W2 / W4 - rail reads byline, plate, tracklist, pills
-  repliesY:52, stampY:52, plateY:308, trackY:550, pillsY:684,
-  descY:198,  captionY:289, matY:292,
-  descX:57.4, captionX:61.4, matX:4,
-}
-// Live sets have no tracklist (the zone becomes Channel) and no bottom variant -
-// the plate stays at the top on all four ways. Values are gabriel's own, taken
-// from the live-set reference screenshot; only the side and alignment mirror.
-// Live-set embeds are not square and their height depends on the platform
-// (YouTube 560x315, SoundCloud 480x166, Mixcloud 400x60), so the caption sits
-// below the TALLEST of them - 278 + 315 = 593 - rather than below the
-// SoundCloud embed in the reference screenshot. A short embed therefore leaves
-// more air above the caption than a tall one.
-// Y values and cardW below are gabriel's own, dragged in the Live Set Rail
-// Editor artifact and pasted back verbatim (2026-08-24). cardW:900 (vs the
-// shared DESIGN_BASE.cardW:800) is live-only — designFor() only merges LIVE
-// in for isLiveMix posts, so this widens live-set cards without touching
-// album cards, no other code changes needed.
-const LIVE = {
-  plateY:5,   trackY:280, pillsY:346, repliesY:726, stampY:726,
-  matY:169,   captionY:488, descY:536,
-  cardW:900,
-}
-
+// Two mirrored halves, same idea as before Task B: mediaSide/plateAlign
+// flip the card left/right, plateBottom flips whether the rail reads
+// plate-then-tracklist-then-byline (top) or byline-then-plate-then-tracklist
+// (bottom) — see PostCard's railChildren for how that flag actually
+// reorders the flow. Live sets keep the plate at the top on all four ways,
+// same as before this rework; cardW:900 (vs DESIGN_BASE's 800) stays
+// live-only, same mechanism as before (designFor only merges a live-set
+// slot in for isLiveMix posts).
 const DESIGN_VARIANTS = {
-  'v0:album': { ...PLATE_TOP,    mediaSide:'right', plateAlign:'right' },
-  'v1:album': { ...PLATE_BOTTOM, mediaSide:'right', plateAlign:'right' },
-  'v2:album': { ...PLATE_TOP,    mediaSide:'left',  plateAlign:'left'  },
-  'v3:album': { ...PLATE_BOTTOM, mediaSide:'left',  plateAlign:'left'  },
+  // Only 2 ways: v0 is the top plate, v1 is the bottom plate — both
+  // media-right. See the 2026-08-28 note by ROTATION.
+  'v0:album': { mediaSide: 'right', plateAlign: 'right', plateBottom: false },
+  'v1:album': { mediaSide: 'right', plateAlign: 'right', plateBottom: true },
 
-  'v0:live':  { ...LIVE, mediaSide:'right', plateAlign:'right' },
-  'v1:live':  { ...LIVE, mediaSide:'right', plateAlign:'right' },
-  'v2:live':  { ...LIVE, mediaSide:'left',  plateAlign:'left'  },
-  'v3:live':  { ...LIVE, mediaSide:'left',  plateAlign:'left'  },
+  'v0:live': { mediaSide: 'right', plateAlign: 'right', plateBottom: false, cardW: 900, padY: 40 },
+  'v1:live': { mediaSide: 'right', plateAlign: 'right', plateBottom: false, cardW: 900, padY: 40 },
 }
 
 // idx is the post's position in the feed, so consecutive posts step through
 // the rotation. ROTATION 2 uses ways 1-2 only; raise it to 4 to bring the
 // other two in (they flip mediaSide, which puts two media columns next to
 // each other at the seam between cards -- check that before switching).
+// ROTATION itself is unchanged by Task B, per gabriel.
 function designFor(idx, isLiveMix) {
   const way = ((idx % ROTATION) + ROTATION) % ROTATION
   const slot = 'v' + way + ':' + (isLiveMix ? 'live' : 'album')
@@ -211,6 +167,7 @@ function designFor(idx, isLiveMix) {
 // collage look sparse).
 const SPOTLIGHT_EVERY = 5
 const SPOTLIGHT_MIN_POSTS = 3
+
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -228,6 +185,24 @@ function artistName(p) { return p.artists?.[0]?.artist_name || p.artists?.[0]?.n
 function labelName(p)  { return p.labels?.[0]?.label_name  || p.labels?.[0]?.name  || p.label_name  || '' }
 function channelName(p){ return p.channel || '' }
 function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image || p.thumbImage || p.cover_art || '' }
+
+// 2026-08-26: pulled out of PostCard's inline embed derivation (same
+// regexes, same platform priority: YouTube > SoundCloud > Mixcloud) so
+// SpotlightCard's new artist/channel post-grid can turn a post's stream
+// URL into an embeddable src too, without duplicating slightly-different
+// logic. PostCard's own inline version is untouched — this is additive,
+// not a refactor of already-shipped, already-tested code.
+function postStreamUrl(p) {
+  return p.stream_url || p.embed_url || p.tracks?.[0]?.youtube_url || p.tracks?.[0]?.stream_url || ''
+}
+function toEmbedSrc(streamUrl) {
+  if (!streamUrl) return null
+  const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0&modestbranding=1&color=white`
+  if (/soundcloud\.com/i.test(streamUrl)) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(streamUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true`
+  if (/mixcloud\.com/i.test(streamUrl)) return `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(streamUrl.replace('https://www.mixcloud.com',''))}`
+  return null
+}
 
 function detectType(p) {
   if (p.post_type) return p.post_type
@@ -247,13 +222,49 @@ const PLATFORM_COLORS = {
 
 const POST_BG_CYCLE = ['dark1','dark2','dark3','dark1','dark2','light1','dark3','dark1','dark2','dark3','light1','dark1','dark2']
 
+// ── Feed meter ────────────────────────────────────────────────────────────────
+// One flat gap between every neighbour in the shelf — intro, posts and
+// spotlights alike. The first pass (2026-08-28, Task A) graded this by what
+// sat either side (50/100/200 — "a bigger gap means new section") but
+// gabriel flagged it as reading inconsistent rather than legible once it
+// was actually on screen, so it's back to one number. U stays as the meter
+// unit — card widths are still multiples of it (800 = 8U, 900 = 9U) — GAP
+// just isn't tiered off it any more.
+const U = 100
+const GAP = 0.5 * U // 50px, every seam
+
+// The seam is a real element now, not a margin — margin only ever exposed
+// the page's flat var(--theme-bg) behind it, which didn't match either
+// card's own tint (POST_BG_CYCLE and the spectrum both paint the CARD, not
+// the page — see postSpectrum.js). 2026-08-28: FeedGap first tried a
+// linear-gradient blend across the full seam; gabriel didn't want the blur
+// — he wants the gap to read as each neighbour's OWN card extending into
+// it, solid, meeting at a hard line in the middle, not melting into each
+// other. So it's two solid halves, no gradient: the left GAP/2 carries
+// `from` (the card just rendered), the right GAP/2 carries `to` (the card
+// about to render) — same colors as before, just not blended.
+function FeedGap({ from, to }) {
+  const half = GAP / 2
+  return (
+    <div aria-hidden="true" style={{ display: 'flex', flexShrink: 0, width: GAP, height: '100%', alignSelf: 'stretch' }}>
+      <div style={{ flexShrink: 0, width: half, height: '100%', background: from, transition: 'background 0.8s' }} />
+      <div style={{ flexShrink: 0, width: half, height: '100%', background: to, transition: 'background 0.8s' }} />
+    </div>
+  )
+}
+
 // ── CoverArt ──────────────────────────────────────────────────────────────────
 
 function CoverArt({ post, style = {}, children }) {
   const [err, setErr] = useState(false)
   const src = coverSrc(post || {})
   return (
-    <div style={{ background: 'linear-gradient(135deg,#1e2126,#08090b)', position: 'relative', overflow: 'hidden', flexShrink: 0, ...style }}>
+    // dark2 -> dark1 rather than the old literal #1e2126 -> #08090b: both of
+    // those tokens are dark in all eight palettes, so the tile stays dark
+    // enough for the white placeholder glyph while still picking up the
+    // palette's hue (Midday reads red, Evening purple) instead of punching a
+    // fixed black square through the four light themes.
+    <div style={{ background: 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))', position: 'relative', overflow: 'hidden', flexShrink: 0, ...style }}>
       {src && !err && <img src={src} alt="" onError={() => setErr(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
       {(!src || err) && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.1)', fontSize: 36 }}>◈</div>}
       {children}
@@ -263,7 +274,7 @@ function CoverArt({ post, style = {}, children }) {
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-function CommentThread({ postId, onCountChange, d }) {
+function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -302,25 +313,22 @@ function CommentThread({ postId, onCountChange, d }) {
     }
   }
 
+  // 2026-08-26 (round 3, per gabriel): "no replies yet" / "loading…" empty
+  // states are gone entirely — the section is meant to stay invisible until
+  // there's an actual comment to show, not announce its own emptiness.
+  // The list itself now scales with content (no fixed height) up to `maxH`,
+  // THEN scrolls — it doesn't just clip. That real scrollbar reintroduces
+  // exactly the wheel-capture risk the old `overflowY:'hidden'` comment
+  // above this block used to warn about (a vertical wheel gesture over a
+  // full list gets consumed here instead of bubbling to the horizontal
+  // feed scroller) — scoped to just the list sub-box, not the whole
+  // widget, but the risk is real and gabriel asked for the scrollbar
+  // explicitly, so this is a deliberate trade, not an oversight.
+  const hasComments = comments && comments.length > 0
   return (
-    // overflowY was 'auto' — this is exactly the same class of bug as
-    // feedRef's overflowX fix, just on the vertical axis: whenever the
-    // cursor is over this comment box (or the tracklist/note wrapper below,
-    // see PostCard), a vertical wheel gesture gets consumed HERE (native
-    // scroll of this element) instead of bubbling to #scroll-outer. That's
-    // avantt's real trick — nothing inside their horizontally-moving content
-    // has its own native scroll at all, so there's never anything to compete
-    // with the one wheel-capturing container. 'hidden' means long comment
-    // threads get clipped rather than internally wheel-scrollable; there's
-    // no other way to preserve independent inner scrolling AND have wheel
-    // always drive the main feed when hovering over this area.
-    <div style={{ padding: `${d?.cmPy ?? 8}px ${d?.cmPx ?? 16}px 12px`, borderTop: '0.5px solid var(--theme-border)', flexShrink: 0, maxHeight: 140, overflowY: 'hidden' }}>
-      {comments === null ? (
-        <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>loading…</div>
-      ) : comments.length === 0 ? (
-        <div style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-text-ter)' }}>no replies yet</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+    <div style={{ padding: `${d?.cmPy ?? 8}px ${d?.cmPx ?? 16}px 12px`, borderTop: hasComments ? '0.5px solid var(--theme-border)' : 'none', flexShrink: 0 }}>
+      {hasComments && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: maxH, overflowY: 'auto' }}>
           {comments.map(c => (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
               <span style={{ fontWeight: 700, color: 'var(--theme-text-pri)', flexShrink: 0 }}>{c.username || c.display_name || 'anon'}</span>
@@ -350,20 +358,34 @@ function CommentThread({ postId, onCountChange, d }) {
   )
 }
 
-// ── Post card — free-form "plate" layout ────────────────────────────────────────
-// Nine boxes, each absolutely positioned inside whichever column it belongs to
-// (see DESIGN_BASE above). Nothing flows and nothing pushes anything else, so
-// what was dragged in the designer is exactly what renders here.
+// ── Post card — flow "plate" layout (Task B, 2026-08-28) ───────────────────────
+// The rail is a plain flex column now (see DESIGN_BASE's own comment above
+// for why) — plate, tracklist, genre pills, a flex:1 spacer, then the
+// byline footer (replies count + handle + stamp), reordered top<->bottom by
+// d.plateBottom. The media column is a flex column too: art or the embed
+// well, then caption, then description, reversed the same way.
 //
-// All the original interactive behavior is unchanged: click a track to preview
-// it, the replies button toggles the same CommentThread, discogs/stream links
-// are unchanged, genre pills still filter via openD3.
+// All the original interactive behavior is unchanged: click a track to
+// preview it, the replies button toggles the same CommentThread (now
+// rendered inline in the flow instead of an absolutely-positioned overlay),
+// discogs/stream links are unchanged, genre pills still filter via openD3.
+
+const TRACK_ROWS = 6 // Task C — was 3, capped by the old rail's fixed slot height; the flow rail absorbs the extra rows on its own now.
 
 function PostCard({ post, cardBg, spectrum, d }) {
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
+  const [hoveredTrack, setHoveredTrack] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+  // 2026-08-29 (round 10) — dynamic bottom-plate art alignment. See the
+  // note above BOX.art below for the full explanation; artMbBottom seeds
+  // the first paint (flush-bottom baseline) before the layout effect
+  // measures the rail and corrects it, so there's no visible jump.
+  const cardRef = useRef(null)
+  const artistNameRef = useRef(null)
+  const artBoxRef = useRef(null)
+  const [dynamicArtMbBottom, setDynamicArtMbBottom] = useState(d.artMbBottom)
 
   const type = detectType(post)
   const artist = artistName(post)
@@ -375,8 +397,20 @@ function PostCard({ post, cardBg, spectrum, d }) {
   const channel = post.channel || ''
   const platform = post.platform || ''
   const isLiveMix = type === 'livemix'
+  // Shared left edge for art/embedWell/caption/desc, sized to whichever is
+  // this card's "hero" element (embed well for live, art for album) so the
+  // narrower caption/desc text lines up with it instead of each being
+  // centered independently. Declared this early (not next to BOX.embedWell,
+  // where the old live-only liveEmbedOffset lived) because BOX.art below
+  // needs it too, and BOX.art is defined before that point in the function.
+  // See the 2026-08-29 note further down.
+  const mediaCenterOffset = (d.cardW - d.infoW - d.railBorder - d.bandPadX * 2 - (isLiveMix ? d.embedWellW : d.artSize)) / 2
   const tagLabel = isLiveMix ? 'LIVE SET' : type === 'single' ? 'SINGLE' : 'ALBUM'
-  const tagColor = isLiveMix ? 'var(--theme-accent)' : d.badge2Color
+  // Live sets stay on the palette accent (the loud one -- they're the
+  // exception in this feed); album/single take --theme-showcase, which is a
+  // dark, saturated colour in all eight palettes and so always carries the
+  // badge's white text.
+  const tagColor = isLiveMix ? 'var(--theme-accent)' : 'var(--theme-showcase)'
 
   const platformColor = PLATFORM_COLORS[platform] || 'var(--theme-accent)'
   const platformLabel = platform?.toUpperCase()
@@ -407,42 +441,24 @@ function PostCard({ post, cardBg, spectrum, d }) {
   const textSec = 'var(--theme-text-sec)'
   const textTer = 'var(--theme-text-ter)'
   const divider = 'var(--theme-border)'
+  // Same expression the card's own outer container uses below (spectrum
+  // posts get the live spectrum color, everything else the flat theme bg)
+  // — pulled out so the comments panel can match it exactly, per gabriel.
+  const cardBackground = spectrum ? cardBg : 'var(--theme-bg)'
 
   // A transparent mat puts the caption on the card background, which is dark
   // in most palettes — so it must use the theme tokens rather than the
   // export's literal navy, exactly as the designer does.
-  //
-  // `spectrum` (idx >= SPECTRUM_START, see postSpectrum.js) forces the mat
-  // out of transparent and onto the live spectrum color (`cardBg`) instead
-  // of the design export's flat `d.matColor` — the export's literal navy
-  // caption color isn't legible against a color that shifts per post, so
-  // the caption falls back to theme tokens whenever the mat isn't the
-  // design's own flat literal, exactly like the transparent case already did.
-  //
-  // The spectrum paints the WHOLE CARD (both columns), not the mat — the mat
-  // stays transparent exactly as it is today, art sitting directly on the
-  // card's own color rather than in a differently-colored frame. See the
-  // card container's own `background` below for where the spectrum color
-  // actually lands.
   const matTransparent = d.matFill === 'none'
   const captionColor = matTransparent ? textSec : d.captionColor
   const captionNameColor = matTransparent ? textPri : d.captionNameColor
 
-  // Position one box inside its column.
-  const box = id => ({
-    position: 'absolute',
-    left: d[id + 'X'],
-    top: d[id + 'Y'],
-    width: `${d[id + 'W']}%`,
-  })
-
-  // Rail content hugs the edge nearest the media column, so the four ways read
-  // as two mirrored pairs. Deriving it here means the pills and meta rows can
-  // never be nudged past the rail edge and clipped.
+  // Rail content hugs the edge nearest the media column, so the four ways
+  // read as two mirrored pairs — same derivation as before Task B.
   const railJustify = d.plateAlign === 'right' ? 'flex-end' : d.plateAlign === 'center' ? 'center' : 'flex-start'
 
   const zlabel = {
-    fontFamily: d.labelFf, fontSize: d.zlabelSize, letterSpacing: `${d.zlabelLs}em`,
+    fontFamily: d.labelFf, fontWeight: 600, fontSize: d.zlabelSize, letterSpacing: `${d.zlabelLs}em`,
     textTransform: 'uppercase', color: textTer, marginBottom: d.zlabelMb,
   }
   const artShadow = (d.artShadowY || d.artShadowB)
@@ -452,66 +468,238 @@ function PostCard({ post, cardBg, spectrum, d }) {
     ? `translate(${d.artOffsetX}px, ${d.artOffsetY}px)`
     : undefined
 
-  // ── the nine boxes ──────────────────────────────────────────────────────────
+  // 2026-08-26: clicking a tracklist row (see the track row's onClick below,
+  // which sets activeTrackUrl) flips the art around (a real 3D flip, not a
+  // crossfade) to reveal that track's embedded player on the back face.
+  // Click the same row again to flip back. Livemix posts are unaffected —
+  // they show their channel embed the same way they always did. Unchanged
+  // by Task B.
+  const albumFlipped = !isLiveMix && !!activeTrackUrl && !!embedSrc
+
   const BOX = {}
 
   BOX.plate = (
-    <div key="plate" style={{ ...box('plate'), padding: `${d.platePt}px ${d.platePx}px ${d.platePb}px`, textAlign: d.plateAlign }}>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: d.badgeMb, justifyContent: d.plateAlign === 'right' ? 'flex-end' : d.plateAlign === 'center' ? 'center' : 'flex-start' }}>
-        <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: tagColor, color: '#fff', fontFamily: d.labelFf }}>{tagLabel}</span>
+    <div key="plate" style={{ textAlign: d.plateAlign }}>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: railJustify }}>
+        <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: tagColor, color: '#fff', fontFamily: d.labelFf }}>{tagLabel}</span>
         {platformLabel && (
-          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: d.labelFf }}>{platformLabel}</span>
+          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: d.labelFf }}>{platformLabel}</span>
         )}
         {post.source === 'discogs' && (
-          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'var(--theme-dark3)', color: textSec, fontFamily: d.labelFf }}>◈ DISCOGS</span>
+          // "badge (secondary)" per the v2 spec — no-fill, outline only.
+          // The old discogs badge used a dark3 fill like the other two;
+          // this is the one badge that's genuinely secondary/neutral among
+          // the three, so it gets the new outline treatment. Flagged in the
+          // summary rather than silently guessed past.
+          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'none', border: `1px solid ${divider}`, color: textSec, fontFamily: d.labelFf }}>◈ DISCOGS</span>
         )}
       </div>
       <div
+        ref={artistNameRef}
         onClick={() => artist && openD3?.('artists', { filter: artist })}
-        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
+        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, marginTop: d.artistMt, cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
       >{artist || post.title}</div>
-      <div style={{ fontSize: d.metalineSize, color: textSec, marginTop: d.metalineMt, fontFamily: d.bodyFf, lineHeight: d.metalineLh }}>
-        {post.title}
-        {label && <> · <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span></>}
-        {post.year && <> · {post.year}</>}
-      </div>
-      <div style={{ fontSize: `${d.numeralSize}rem`, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, color: textPri, fontFamily: d.numeralFf, marginTop: d.numeralMt }}>
+      {/* v2: the post title gets promoted to its own large italic line
+          (same size as the artist name) instead of sharing the small
+          metaline with label/year — only shown when there's an artist
+          name above it to distinguish it from (otherwise it'd duplicate
+          the headline that already fell back to post.title). */}
+      {artist && post.title && (
+        <div style={{ fontSize: d.titleSize, fontStyle: 'italic', lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: textSec, fontFamily: d.artistFf, wordBreak: 'break-word' }}>{post.title}</div>
+      )}
+      {(label || post.year) && (
+        <div style={{ fontSize: d.metalineSize, fontWeight: 500, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', marginTop: d.metalineMt, color: textTer, fontFamily: d.monoFf, lineHeight: d.metalineLh }}>
+          {label && <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span>}
+          {label && post.year && ' · '}
+          {post.year}
+        </div>
+      )}
+      <div style={{ fontSize: d.numeralSize, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: textPri, fontFamily: d.numeralFf, margin: d.numeralMargin }}>
         {String(post.id).padStart(2, '0')}
       </div>
+      {(post.discogs_url || (streamUrl && platformLabel)) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8, justifyContent: railJustify }}>
+          {post.discogs_url && (
+            <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ discogs</a>
+          )}
+          {streamUrl && platformLabel && (
+            <a href={streamUrl} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ {platform}</a>
+          )}
+        </div>
+      )}
     </div>
   )
 
   const trackRows = !isLiveMix && tracks.length > 0
   if (trackRows || (isLiveMix && channel)) {
+    // 2026-08-26: title sits on the same side as the plate's own text
+    // (name/metaline/numeral, controlled by plateAlign/railJustify above),
+    // with the number/play-indicator and duration on the opposite side.
+    // Mirrors properly for the left-plate variants too.
+    const trackTextAlign = d.plateAlign === 'left' ? 'left' : d.plateAlign === 'center' ? 'center' : 'right'
     BOX.track = (
-      <div key="track" style={{ ...box('track'), padding: `${d.trackPy}px ${d.trackPx}px`, overflow: 'hidden' }}>
+      <div key="track" style={{ overflow: 'hidden', textAlign: trackTextAlign }}>
         <div style={zlabel}>{isLiveMix ? 'Channel' : 'Album listing'}</div>
         {isLiveMix ? (
           <div style={{ fontSize: d.trackSize, color: textPri, fontFamily: d.bodyFf }}>{channel}</div>
         ) : (
           <>
-            {tracks.slice(0, 3).map((t, i) => {
+            {tracks.slice(0, TRACK_ROWS).map((t, i) => {
               const tUrl = t.stream_url || t.youtube_url || null
               const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
+              const isHovered = hoveredTrack === i
+              const numEl = (
+                <span key="num" style={{ fontSize: d.tracknumSize, fontWeight: 500, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: d.monoFf, flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
+              )
+              const durEl = t.duration ? (
+                <span key="dur" style={{ fontSize: d.tracknumSize, color: textTer, fontFamily: d.monoFf, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{t.duration}</span>
+              ) : null
+              const titleEl = (
+                <span key="title" style={{ flex: `0 1 ${d.trackTitleW}%`, fontSize: d.trackSize, color: isActive ? textPri : textSec, fontWeight: isActive ? 600 : 400, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+              )
+              // Left-plate mirror: title leads, num/duration trail.
+              // Right-plate (currently live) and center: num/duration
+              // lead, title trails — title ends up on the same side as
+              // the plate's own text and numeral.
+              const order = d.plateAlign === 'left' ? [titleEl, durEl, numEl] : [numEl, durEl, titleEl]
               return (
                 <div key={i}
                   onClick={() => { if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
-                  style={{ display: 'flex', gap: d.trackGap, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: `1px dotted ${divider}`, cursor: tUrl ? 'pointer' : 'default', background: isActive ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
-                  <span style={{ fontSize: d.tracknumSize, color: isActive ? 'var(--theme-accent)' : textTer, fontFamily: 'monospace', flexShrink: 0, minWidth: 16 }}>{tUrl ? (isActive ? '▶' : '▷') : (t.position || i + 1)}</span>
-                  <span style={{ flex: `0 1 ${d.trackTitleW}%`, fontSize: d.trackSize, color: isActive ? textPri : textSec, fontWeight: isActive ? 600 : 400, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                  {t.duration && <span style={{ fontSize: d.tracknumSize, color: textTer, fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{t.duration}</span>}
+                  onMouseEnter={() => setHoveredTrack(i)}
+                  onMouseLeave={() => setHoveredTrack(h => h === i ? null : h)}
+                  style={{ display: 'flex', justifyContent: railJustify, gap: d.trackGap, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, cursor: tUrl ? 'pointer' : 'default', background: (isActive || isHovered) ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+                  {order}
                 </div>
               )
             })}
-            {tracks.length > 3 && <div style={{ fontSize: d.tracknumSize, color: textTer, fontFamily: 'VT323, monospace', marginTop: 4 }}>+{tracks.length - 3} more</div>}
+            {tracks.length > TRACK_ROWS && <div style={{ fontSize: d.trackMoreSize, color: textTer, fontFamily: d.monoFf, paddingTop: 5 }}>+{tracks.length - TRACK_ROWS} more</div>}
           </>
         )}
       </div>
     )
   }
 
+  BOX.pills = genres.length > 0 ? (
+    <div key="pills" style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, justifyContent: railJustify, marginTop: d.plateBottom ? 14 : 7 }}>
+      {genres.slice(0, 6).map(g => (
+        <span key={g} onClick={() => openD3?.('genres', { filter: g })}
+          style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: textSec, padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, cursor: 'pointer' }}
+        >{g}</span>
+      ))}
+    </div>
+  ) : null
+
+  // Replaces the old separate replies-box + stamp-box (which always shared
+  // one Y and formed a footer row anyway — see the pre-Task-B DESIGN_BASE
+  // comment) with one real flex row: replies toggle, handle, stamp pushed
+  // to the far edge via marginLeft:auto.
+  BOX.byline = (
+    <div key="byline" style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginTop: d.bylineMt }}>
+      <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: d.metarowSize, color: textTer, padding: 0, fontFamily: d.bodyFf, flexShrink: 0 }}>
+        <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
+      </button>
+      <span style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.user?.username || post.username}</span>
+      <span style={{ fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: textTer, fontFamily: d.monoFf, marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(post.created_at)}</span>
+    </div>
+  )
+
+  // Comments render inline in the flow now, right under the byline row,
+  // instead of the old absolutely-positioned overlay computed off
+  // repliesY/pillsY/plateY (opensUpward/FOOTER_ROW_H/anchorStyle etc, all
+  // gone) — the flex column just pushes whatever's below it down while
+  // this is open, in both plate-top and plate-bottom variants. Still
+  // invisible until there's an actual comment (2026-08-26 round 3).
+  const hasComments = commentCount > 0
+  BOX.comments = commentsOpen ? (
+    <div key="comments" style={{
+      marginTop: 8,
+      ...(hasComments
+        ? { background: cardBackground, border: `1px solid ${divider}`, borderRadius: 4, overflow: 'hidden' }
+        : { background: 'transparent' }),
+    }}>
+      <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
+    </div>
+  ) : null
+
+  useLayoutEffect(() => {
+    if (isLiveMix || !d.plateBottom) return
+    const cardEl = cardRef.current, artistEl = artistNameRef.current
+    if (!cardEl || !artistEl) return
+    const cardRect = cardEl.getBoundingClientRect()
+    const artistTopRel = artistEl.getBoundingClientRect().top - cardRect.top
+    const target = (cardRect.height - d.padY) - (artistTopRel + d.artSize)
+    if (Math.abs(target - dynamicArtMbBottom) > 0.5) setDynamicArtMbBottom(target)
+  }, [isLiveMix, d.plateBottom, d.padY, d.artSize, dynamicArtMbBottom])
+
+  BOX.art = !isLiveMix ? (
+    <div ref={artBoxRef} style={{ width: d.artSize, height: d.artSize, flexShrink: 0, position: 'relative', background: matTransparent ? 'transparent' : d.matColor, borderRadius: d.matRadius, padding: d.matPad, overflow: 'hidden', perspective: 1400, transition: 'background 0.8s', marginTop: d.plateBottom ? d.captionMtTop : d.artMtTop, marginBottom: d.plateBottom ? dynamicArtMbBottom : 0, marginLeft: mediaCenterOffset }}>
+      <div style={{
+        position: 'relative', width: '100%', height: '100%',
+        transformStyle: 'preserve-3d',
+        transform: `rotateY(${albumFlipped ? 180 : 0}deg)`,
+        transition: 'transform 0.7s cubic-bezier(0.4, 0.1, 0.2, 1)',
+      }}>
+        <CoverArt post={post} style={{
+          position: 'absolute', inset: 0, width: '100%', height: '100%',
+          borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform,
+          backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden',
+        }} />
+        {/* Back face — only mounts the iframe once actually flipped to face
+            the viewer, both to avoid loading/autoplay weirdness on a
+            hidden iframe and for the same "don't run video you can't see"
+            reasoning already applied to spotlight cards. */}
+        <div style={{
+          position: 'absolute', inset: 0, width: '100%', height: '100%',
+          borderRadius: d.artRadius, overflow: 'hidden', background: 'var(--theme-dark1)',
+          backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden',
+          transform: 'rotateY(180deg)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {albumFlipped && embedSrc && (
+            <iframe key={embedSrc} src={embedSrc}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen title={post.title} />
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null
+
+  // Embed well — a constant-size frame (496x279, inner 456x257) that every
+  // platform's native embed size (YouTube 560x315, SoundCloud 480x166,
+  // Mixcloud 400x60) letterboxes inside via a uniform scale-to-fit, rather
+  // than the well itself changing size per platform.
+  const wellScale = Math.min(d.embedInnerW / embedW, d.embedInnerH / embedH, 1)
+  // Centers the embed well (and, below, caption/desc to the same edge) in
+  // the live media column — see the 2026-08-29 note above.
+  BOX.embedWell = isLiveMix ? (
+    <div key="embed-well" style={{ width: d.embedWellW, height: d.embedWellH, flexShrink: 0, marginLeft: mediaCenterOffset, background: 'var(--theme-dark1)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+      {embedSrc ? (
+        <iframe src={embedSrc}
+          style={{ width: embedW * wellScale, height: embedH * wellScale, border: 'none', borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform }}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen title={post.title} />
+      ) : (
+        <div style={{ width: d.embedInnerW, height: d.embedInnerH, borderRadius: d.artRadius, overflow: 'hidden', background: 'var(--theme-dark2)', position: 'relative' }}>
+          {coverSrc(post) && <img src={coverSrc(post)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }} />}
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: d.monoFf, fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
+        </div>
+      )}
+    </div>
+  ) : null
+
+  BOX.caption = (
+    <div key="caption" style={{ marginTop: isLiveMix ? d.captionMt : (d.plateBottom ? d.captionMtBottom : d.captionMtTop), marginLeft: mediaCenterOffset, maxWidth: d.captionMaxW, fontFamily: d.bodyFf, fontSize: d.captionSize, lineHeight: d.captionLh, color: captionColor }}>
+      <div style={{ fontFamily: d.artistFf, fontWeight: d.captionNameWeight, fontSize: d.captionNameSize, lineHeight: 1.3, color: captionNameColor }}>{label || '—'}</div>
+      <div style={{ fontFamily: d.monoFf, fontWeight: 500, fontSize: d.catSize, letterSpacing: `${d.catLs}em`, marginTop: d.catMt }}>{[catNo, post.year].filter(Boolean).join(' · ')}</div>
+    </div>
+  )
+
   BOX.desc = (
-    <div key="desc" style={{ ...box('desc'), padding: `${d.descPy}px ${d.descPx}px ${d.descPb}px`, overflow: 'hidden' }}>
+    <div key="desc" style={{ marginTop: (!isLiveMix && !d.plateBottom) ? d.descMtTop : d.descMt, marginLeft: mediaCenterOffset }}>
       <div style={zlabel}>Post description</div>
       {note ? (
         <p style={{ fontSize: d.descSize, color: textSec, lineHeight: d.descLh, fontFamily: d.bodyFf, margin: 0 }}>{note}</p>
@@ -521,96 +709,40 @@ function PostCard({ post, cardBg, spectrum, d }) {
     </div>
   )
 
-  BOX.pills = genres.length > 0 ? (
-    <div key="pills" style={{ ...box('pills'), display: 'flex', flexWrap: 'wrap', gap: d.pillGap, justifyContent: railJustify }}>
-      {genres.slice(0, 6).map(g => (
-        <span key={g} onClick={() => openD3?.('genres', { filter: g })}
-          style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: textSec, padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, cursor: 'pointer' }}
-        >{g}</span>
-      ))}
-    </div>
-  ) : null
+  // ── assemble the rail: plate+rule+tracklist+pills form one group, the
+  // byline (+ its comments panel) forms the other, a flex:1 spacer between
+  // them, dividers as standalone rule elements rather than box borders.
+  // plateBottom swaps which group comes first — see DESIGN_BASE's comment.
+  const ruleSolid = <div key="rule-solid" style={{ height: 1, background: divider, margin: `${d.ruleSolidMy}px 0` }} />
+  const ruleDashed = <div key="rule-dashed" style={{ height: 0, borderTop: `1px dashed ${divider}`, margin: `${d.ruleMy}px 0` }} />
+  const spacer = <div key="spacer" style={{ flex: 1 }} />
 
-  BOX.replies = (
-    <div key="replies" style={{ ...box('replies'), display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-start', paddingTop: d.metarowPt, borderTop: `1px dashed ${divider}`, fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }}>
-      <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: d.metarowSize, color: textTer, padding: 0, fontFamily: d.bodyFf }}>
-        <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
-      </button>
-      {post.discogs_url && (
-        <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
-          style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ discogs</a>
-      )}
-      {isLiveMix && streamUrl && (
-        <a href={streamUrl} target="_blank" rel="noopener noreferrer"
-          style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ {platformLabel || 'stream'}</a>
-      )}
-    </div>
-  )
+  const plateGroup = [BOX.plate, BOX.track && ruleSolid, BOX.track, BOX.pills].filter(Boolean)
+  const bylineGroup = [BOX.byline, BOX.comments].filter(Boolean)
+  // Live sets skip the flex:1 spacer — no edge to anchor to, just one
+  // compact block (plate group + byline group) that the rail container
+  // centers as a whole. See the 2026-08-28 note above.
+  const railChildren = isLiveMix
+    ? [...plateGroup, ruleDashed, ...bylineGroup]
+    : d.plateBottom
+      ? [...bylineGroup, ruleDashed, spacer, ...plateGroup]
+      : [...plateGroup, spacer, ruleDashed, ...bylineGroup]
 
-  BOX.stamp = (
-    <div key="stamp" style={{ ...box('stamp'), display: 'flex', justifyContent: 'flex-end', paddingTop: d.metarowPt, fontSize: d.stampSize, color: textTer, fontFamily: 'VT323, monospace' }}>
-      <span style={{ color: textSec, fontWeight: 500 }}>{post.user?.username || post.username}</span> · {timeAgo(post.created_at)}
-    </div>
-  )
-
-  BOX.comments = commentsOpen ? (
-    <div key="comments" style={{ ...box('comments'), zIndex: 3, background: 'var(--theme-bg)' }}>
-      <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
-    </div>
-  ) : null
-
-  BOX.mat = (
-    <div key="mat" style={{ ...box('mat'), background: matTransparent ? 'transparent' : d.matColor, borderRadius: d.matRadius, padding: d.matPad, transition: 'background 0.8s' }}>
-      <div style={{ width: '100%', ...(isLiveMix ? { height: embedH } : { aspectRatio: d.frameRatio.replace('/', ' / ') }), borderRadius: d.frameRadius, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {isLiveMix ? (
-          embedSrc ? (
-            <iframe src={embedSrc}
-              style={{ width: '100%', maxWidth: embedW, height: embedH, border: 'none', borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen title={post.title} />
-          ) : (
-            <div style={{ width: '100%', height: '100%', borderRadius: d.artRadius, overflow: 'hidden', background: '#1e2126', position: 'relative' }}>
-              {coverSrc(post) && <img src={coverSrc(post)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }} />}
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'VT323, monospace', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>NO STREAM URL</div>
-            </div>
-          )
-        ) : (
-          <CoverArt post={post} style={{ width: `${d.artFill}%`, height: `${d.artFill}%`, borderRadius: d.artRadius, boxShadow: artShadow, transform: artTransform }} />
-        )}
-      </div>
-    </div>
-  )
-
-  BOX.caption = (
-    <div key="caption" style={{ ...box('caption'), display: 'flex', justifyContent: d.captionAlign, alignItems: 'baseline', gap: 10, paddingTop: d.captionPt, fontFamily: d.labelFf, fontSize: d.captionSize, color: captionColor }}>
-      <span style={{ fontFamily: d.artistFf, fontWeight: d.captionNameWeight, fontSize: d.captionNameSize, color: captionNameColor }}>{label || '—'}</span>
-      <span>{[catNo, post.year].filter(Boolean).join(' · ')}</span>
-    </div>
-  )
-
-  const ORDER = ['plate', 'track', 'desc', 'pills', 'replies', 'stamp', 'comments', 'mat', 'caption']
-  const inColumn = which => ORDER
-    .filter(id => BOX[id] && (d[id + 'Col'] === 'media') === (which === 'media'))
-    .map(id => BOX[id])
-
-  // The card fills the full height of the feed row so that its two vertical
-  // rules -- the seam between cards and the rail/media divider -- run from the
-  // top of the page to the bottom. The layout itself still lives in a cardH-tall
-  // band centred in that height: `band` is the positioning context every
-  // absolutely-placed box measures from, so all the Y values in the design table
-  // stay relative to the card, not to the viewport.
-  const band = {
-    position: 'absolute', left: 0, right: 0, top: '50%',
-    height: d.cardH, transform: 'translateY(-50%)',
-  }
+  // ── media column: art/embed, caption, description — reversed the same
+  // way as the rail (mirrors the pre-Task-B PLATE_TOP/PLATE_BOTTOM
+  // convention: "artwork/caption/description reading downward in the top
+  // ways, description/caption/artwork in the bottom ways").
+  const artOrEmbed = isLiveMix ? BOX.embedWell : BOX.art
+  const mediaChildren = d.plateBottom
+    ? [BOX.desc, BOX.caption, artOrEmbed]
+    : [artOrEmbed, BOX.caption, BOX.desc]
 
   return (
     <div
-      ref={el => registerPostRef?.(post.id, el)}
+      ref={el => { registerPostRef?.(post.id, el); cardRef.current = el }}
       style={{
         flexShrink: 0, width: d.cardW, height: '100%', alignSelf: 'stretch',
-        background: spectrum ? cardBg : 'var(--theme-bg)',
-        borderRight: `1px solid ${divider}`,
+        background: cardBackground,
         borderRadius: d.cardRadius || undefined,
         display: 'flex',
         flexDirection: d.mediaSide === 'left' ? 'row-reverse' : 'row',
@@ -619,13 +751,26 @@ function PostCard({ post, cardBg, spectrum, d }) {
       }}
     >
       <div style={{
-        width: d.infoW, flexShrink: 0, position: 'relative', overflow: 'hidden',
+        width: d.infoW, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        // Live sets centre the whole (spacer-less) block; albums anchor to
+        // the plate group's edge, same as the media column below.
+        justifyContent: isLiveMix ? 'center' : 'flex-start',
+        padding: d.mediaSide === 'left' ? `${d.padY}px 0 ${d.padY}px 26px` : `${d.padY}px 26px ${d.padY}px 0`,
         [d.mediaSide === 'left' ? 'borderLeft' : 'borderRight']: `${d.railBorder}px solid ${divider}`,
       }}>
-        <div style={band}>{inColumn('rail')}</div>
+        {railChildren}
       </div>
-      <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden', padding: d.colPad }}>
-        <div style={band}>{inColumn('media')}</div>
+      <div style={{
+        flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        // Live: centred as one block. Album: anchored to the same edge as
+        // the rail's plate group — top for the plate-top ways, bottom for
+        // the plate-bottom ways. See the 2026-08-28 notes above.
+        justifyContent: isLiveMix ? 'center' : (d.plateBottom ? 'flex-end' : 'flex-start'),
+        // Horizontal centering is now handled per-child via mediaCenterOffset
+        // (marginLeft) above, not alignItems — see the 2026-08-29 note above.
+        padding: `${d.padY}px ${d.bandPadX}px`,
+      }}>
+        {mediaChildren}
       </div>
     </div>
   )
@@ -704,6 +849,28 @@ function subjectDiscogsId(subject) {
   return null
 }
 
+// A channel's catalogue key. Artists and labels resolve theirs to a Discogs
+// id (above); a channel isn't a Discogs entity, so its back catalogue comes
+// from the YouTube channel's own uploads instead — and the backend resolves
+// that from a VIDEO rather than the channel's free-text name (posts only ever
+// store `channel` as a label like "HÖR"). Any one of this channel's posts with
+// a YouTube stream url is an exact, 3-quota-unit answer; see
+// getChannelUploads in backend/services/youtubeService.js.
+function subjectChannelVideoUrl(subject) {
+  if (subject.type !== 'channel') return null
+  for (const p of subject.posts) {
+    const url = postStreamUrl(p)
+    if (url && /youtube\.com|youtu\.be/.test(url)) return url
+  }
+  return null
+}
+
+// Video id out of a YouTube url — used to match a channel's uploads against
+// the sets already posted to LNV, the way discogs_id does for releases.
+function ytIdOf(url) {
+  return (url || '').match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] || null
+}
+
 // SPOTLIGHT CARD SIDE PADDING — change this one number to adjust every
 // spotlight card (artist/label/channel) at once. Flat px, same on all
 // cards regardless of width — NOT a percentage (that was tried on
@@ -715,28 +882,13 @@ function subjectDiscogsId(subject) {
 // the root div's `padding: 65px ${SPOTLIGHT_PAD}px`), not just the media.
 const SPOTLIGHT_PAD = 60
 
-// TEMP (2026-08-25) — placeholder discography data, purely so the visual
-// design of this feature (list layout, on-site/not-yet split, embed zone,
-// cta) can be reviewed before the real wiring exists. Checked directly:
-// every post_artists.discogs_artist_id and post_labels.discogs_label_id
-// row in the DB is NULL right now — ComposeModal drops the id before a
-// post ever reaches the DB (see claude/2026-08-25-search-todo.md) — so
-// subjectDiscogsId() never resolves for any real subject and the feature
-// would otherwise show nothing at all to look at. Split into two arrays
-// (rather than fake posts.discogs_id matching) so both list sections and
-// the cta's on-site/not-yet branching are all visible without depending on
-// real id matching. DELETE this block, the `usingPlaceholders` branches
-// below, and restore hasDiscography's `&& !!discogsId` once ComposeModal
-// keeps real ids and there's real data to test against instead.
-const PLACEHOLDER_ON_SITE = [
-  { id: -1, title: 'Placeholder — On The Site A', year: 2021, thumb: null, role: null },
-  { id: -2, title: 'Placeholder — On The Site B', year: 2019, thumb: null, role: null },
-]
-const PLACEHOLDER_NOT_YET = [
-  { id: -3, title: 'Placeholder — Not Yet Uploaded A', year: 2023, thumb: null, role: null },
-  { id: -4, title: 'Placeholder — Not Yet Uploaded B', year: 2022, thumb: null, role: null },
-  { id: -5, title: 'Placeholder — Not Yet Uploaded C', year: 2020, thumb: null, role: null },
-]
+// 2026-08-26: the TEMP placeholder discography arrays that used to sit here
+// (PLACEHOLDER_ON_SITE / PLACEHOLDER_NOT_YET, added 2026-08-25 because every
+// post_artists.discogs_artist_id and post_labels.discogs_label_id in the DB
+// was NULL) are gone. ComposeModal now keeps real ids, and a subject with no
+// catalogue key falls through to a grid of its own real LNV posts — a better
+// empty state than fake rows, and it can't mask a broken fetch the way the
+// placeholders could.
 
 function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const { registerPostRef, openD3 } = useLayout() || {}
@@ -764,60 +916,78 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     enabled: !!discogsId,
     staleTime: Infinity,
   })
-  const markImageUrl = discogsProfile?.imageUrl || null
 
-  // Discogs discography — 2026-08-25, generalized in a fourth pass. Used
-  // to be gated on buildSpotlightPool tagging a subject `unknown` (exactly
-  // one loaded post, the only case a discography backfill made sense in
-  // when this started); gabriel then asked for it to apply to every artist
-  // AND every label spotlight regardless of post count. The gate is now
-  // just "has a Discogs id and isn't a channel" — channels aren't a
-  // Discogs entity (see subjectDiscogsId above), so there's nothing to
-  // fetch for them and they keep the plain real-posts grid/list.
+  // ── Catalogue — one code path, three sources ──────────────────────────────
+  // 2026-08-26 (per gabriel): all three subject types get a back catalogue,
+  // each from where that kind of subject actually keeps one:
   //
-  // Fetches a lean release list first (no tracklist/videos — see
-  // discogsService's getArtistReleases/getLabelReleases), then lazily
-  // fetches ONE release's full detail (including videos) only once the
-  // user has picked it, rather than pulling full detail for every release
-  // upfront — keeps this well inside Discogs' rate limit even for an
-  // artist or label with a large catalogue.
-  // TEMP (2026-08-25): gate is "not a channel" only, not `&& !!discogsId`
-  // — see PLACEHOLDER_ON_SITE/PLACEHOLDER_NOT_YET's comment above. Restore
-  // the discogsId condition once real ids exist to test with.
-  const hasDiscography = type !== 'channel'
-  const usingPlaceholders = hasDiscography && !discogsId
+  //   artist  -> Discogs  GET /api/discogs/artist/:id/releases
+  //   label   -> Discogs  GET /api/discogs/label/:id/releases
+  //   channel -> YouTube  GET /api/media/channel-uploads?videoUrl=...
+  //
+  // The two Discogs endpoints and the YouTube one deliberately return the same
+  // shape ({ releases: [{ id, title, year, thumb }], pagination: { items } }),
+  // so everything below this point is type-agnostic apart from three things:
+  // what counts as "already on the site", what a click reveals (a tracklist
+  // for a release, a player for a set), and which url the "add to feed" button
+  // hands to ComposeModal.
+  //
+  // Supersedes the 08-25 "labels only" narrowing and the 08-25 placeholder
+  // arrays. A subject with no catalogue KEY at all — an artist/label whose
+  // posts carry no Discogs id, a channel with no YouTube post — still falls
+  // through to the grid of its own real LNV posts further down, which is the
+  // fallback gabriel's mockup review established for artists.
+  //
+  // Both list endpoints are lean (no tracklist/videos); ONE release's full
+  // detail is fetched lazily, only once the user picks it, so a label with a
+  // 300-release catalogue still costs one request to open.
+  const channelVideoUrl = subjectChannelVideoUrl(subject)
+  const catalogueKey = type === 'channel' ? channelVideoUrl : discogsId
+  const hasCatalogue = !!catalogueKey
+
   const [selectedReleaseId, setSelectedReleaseId] = useState(null)
-  const { data: discography } = useQuery({
-    queryKey: ['spotlight-discography', type, discogsId],
+  // Which of this subject's own posts (own-posts grid only) currently has its
+  // embed loaded in place of its cover — null means every tile still shows
+  // cover+play. Same "don't mount an iframe you can't see" reasoning as
+  // everywhere else this pattern is used (PostCard's flip): only one at a time.
+  const [playingPostId, setPlayingPostId] = useState(null)
+
+  const { data: catalogue } = useQuery({
+    queryKey: ['spotlight-catalogue', type, catalogueKey],
     queryFn: async () => {
-      const endpoint = type === 'label' ? 'label' : 'artist'
-      const res = await fetch(`${API}/discogs/${endpoint}/${discogsId}/releases`)
+      const url = type === 'channel'
+        ? `${API}/media/channel-uploads?videoUrl=${encodeURIComponent(channelVideoUrl)}&limit=24`
+        : `${API}/discogs/${type}/${catalogueKey}/releases`
+      const res = await fetch(url)
       if (!res.ok) return null
       return res.json()
     },
-    enabled: hasDiscography && !!discogsId,
+    enabled: hasCatalogue,
     staleTime: Infinity,
   })
-  // Releases already posted to LNV (their Discogs release id matches one
-  // of this subject's loaded posts) sort to the top, ahead of everything
-  // not yet uploaded. Only checked against `posts` — the loaded feed
-  // window, not a DB-wide query — same caveat as the rest of this feature:
-  // a release posted outside the currently loaded ~60 posts won't be
-  // flagged even if it's really on the site.
-  const allReleases = discography?.releases || []
-  const onSiteIds = new Set(posts.map(p => p.discogs_id).filter(Boolean))
-  const onSiteItems = usingPlaceholders ? PLACEHOLDER_ON_SITE : allReleases.filter(r => onSiteIds.has(r.id))
-  const notYetItems = usingPlaceholders ? PLACEHOLDER_NOT_YET : allReleases.filter(r => !onSiteIds.has(r.id))
-  const discographyItems = [...onSiteItems, ...notYetItems]
-  // Derived, not stored: falls back to the first release (an already-
-  // on-site one when there is one, otherwise Discogs' own top-of-list
-  // pick) once the list loads, so the visual zone shows something real
-  // immediately — an embed loads without waiting for a click — rather
-  // than an effect+setState round trip (which would trigger an extra
-  // render pass). A real click always wins once one happens
-  // (selectedReleaseId is then one of discographyItems' own ids).
-  const selectedRelease = discographyItems.find(r => r.id === selectedReleaseId) || discographyItems[0] || null
 
+  // Catalogue entries already posted to LNV sort to the top, ahead of
+  // everything not yet uploaded. For artists/labels that's a Discogs release
+  // id match; for channels it's a YouTube video id match against the sets
+  // already in the feed. Only checked against `posts` — the loaded feed
+  // window, not a DB-wide query — so something posted outside the currently
+  // loaded ~60 posts won't be flagged even if it really is on the site.
+  const allReleases = catalogue?.releases || []
+  const onSiteIds = new Set(
+    type === 'channel'
+      ? posts.map(p => ytIdOf(postStreamUrl(p))).filter(Boolean)
+      : posts.map(p => p.discogs_id).filter(Boolean)
+  )
+  const onSiteItems = allReleases.filter(r => onSiteIds.has(r.id))
+  const notYetItems = allReleases.filter(r => !onSiteIds.has(r.id))
+  const catalogueItems = [...onSiteItems, ...notYetItems]
+  // The zone opens on the grid (nothing flipped) until a real click picks an
+  // entry, per the "grid first, tap to flip" interaction gabriel approved.
+  // null here means "show the grid."
+  const selectedRelease = catalogueItems.find(r => r.id === selectedReleaseId) || null
+
+  // Release detail — artists and labels only. A channel's entry is a video:
+  // there's no tracklist to fetch, the reveal is the player itself.
   const { data: selectedFull } = useQuery({
     queryKey: ['spotlight-release', selectedRelease?.id],
     queryFn: async () => {
@@ -825,18 +995,27 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       if (!res.ok) return null
       return res.json()
     },
-    enabled: !!selectedRelease && selectedRelease.id > 0, // skip placeholder (negative-id) releases — nothing real to fetch
+    enabled: type !== 'channel' && !!selectedRelease,
     staleTime: Infinity,
   })
-  const selectedYtId = (() => {
-    const v = (selectedFull?.videos || []).find(v => /youtube\.com|youtu\.be/.test(v.url || ''))
-    if (!v) return null
-    const m = v.url.match(/(?:v=|youtu\.be\/)([^&\s]{11})/)
-    return m ? m[1] : null
-  })()
-  const selectedOnSite = !!selectedRelease && (usingPlaceholders
-    ? PLACEHOLDER_ON_SITE.some(r => r.id === selectedRelease.id)
-    : onSiteIds.has(selectedRelease.id))
+  const selectedOnSite = !!selectedRelease && onSiteIds.has(selectedRelease.id)
+  // What "add this to the feed" means per type — ComposeModal's initialUrl
+  // pipeline takes any supported platform url, so a channel's uploads can be
+  // added straight from here the same way a Discogs release can.
+  const addUrl = !selectedRelease
+    ? null
+    : type === 'channel'
+      ? (selectedRelease.url || `https://www.youtube.com/watch?v=${selectedRelease.id}`)
+      : `https://www.discogs.com/release/${selectedRelease.id}`
+  const catalogueSource = type === 'channel' ? 'YouTube' : 'Discogs'
+
+  // Artist headshot / label logo from Discogs, or — for channels, which have
+  // no Discogs profile to fetch — the YouTube channel avatar that came back
+  // with the uploads. Falls through to SPOTLIGHT_MARK when there's nothing,
+  // which is the common case for artists.
+  const markImageUrl = discogsProfile?.imageUrl
+    || (type === 'channel' ? catalogue?.channel?.thumb : null)
+    || null
 
   const textPri = 'var(--theme-text-pri)'
   const textSec = 'var(--theme-text-sec)'
@@ -854,7 +1033,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // 2026-08-25 (Spotlight Card Editor, second pass) — replaces the old
   // rail(276px)/media two-column split with one stacked layout shared by
   // all three subject types: badge+mark, name, metaline, dashed rule, a
-  // visual zone, a caption line, a recent/discography list, then a cta
+  // visual zone, a caption line, a recent/catalogue list, then a cta
   // row. Same skeleton gabriel built and tuned in the editor artifact
   // (https://claude.ai/code/artifact/30033b88-ff72-41a6-8063-ba4ed822de7e),
   // ported with two adjustments the editor's absolute-px mockup couldn't
@@ -873,19 +1052,19 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   return (
     <div
       ref={el => registerPostRef?.(cardKey, el)}
-      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, borderRight: `1px solid ${divider}`, display: 'flex', flexDirection: 'column', padding: `65px ${SPOTLIGHT_PAD}px`, overflow: 'hidden', transition: 'background 0.8s' }}
+      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `65px ${SPOTLIGHT_PAD}px`, overflow: 'hidden', transition: 'background 0.8s' }}
     >
       {/* badge + mark */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: 'var(--theme-accent)', color: '#fff', fontFamily: LABEL_FF, textTransform: 'uppercase' }}>{type} spotlight</span>
         <div style={{ width: type === 'channel' ? 66 : 70, height: 70, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {markImageUrl ? (
-            type === 'artist' ? (
-              <img src={markImageUrl} alt="" style={{ width: 70, height: 70, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${divider}` }} />
-            ) : (
+            type === 'label' ? (
               <div style={{ width: 70, height: 70, borderRadius: 12, background: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, overflow: 'hidden' }}>
                 <img src={markImageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
               </div>
+            ) : (
+              <img src={markImageUrl} alt="" style={{ width: 70, height: 70, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${divider}` }} />
             )
           ) : SPOTLIGHT_MARK[type]}
         </div>
@@ -899,90 +1078,176 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
       {/* metaline */}
       <div style={{ flexShrink: 0, marginTop: 6, fontSize: 17, color: textSec, fontFamily: BODY_FF }}>
-        {hasDiscography && discography
-          ? `${postsLine} · ${discography.pagination?.items ?? allReleases.length} on Discogs`
+        {hasCatalogue && catalogue
+          ? `${postsLine} · ${catalogue.pagination?.items ?? allReleases.length} on ${catalogueSource}`
           : postsLine}
       </div>
 
       {/* dashed rule */}
       <div style={{ flexShrink: 0, marginTop: 10, borderTop: `1px dashed ${divider}` }} />
 
-      {/* visual zone — recent covers, or (artist/label with a Discogs id)
-          the selected release's embed/cover. No padding of its own — see
-          SPOTLIGHT_PAD's own comment and the outer container's padding
-          above, which now cover this along with everything else in the card. */}
+      {/* visual zone — 2026-08-26 rework (per gabriel's mockup review, LNV
+          Spotlight Concepts canvas):
+          - label: a scrollable 2-col grid of sleeve art (LabelGrid.dc.html)
+            that flips (LabelReveal.dc.html) to that release's tracklist on
+            click, back arrow returns to the grid. Grid scrolls its own
+            overflow once there are more than 4 sleeves (2 rows) rather than
+            squeezing everything into the fixed card height.
+          - artist / channel: a grid of this subject's own recent LNV posts
+            (Main.dc.html / ChannelGrid.dc.html) — cover + play button by
+            default, swaps to an inline embed for whichever tile is clicked
+            (playingPostId), using the same stream-url → embed derivation
+            PostCard's own flip uses (postStreamUrl/toEmbedSrc above).
+          No padding of its own — see SPOTLIGHT_PAD's own comment and the
+          outer container's padding above, which now cover this along with
+          everything else in the card. */}
       <div style={{ flex: 1, minHeight: 0, marginTop: 20, position: 'relative' }}>
-        {hasDiscography ? (
-          selectedRelease ? (
-            <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', background: divider, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {selectedRelease.id < 0 ? (
-                // Placeholder release (see PLACEHOLDER_ON_SITE/_NOT_YET) —
-                // no real artwork or video to show, so a plainly-labeled
-                // stand-in instead of an empty box, sized the same as a
-                // real embed would be so the layout reads the same either way.
-                <div style={{ width: '100%', maxWidth: 560, height: 315, borderRadius: 4, background: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
-                  <span style={{ fontFamily: LABEL_FF, fontSize: 13, color: textTer, letterSpacing: '0.04em' }}>PLACEHOLDER EMBED<br />{selectedRelease.title}</span>
+        {hasCatalogue ? (
+          catalogue === undefined ? (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>fetching catalogue…</div>
+          ) : catalogueItems.length === 0 ? (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>{`nothing found on ${catalogueSource}`}</div>
+          ) : selectedRelease ? (
+            // Reveal state. What a click opens depends on what the entry
+            // IS: an artist's or label's release reveals its tracklist
+            // (fetched lazily into selectedFull); a channel's entry is a
+            // video, so it reveals the player itself — there is no
+            // tracklist for a DJ set, and making one up would be worse
+            // than playing it.
+            <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', background: divider, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+              <button
+                onClick={() => setSelectedReleaseId(null)}
+                title="back to grid"
+                style={{ position: 'absolute', top: 8, left: 8, zIndex: 1, width: 26, height: 26, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', fontFamily: LABEL_FF, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+              >←</button>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 10, padding: '12px 12px 12px 44px', alignItems: 'center', background: 'rgba(0,0,0,0.06)' }}>
+                {(selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb) && (
+                  <img src={selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb} alt="" style={{ width: 46, height: 46, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: textPri, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedRelease.title}</div>
+                  <div style={{ fontSize: 10.5, color: textTer, fontFamily: LABEL_FF, marginTop: 2 }}>{selectedRelease.year || ''}{selectedOnSite ? '' : (selectedRelease.year ? ' · not in the feed yet' : 'not in the feed yet')}</div>
                 </div>
-              ) : selectedYtId ? (
-                // Same fixed size as a live-set card's YouTube embed
-                // (DESIGN_BASE / PostCard's isLiveMix branch: [embedW,
-                // embedH] = [560, 315] for YouTube) — not a stretch-to-fill
-                // iframe, so a video here looks exactly like a video
-                // anywhere else in the feed.
-                <iframe
-                  src={`https://www.youtube.com/embed/${selectedYtId}?rel=0&modestbranding=1`}
-                  style={{ width: '100%', maxWidth: 560, height: 315, border: 'none', borderRadius: 4 }}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen title={selectedRelease.title} />
+              </div>
+              {type === 'channel' ? (
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <iframe
+                    key={selectedRelease.id}
+                    src={`https://www.youtube.com/embed/${selectedRelease.id}?rel=0&modestbranding=1&color=white`}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen title={selectedRelease.title} />
+                </div>
               ) : (
-                (selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb) && (
-                  <img src={selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                )
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 14px 12px' }}>
+                {selectedFull?.tracklist?.length ? (
+                  selectedFull.tracklist.map((t, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '5px 0', borderBottom: `1px dotted ${divider}` }}>
+                      <span style={{ fontSize: 10, color: textTer, fontFamily: LABEL_FF, flexShrink: 0, width: 22 }}>{t.position || i + 1}</span>
+                      <span style={{ flex: 1, fontSize: 12, color: textSec, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                      <span style={{ fontSize: 10, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{t.duration || ''}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '24px 0', textAlign: 'center' }}>fetching tracklist…</div>
+                )}
+              </div>
               )}
             </div>
           ) : (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
-              {discography === undefined ? 'fetching discography…' : 'no Discogs history found'}
+            // grid — 2 columns, own overflowY so it scrolls independently
+            // of the card once there are more than 4 sleeves.
+            <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+                {catalogueItems.map(r => (
+                  <div
+                    key={r.id}
+                    onClick={() => setSelectedReleaseId(r.id)}
+                    style={{ position: 'relative', width: '100%', aspectRatio: type === 'channel' ? '16 / 9' : '1 / 1', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: 'pointer', outline: onSiteIds.has(r.id) ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}
+                  >
+                    {r.thumb
+                      ? <img src={r.thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontSize: 22 }}>◈</div>}
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))', fontSize: 9.5, color: '#fff', fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )
         ) : (
-          <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, recent.length))}, 1fr)`, gap: 2, borderRadius: 12, overflow: 'hidden', background: divider }}>
-            {recent.slice(0, 4).map((p, i) => coverSrc(p)
-              ? <img key={p.id} src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <div key={i} style={{ background: 'var(--theme-dark3)' }} />)}
+          // No catalogue key (an artist/label whose posts carry no Discogs
+          // id, or a channel with no YouTube post to resolve from) — fall
+          // back to a grid of this subject's own recent LNV posts, each
+          // playable inline. Same treatment for all three types.
+          <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, Math.min(2, recent.length))}, 1fr)`, gridTemplateRows: recent.length > 2 ? 'repeat(2, 1fr)' : '1fr', gap: 6 }}>
+            {recent.slice(0, 4).map(p => {
+              const embedSrc = toEmbedSrc(postStreamUrl(p))
+              const isPlaying = playingPostId === p.id && embedSrc
+              return (
+                <div key={p.id} style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)' }}>
+                  {isPlaying ? (
+                    <iframe
+                      src={embedSrc}
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen title={p.title} />
+                  ) : (
+                    <div
+                      onClick={() => embedSrc && setPlayingPostId(p.id)}
+                      style={{ width: '100%', height: '100%', position: 'relative', cursor: embedSrc ? 'pointer' : 'default' }}
+                    >
+                      {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      {embedSrc && (
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)' }}>
+                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderLeft: '11px solid #1a1a1a', marginLeft: 3 }} />
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))', fontSize: 9.5, color: '#fff', fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* caption */}
+      {/* caption — three-way now that a label's selectedRelease can be
+          null even after catalogue has loaded (grid-first, see above). */}
       <p style={{ flexShrink: 0, margin: 0, marginTop: 14, fontSize: 12.5, lineHeight: 1.55, color: textSec, fontFamily: BODY_FF, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-        {hasDiscography
+        {hasCatalogue
           ? (selectedRelease
               ? `${selectedRelease.title}${selectedRelease.year ? ` · ${selectedRelease.year}` : ''}${selectedOnSite ? '' : ' · not in the feed yet'}`
-              : `Pulling ${name}'s Discogs catalogue…`)
+              : catalogue === undefined
+                ? `Pulling ${name}'s ${catalogueSource} catalogue…`
+                : type === 'channel'
+                  ? `${catalogueItems.length} set${catalogueItems.length !== 1 ? 's' : ''} on the channel — tap one to play it here.`
+                  : `${catalogueItems.length} release${catalogueItems.length !== 1 ? 's' : ''} — tap a sleeve to see the tracklist.`)
           : type === 'channel'
-            ? `${posts.length} live set${posts.length !== 1 ? 's' : ''} deep and counting — here's what's landed under this channel so far.`
-            : `${posts.length} record${posts.length !== 1 ? 's' : ''} deep and counting — here's a closer look at what's landed under this name so far.`}
+            ? `${posts.length} live set${posts.length !== 1 ? 's' : ''} deep and counting — tap a set to play it here.`
+            : `${posts.length} record${posts.length !== 1 ? 's' : ''} deep and counting — tap a post to play it here.`}
       </p>
 
-      {/* recent list / discography picker — for artist/label subjects this
-          is now always the discography list (not gated to a single-post
-          "unknown" case any more), a real scrollable list (maxHeight + its
-          own overflowY, so a big discography can't blow out the card's
-          fixed height), split into an "already on the site" section first
-          and a gap down to "not yet uploaded". Channels have no Discogs
-          entity, so they keep the plain real-posts "Recent sets" list. */}
+      {/* Catalogue picker — the same list for all three subject types now,
+          fed by whichever source that type uses (see the catalogue block
+          above). A real scrollable list (maxHeight + its own overflowY) so a
+          label with a big back catalogue can't blow out the card's fixed
+          height, split into an "already on the site" section and a gap down
+          to "not yet uploaded". Subjects with no catalogue key fall back to
+          the plain real-posts "Recent" list. */}
       <div style={{ flexShrink: 0, marginTop: 14 }}>
-        {hasDiscography ? (
-          discography === undefined ? (
+        {hasCatalogue ? (
+          catalogue === undefined ? (
             <>
-              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Discography</div>
-              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>fetching discography…</div>
+              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Channel uploads' : 'Discography'}</div>
+              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>fetching catalogue…</div>
             </>
-          ) : discographyItems.length === 0 ? (
+          ) : catalogueItems.length === 0 ? (
             <>
-              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Discography</div>
-              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>no Discogs history found</div>
+              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Channel uploads' : 'Discography'}</div>
+              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>{`nothing found on ${catalogueSource}`}</div>
             </>
           ) : (
             <div style={{ maxHeight: 140, overflowY: 'auto' }}>
@@ -991,7 +1256,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                   <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Already on the site</div>
                   {onSiteItems.map(r => (
                     <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
-                      style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
+                      style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                       {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
                       <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
                       <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
@@ -1001,11 +1266,11 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                 </>
               )}
               <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>
-                {onSiteItems.length > 0 ? 'Not yet uploaded' : 'From Discogs — not in the feed yet'}
+                {onSiteItems.length > 0 ? 'Not yet uploaded' : `From ${catalogueSource} — not in the feed yet`}
               </div>
               {notYetItems.map(r => (
                 <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'rgba(232,93,4,0.1)' : 'transparent' }}>
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                   {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
                   <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
                   <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
@@ -1015,7 +1280,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
           )
         ) : (
           <>
-            <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Recent sets</div>
+            <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Recent sets' : 'Recent posts'}</div>
             <div>
               {recent.slice(0, 3).map(p => (
                 <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}` }}>
@@ -1036,12 +1301,15 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
           (browse the artist/label) makes more sense than an add button
           that would just re-post a duplicate; when it's not on the site
           yet, "+ add to feed" is the useful action. Falls back to plain
-          "view all →" while discography is still loading/empty, or for
-          channels (no discography at all). */}
+          "view all →" while the catalogue is still loading/empty. For a
+          channel the add url is the YouTube watch link rather than a Discogs
+          release (see addUrl above) — ComposeModal's initialUrl pipeline
+          resolves either. Channels have no browse drawer, so they get
+          nothing rather than a dead "view all". */}
       <div style={{ flexShrink: 0, marginTop: 15, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {hasDiscography && selectedRelease && !selectedOnSite ? (
+        {hasCatalogue && selectedRelease && !selectedOnSite ? (
           <button
-            onClick={() => onCreateFromDiscogs?.(`https://www.discogs.com/release/${selectedRelease.id}`)}
+            onClick={() => addUrl && onCreateFromDiscogs?.(addUrl)}
             style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: LABEL_FF, fontSize: 13, letterSpacing: '0.04em', cursor: 'pointer' }}
           >+ add to feed</button>
         ) : browsable ? (
@@ -1063,6 +1331,25 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 // fetched post-id signature changes, see Feed()), then handed out in order
 // to each spotlight slot — every SPOTLIGHT_EVERYth real post — so a load
 // never repeats a subject until the whole pool's been used once.
+
+// TEMP (2026-08-26): synthetic placeholder channel subject, purely so
+// gabriel can see the ChannelGrid layout live in his own feed before any
+// real channel data exists (no post currently carries a `channel` name +
+// `is_live_mix`/video format together — see channelName()/detectType()
+// above). Same convention as PLACEHOLDER_ON_SITE/_NOT_YET: negative ids,
+// clearly-labeled placeholder title, no real cover/stream so the grid
+// tiles render as plain labeled squares rather than a broken image/embed.
+// DELETE this block and its push into `pool` below once real live-set
+// posts with channel names exist to spotlight instead — gabriel's already
+// flagged the whole feed gets wiped when post/search testing starts, so
+// this can go the same day.
+const PLACEHOLDER_CHANNEL_NAME = 'Placeholder Channel'
+const PLACEHOLDER_CHANNEL_POSTS = [
+  { id: -101, title: 'Placeholder — Set A', channel: PLACEHOLDER_CHANNEL_NAME, is_live_mix: true, format: 'video', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+  { id: -102, title: 'Placeholder — Set B', channel: PLACEHOLDER_CHANNEL_NAME, is_live_mix: true, format: 'video', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
+  { id: -103, title: 'Placeholder — Set C', channel: PLACEHOLDER_CHANNEL_NAME, is_live_mix: true, format: 'video', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
+  { id: -104, title: 'Placeholder — Set D', channel: PLACEHOLDER_CHANNEL_NAME, is_live_mix: true, format: 'video', created_at: new Date(Date.now() - 9 * 86400000).toISOString() },
+]
 
 function buildSpotlightPool(posts) {
   const byArtist = new Map()
@@ -1099,6 +1386,8 @@ function buildSpotlightPool(posts) {
   }
   for (const [name, ps] of byLabel)   if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'label',   name, posts: ps })
   for (const [name, ps] of byChannel) if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'channel', name, posts: ps })
+  // TEMP (2026-08-26) — see PLACEHOLDER_CHANNEL_POSTS' comment above.
+  pool.push({ type: 'channel', name: PLACEHOLDER_CHANNEL_NAME, posts: PLACEHOLDER_CHANNEL_POSTS, isPlaceholder: true })
   return pool
 }
 
@@ -1264,7 +1553,19 @@ function FeedIntro({ clockWrapRef, scrollCueRef }) {
         lineHeight: 0.78, letterSpacing: '-0.03em', color: 'var(--theme-text-pri)',
         opacity: 0.3, // pre-first-frame fallback; Feed()'s "Scroll cue fade-out" effect owns this from frame one
       }}>
-        <span>←</span>
+        {/* 2026-08-26: was a bare "←" text glyph — Barlow/900 doesn't draw
+            arrow characters at anything like the weight or vertical
+            position of its letterforms at this size, so it read as
+            floating above/below "SCROLL" instead of sitting on the same
+            line. An SVG has no font metrics to fight: a flex item with no
+            baseline defaults its bottom edge to the row's baseline, so
+            `alignItems:'baseline'` above now lines it up with the text's
+            own baseline for real. Sized in `em` off the same fontSize as
+            the text so it scales together — nudge the em values if gabriel
+            wants it bigger/smaller relative to "SCROLL". */}
+        <svg viewBox="0 0 120 60" style={{ height: '0.5em', width: '1em', flexShrink: 0, display: 'block' }}>
+          <path fill="currentColor" d="M0,30 L40,0 L40,20 L120,20 L120,40 L40,40 L40,60 Z" />
+        </svg>
         <span>SCROLL</span>
       </div>
     </div>
@@ -1477,10 +1778,24 @@ export default function Feed() {
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
   }, [])
 
+  // 2026-08-28: found via devtools while chasing the "gap looks broken on
+  // the first few posts" report — this used to return the POST_BG_CYCLE
+  // tint for every non-spectrum post, but PostCard's own `cardBackground`
+  // (see its `spectrum ? cardBg : 'var(--theme-bg)'` — gabriel's earlier,
+  // still-standing call to render idx < SPECTRUM_START flat) throws that
+  // value away and renders flat var(--theme-bg) instead. So the CARD was
+  // always flat for posts 1-3; only the seam color (fed by this function)
+  // didn't know that, and FeedGap made the mismatch visible for the first
+  // time — margin-based gaps never showed a color at all, so nothing
+  // exposed it before. Matching this function to what PostCard actually
+  // paints (not reverting gabriel's flat-first-three call) is the fix.
+  // POST_BG_CYCLE itself is untouched and left in place, just no longer
+  // read here — it's still the intended source once/if the first three
+  // posts get their own tint back.
   function getCardBg(idx, item) {
     if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
-    return `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
+    return 'var(--theme-bg)'
   }
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
@@ -1508,11 +1823,22 @@ export default function Feed() {
             {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
           </div>
         )}
-        {shelfItems.current.map((item, idx) => {
-          const cardBg = getCardBg(idx, item)
-          if (item.kind === 'spotlight') return <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
-          return <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} />
-        })}
+        {(() => {
+          // FeedIntro's own background is the starting color the very
+          // first gap blends from — see FeedIntro's `background` below.
+          const items = shelfItems.current
+          const nodes = []
+          let prevBg = 'var(--theme-showcase)'
+          items.forEach((item, idx) => {
+            const cardBg = getCardBg(idx, item)
+            nodes.push(<FeedGap key={`gap-${item.key}`} from={prevBg} to={cardBg} />)
+            nodes.push(item.kind === 'spotlight'
+              ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
+              : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} />)
+            prevBg = cardBg
+          })
+          return nodes
+        })()}
       </div>
 
       {/* Search */}
