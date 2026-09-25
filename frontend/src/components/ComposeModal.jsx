@@ -102,29 +102,31 @@ function PlatformChip({ platform, suffix = '' }) {
  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: platform.color, color: platform.textColor, borderRadius: 20, padding: '2px 10px', fontFamily: 'VT323, monospace', fontSize: 10, letterSpacing: '0.04em' }}>{platform.icon} {platform.label}{suffix}</span>
 }
 
-export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
+// editPost: a full post (GET /posts shape). Opens the same form pre-filled,
+// and saving PATCHes that post instead of creating a new one.
+export default function ComposeModal({ onClose, onPosted, initialUrl = '', editPost = null }) {
  // No admin fallback: composing requires a real (password-less) username —
  // Feed.jsx only opens this modal when one is set, but guard here too in
  // case something else ever mounts it directly.
  const user = getUser()
  const userId = getUserId()
 
- const [inputUrl, setInputUrl] = useState(initialUrl)
- const [title, setTitle] = useState('')
- const [artist, setArtist] = useState('')
- const [artistsList, setArtistsList] = useState([])
- const [year, setYear] = useState('')
- const [label, setLabel] = useState('')
- const [catNo, setCatNo] = useState('')
- const [genres, setGenres] = useState([])
- const [tracks, setTracks] = useState([])
- const [comment, setComment] = useState('')
+ const [inputUrl, setInputUrl] = useState(editPost ? (editPost.stream_url || editPost.discogs_url || '') : initialUrl)
+ const [title, setTitle] = useState(editPost?.title || '')
+ const [artist, setArtist] = useState(() => (editPost?.artists || []).map(a => a.artist_name).filter(Boolean).join(', '))
+ const [artistsList, setArtistsList] = useState(() => (editPost?.artists || []).filter(a => a.artist_name).map(a => (a.discogs_artist_id != null ? { name: a.artist_name, id: a.discogs_artist_id } : { name: a.artist_name })))
+ const [year, setYear] = useState(editPost?.year ? String(editPost.year) : '')
+ const [label, setLabel] = useState(editPost?.labels?.[0]?.label_name || '')
+ const [catNo, setCatNo] = useState(editPost?.labels?.[0]?.catalogue_number || '')
+ const [genres, setGenres] = useState(editPost?.genres || [])
+ const [tracks, setTracks] = useState(() => (editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
+ const [comment, setComment] = useState(editPost?.notes || '')
  const [numbering, setNumbering] = useState('vinyl')
- const [coverArt, setCoverArt] = useState('')
- const [postType, setPostType] = useState('album')
- const [streamUrl, setStreamUrl] = useState('')
- const [embedUrl, setEmbedUrl] = useState('')
- const [channel, setChannel] = useState('')
+ const [coverArt, setCoverArt] = useState(editPost?.cover_image || '')
+ const [postType, setPostType] = useState(editPost?.post_type || 'album')
+ const [streamUrl, setStreamUrl] = useState(editPost?.stream_url || '')
+ const [embedUrl, setEmbedUrl] = useState(editPost?.embed_url || '')
+ const [channel, setChannel] = useState(editPost?.channel || '')
  const [fetching, setFetching] = useState(false)
  const [fetchStatus, setFetchStatus] = useState('')
  const [fetchError, setFetchError] = useState('')
@@ -134,11 +136,18 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const [done, setDone] = useState(false)
  const [discogsVideos, setDiscogsVideos] = useState([])
  const [allReleases, setAllReleases] = useState(null)
+ // The Discogs release the fetch landed on, from ANY platform. Until
+ // 2026-09-25 only pasted discogs.com links saved one, so YouTube/SoundCloud/
+ // Bandcamp posts that matched Discogs were stored with discogs_id NULL.
+ const [discogsId, setDiscogsId] = useState(editPost?.discogs_id || null)
 
  // Normalised name -> Discogs id, for artists and labels. Survives every
  // free-text edit of those fields; see the note by rememberIds above.
  const artistIds = useRef(new Map())
- const labelIds = useRef(new Map())
+ const labelIds = useRef(new Map((editPost?.labels || []).filter(l => l.label_name && l.discogs_label_id != null).map(l => [normName(l.label_name), l.discogs_label_id])))
+ // Bumped whenever the tracklist is replaced; a running backgroundYTSearch
+ // from before the bump stops instead of writing into the new list.
+ const searchGen = useRef(0)
 
  // Names come from whatever is in the fields right now; ids are re-attached
  // from the book by name (see rememberIds above). backend/routes/posts.js
@@ -158,7 +167,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const isDiscogs = activePlatform?.id === 'discogs'
  const isLiveMix = postType === 'livemix'
 
- useEffect(() => { if (initialUrl && detectPlatform(initialUrl)) handleFetch() }, []) // eslint-disable-line
+ useEffect(() => { if (!editPost && initialUrl && detectPlatform(initialUrl)) handleFetch() }, []) // eslint-disable-line
  useEffect(() => {
  const h = e => { if (e.key === 'Escape') onClose() }
  window.addEventListener('keydown', h)
@@ -166,10 +175,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  }, [onClose])
 
  function clearForm() {
- artistIds.current.clear(); labelIds.current.clear()
+ artistIds.current.clear(); labelIds.current.clear(); searchGen.current++
  setTitle(''); setArtist(''); setArtistsList([]); setYear(''); setLabel(''); setCatNo('')
  setGenres([]); setTracks([]); setCoverArt(''); setStreamUrl(''); setEmbedUrl(''); setChannel('')
- setFetchSource(null); setAllReleases(null); setDiscogsVideos([])
+ setFetchSource(null); setAllReleases(null); setDiscogsVideos([]); setDiscogsId(null)
  }
 
  function applyEnrichment(data) {
@@ -195,6 +204,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (data.detected_type) setPostType(data.detected_type)
  if (data.videos?.length) setDiscogsVideos(data.videos)
  if (data.all_releases?.length > 1) setAllReleases(data.all_releases)
+ setDiscogsId(data.discogs_id || null)
  setFetchSource(data.source || 'platform')
  }
 
@@ -202,6 +212,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  // Alternates from tryDiscogsLookup carry their own artists / label_id.
  rememberIds(artistIds.current, rel.artists)
  if (rel.label && rel.label_id != null) rememberIds(labelIds.current, [{ name: rel.label, id: rel.label_id }])
+ if (rel.discogs_id) setDiscogsId(rel.discogs_id)
  const relArtist = rel.artists?.length ? rel.artists.map(a => a.name).filter(Boolean).join(', ') : artist
  if (rel.artists?.length) { setArtistsList(rel.artists); setArtist(relArtist) }
  const cleanTitle = rel.release_title?.includes(' - ') ? rel.release_title.split(' - ').slice(1).join(' - ') : (rel.release_title || '')
@@ -213,9 +224,11 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (rel.genres?.length) setGenres(rel.genres.slice(0, 6))
  if (rel.tracks?.length) {
  const mapped = rel.tracks.map(t => ({ ...t, stream_url: '' }))
+ searchGen.current++
  setTracks(mapped)
  setPostType(rel.tracks.length >= 6 ? 'album' : rel.tracks.length <= 2 ? 'single' : 'album')
- if (rel.videos?.length) { setDiscogsVideos(rel.videos); backgroundYTSearch(mapped, relArtist, rel.label, rel.catNo) }
+ setDiscogsVideos(rel.videos || [])
+ backgroundYTSearch(mapped, relArtist, rel.label, rel.catNo, rel.videos || [])
  }
  setAllReleases(null)
  }
@@ -230,12 +243,23 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (!platform) { setFetchError('UNRECOGNISED PLATFORM — SUPPORTED: DISCOGS · YOUTUBE · SPOTIFY · SOUNDCLOUD · BANDCAMP · MIXCLOUD · DEEZER · APPLE MUSIC · BEATPORT · TIDAL · RA · BOILER ROOM'); return }
 
  if (platform.id === 'discogs') {
- const id = extractDiscogsId(url)
- if (!id) { setFetchError('NOT A VALID DISCOGS RELEASE URL — MUST CONTAIN /release/'); return }
+ // Shop listings, marketplace pages and masters don't carry a release id in
+ // the URL; the backend does that hop (resolveDiscogsUrl) instead of making
+ // the user go and find the /release/ page.
+ let id = extractDiscogsId(url)
+ if (!id) {
+ setFetching(true); setFetchStatus('FINDING THE RELEASE ON DISCOGS...')
+ try {
+ const r = await fetch(`${API}/discogs/resolve-url?url=${encodeURIComponent(url)}`)
+ const d = await r.json().catch(() => ({}))
+ if (!r.ok || !d.releaseId) throw new Error(d.error || `lookup failed (${r.status})`)
+ id = String(d.releaseId)
+ } catch (err) { setFetchError(`DISCOGS — ${String(err.message).toUpperCase()}`); setFetching(false); setFetchStatus(''); return }
+ }
  setFetching(true); setFetchStatus('CHECKING DATABASE...')
  try {
  const dupRes = await fetch(`${API}/posts?discogs_id=${id}`)
- if (dupRes.ok) { const dd = await dupRes.json(); const dp = Array.isArray(dd) ? dd : dd.posts; if (dp?.length > 0) { setDuplicate(dp[0]); setFetching(false); setFetchStatus(''); return } }
+ if (dupRes.ok) { const dd = await dupRes.json(); const dp = Array.isArray(dd) ? dd : dd.posts; if (dp?.length > 0 && dp[0].id !== editPost?.id) { setDuplicate(dp[0]); setFetching(false); setFetchStatus(''); return } }
  } catch { /* continue */ }
  setFetchStatus('FETCHING FROM DISCOGS...')
  try {
@@ -256,7 +280,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  setCoverArt(data.coverImage || data.thumbImage || '')
  setDiscogsVideos(data.videos || [])
  setGenres([...(data.genres || []), ...(data.styles || [])].slice(0, 6))
- setFetchSource('discogs'); setStreamUrl(url)
+ // The release page, not the pasted link: a shop listing URL dies once sold.
+ setFetchSource('discogs'); setStreamUrl(`https://www.discogs.com/release/${id}`); setDiscogsId(data.discogsId || Number(id) || null)
  const discogsArtists = data.artists?.length ? data.artists : splitArtists(fArtist)
  setArtistsList(discogsArtists)
  const fmtName = data.formats?.map(f => f.name).join(' ') || ''
@@ -274,13 +299,13 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const cl = (t.title || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
  let ytUrl = videoMap[cl] || null
  if (!ytUrl) for (const [k, v] of Object.entries(videoMap)) { if (k.includes(cl) || cl.includes(k)) { ytUrl = v; break } }
- return { position: t.position, title: t.title, stream_url: ytUrl || '' }
+ return { position: t.position, title: t.title, artists: t.artists || [], stream_url: ytUrl || '' }
  })
  setTracks(rawTracks)
  const ytCount = rawTracks.filter(t => t.stream_url).length
  const missing = rawTracks.filter(t => !t.stream_url)
  setFetchStatus(`✓ FETCHED · ${rawTracks.length} TRACKS · ${ytCount} YT LINKS${missing.length ? ` · SEARCHING ${missing.length} MORE...` : ''}`)
- if (missing.length > 0 && fArtist) backgroundYTSearch(rawTracks, fArtist, fLabel, fCatno)
+ if (missing.length > 0 && fArtist) backgroundYTSearch(rawTracks, fArtist, fLabel, fCatno, data.videos)
  } catch (err) { setFetchError(`FETCH FAILED — ${err.message}`) } finally { setFetching(false) }
  return
  }
@@ -298,19 +323,29 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (data.detected_type === 'livemix') { setFetchStatus(`✓ ${platform.label}${src} · LIVE SET DETECTED`) }
  else if (tCount > 0) {
  setFetchStatus(`✓ ${platform.label}${src} · ${tCount} TRACKS · ${lCount} LINKS`)
- if (data.source === 'discogs' && data.artist) { const missing = data.tracks.filter(t => !t.stream_url); if (missing.length) backgroundYTSearch(data.tracks, data.artist, data.label, data.catNo) }
+ if (data.artist) { const missing = data.tracks.filter(t => !t.stream_url); if (missing.length) backgroundYTSearch(data.tracks, data.artist, data.label, data.catNo, data.videos) }
  } else { setFetchStatus(`✓ ${platform.label}${src} · TITLE & ARTIST PRE-FILLED`) }
  } catch (err) { setFetchError(`${platform.label} FETCH FAILED — ${err.message}`) }
  finally { setFetching(false) }
  }
 
- function backgroundYTSearch(initial, fArtist, fLabel, fCatno) {
- const videos = discogsVideos
- if (!videos.length) return
+ // Fills empty tracklist rows. Pass 1: match Discogs' own videos[] by title
+ // (free). Pass 2: one YouTube search per row still empty, via the backend
+ // (/discogs/youtube/search — cached, daily-capped; see searchTrackVideo).
+ // Compilations search with each track's own Discogs artist, not "Various".
+ // `videos` is passed in by callers that have just fetched it: reading
+ // discogsVideos right after setDiscogsVideos() saw the previous render's
+ // (empty) list. searchGen stops a run whose tracklist has been replaced
+ // (new fetch / other release picked), and rows are only filled while still
+ // empty, so a URL typed by hand mid-search is never overwritten.
+ function backgroundYTSearch(initial, fArtist, fLabel, fCatno, videos = discogsVideos) {
+ const gen = searchGen.current
+ const stale = () => searchGen.current !== gen
+ const setUrl = (i, url) => setTracks(prev => prev.map((t, idx) => (idx === i && !t.stream_url ? { ...t, stream_url: url } : t)))
  ;(async () => {
  const normalize = s => (s || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim()
  const updated = [...initial]
- for (let i = 0; i < updated.length; i++) {
+ for (let i = 0; i < updated.length && videos?.length; i++) {
  if (updated[i].stream_url) continue
  const tt = normalize(updated[i].title); const ar = normalize(fArtist)
  let best = null, bestScore = -Infinity
@@ -327,11 +362,27 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  }
  if (best && bestScore >= 30) {
  const videoId = (best.url || '').match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1]
- if (videoId) { const ytUrl = `https://www.youtube.com/watch?v=${videoId}`; updated[i] = { ...updated[i], stream_url: ytUrl }; setTracks([...updated]) }
+ if (videoId) { const ytUrl = `https://www.youtube.com/watch?v=${videoId}`; updated[i] = { ...updated[i], stream_url: ytUrl }; setUrl(i, ytUrl) }
  }
  }
+
+ const releaseArtist = /^various( artists)?$/i.test((fArtist || '').trim()) ? '' : (fArtist || '')
+ let capped = false
+ for (let i = 0; i < updated.length; i++) {
+ if (stale()) return
+ if (updated[i].stream_url) continue
+ const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(' ') || releaseArtist
+ setFetchStatus(`SEARCHING YOUTUBE · ${updated[i].position || i + 1} ${(updated[i].title || '').toUpperCase()}...`)
+ try {
+ const r = await fetch(`${API}/discogs/youtube/search?${new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '' })}`)
+ const d = await r.json()
+ if (d.capped) { capped = true; break }
+ if (d.youtube_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.youtube_url }; setUrl(i, d.youtube_url) }
+ } catch { /* one failed row shouldn't stop the rest */ }
+ }
+ if (stale()) return
  const found = updated.filter(t => t.stream_url).length
- setFetchStatus(`✓ FETCHED · ${updated.length} TRACKS · ${found} LINKS FOUND`)
+ setFetchStatus(`✓ ${updated.length} TRACKS · ${found} LINKS FOUND${capped ? ' · DAILY YOUTUBE SEARCH LIMIT REACHED' : ''}`)
  })()
  }
 
@@ -343,13 +394,13 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  if (!title.trim()) return
  setPosting(true); setFetchError('')
  try {
- const postRes = await fetch(`${API}/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, username: user, discogs_url: isDiscogs ? inputUrl : '', stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks, body: comment.trim(), notes: comment.trim() }) })
- if (!postRes.ok) throw new Error(`POST failed: ${postRes.status}`)
+ const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, username: user, discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks, body: comment.trim(), notes: comment.trim() }) })
+ if (!postRes.ok) { const e = await postRes.json().catch(() => ({})); throw new Error(e.error || `${editPost ? 'SAVE' : 'POST'} failed: ${postRes.status}`) }
  const saved = await postRes.json()
- const savedPostId = saved.id || saved.postId
+ const savedPostId = saved.id || saved.postId || editPost?.id
  setDone(true)
  setTimeout(() => { onPosted?.({ postId: savedPostId }); onClose() }, 800)
- } catch (err) { setFetchError(`FAILED TO POST — ${err.message}`) } finally { setPosting(false) }
+ } catch (err) { setFetchError(`${editPost ? 'FAILED TO SAVE' : 'FAILED TO POST'} — ${String(err.message).toUpperCase()}`) } finally { setPosting(false) }
  }
 
  const hasFetched = !!title
@@ -378,7 +429,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
 
  <div style={{ background: '#1e2126', padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
- <span style={{ fontFamily: 'Barlow, sans-serif', fontWeight: 900, fontSize: 15, color: '#fff' }}>NEW POST</span>
+ <span style={{ fontFamily: 'Barlow, sans-serif', fontWeight: 900, fontSize: 15, color: '#fff' }}>{editPost ? `EDIT POST #${editPost.id}` : 'NEW POST'}</span>
  {activePlatform && <span style={{ background: activePlatform.color, color: activePlatform.textColor, borderRadius: 4, padding: '1px 7px', fontFamily: 'VT323, monospace', fontSize: 10 }}>{activePlatform.icon} {activePlatform.label}</span>}
  </div>
  <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
@@ -569,9 +620,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
 
  <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(0,0,0,0.07)', flexShrink: 0, background: '#fafbfc' }}>
  {done ? (
- <div style={{ textAlign: 'center', fontFamily: 'VT323, monospace', fontSize: 16, color: '#e85d04' }}>✓ POSTED TO BOARD</div>
+ <div style={{ textAlign: 'center', fontFamily: 'VT323, monospace', fontSize: 16, color: '#e85d04' }}>{editPost ? '✓ SAVED' : '✓ POSTED TO BOARD'}</div>
  ) : (
- <button onClick={handlePost} disabled={!title.trim() || posting || !!duplicate} style={{ ...pillBtn('orange', { width: '100%', textAlign: 'center', fontSize: 14, padding: '10px 0' }), opacity: (!title.trim() || posting || !!duplicate) ? 0.5 : 1 }}>{posting ? 'POSTING...' : 'POST TO BOARD ▶'}</button>
+ <button onClick={handlePost} disabled={!title.trim() || posting || !!duplicate} style={{ ...pillBtn('orange', { width: '100%', textAlign: 'center', fontSize: 14, padding: '10px 0' }), opacity: (!title.trim() || posting || !!duplicate) ? 0.5 : 1 }}>{posting ? (editPost ? 'SAVING...' : 'POSTING...') : (editPost ? 'SAVE CHANGES ▶' : 'POST TO BOARD ▶')}</button>
  )}
  {!title.trim() && <div style={{ textAlign: 'center', fontFamily: 'VT323, monospace', fontSize: 10, color: '#b0b8c4', marginTop: 6 }}>FETCH A LINK OR ENTER A TITLE TO POST</div>}
  </div>

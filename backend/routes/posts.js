@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { enrichPostTracks } from '../services/youtubeService.js';
+import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 
 const router = express.Router();
 
@@ -171,20 +172,62 @@ router.post('/', (req, res, next) => {
     // to run on insert. Left in place (unused) rather than deleted in case
     // we want DB-persisted milestone spotlights back later.
     res.status(201).json(getFullPost(postId));
+    // No release matched at compose time: look again in the background so
+    // the post gets its Discogs / BUY links if Discogs has it.
+    if (!resolvedDiscogsId && post_type !== 'livemix') {
+      matchMissingDiscogs().catch(e => console.warn('[discogs-match]', e.message));
+    }
   } catch (err) { next(err); }
 });
+
+// Edit/delete are limited to the post's author (or lnv_admin). Usernames are
+// password-less (see Login.jsx), so this stops accidents and casual
+// tampering from the UI, not a determined caller — same trust model as
+// posting itself.
+function canModify(post, userId) {
+  if (userId == null || userId === '') return false;
+  if (Number(userId) === post.user_id) return true;
+  return db.prepare('SELECT username FROM users WHERE id = ?').get(Number(userId))?.username === 'lnv_admin';
+}
 
 router.patch('/:id', (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type', 'channel'];
+    if (!canModify(post, req.body.user_id)) return res.status(403).json({ error: 'Only the person who posted this can edit it' });
+    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type', 'channel', 'discogs_id', 'discogs_url'];
     const updates = []; const values = [];
-    for (const field of allowed) { if (req.body[field] !== undefined) { updates.push(field + ' = ?'); values.push(req.body[field]); } }
-    if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
-    values.push(id);
-    db.prepare('UPDATE posts SET ' + updates.join(', ') + ' WHERE id = ?').run(...values);
+    for (const field of allowed) { if (req.body[field] !== undefined) { updates.push(field + ' = ?'); values.push(req.body[field] === '' ? null : req.body[field]); } }
+    const { artists, labels, genres, tracks } = req.body;
+    const hasLists = [artists, labels, genres, tracks].some(Array.isArray);
+    if (updates.length === 0 && !hasLists) return res.status(400).json({ error: 'No valid fields to update' });
+
+    // Lists are replaced wholesale when sent (the compose form always sends
+    // the full current list); omitted lists are left as they were.
+    db.transaction(() => {
+      if (updates.length) db.prepare('UPDATE posts SET ' + updates.join(', ') + ' WHERE id = ?').run(...values, id);
+      if (Array.isArray(artists)) {
+        db.prepare('DELETE FROM post_artists WHERE post_id = ?').run(id);
+        const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
+        for (const a of artists) if (a?.name) ia.run(id, a.name, a.id || null);
+      }
+      if (Array.isArray(labels)) {
+        db.prepare('DELETE FROM post_labels WHERE post_id = ?').run(id);
+        const il = db.prepare('INSERT INTO post_labels (post_id, label_name, catalogue_number, discogs_label_id) VALUES (?, ?, ?, ?)');
+        for (const l of labels) if (l?.name) il.run(id, l.name, l.catno || null, l.id || null);
+      }
+      if (Array.isArray(genres)) {
+        db.prepare('DELETE FROM post_genres WHERE post_id = ?').run(id);
+        const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
+        for (const g of genres) if (g) ig.run(id, g);
+      }
+      if (Array.isArray(tracks)) {
+        db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url) VALUES (?, ?, ?, ?, ?, ?)');
+        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null);
+      }
+    })();
     res.json(getFullPost(id));
   } catch (err) { next(err); }
 });
@@ -194,7 +237,16 @@ router.delete('/:id', (req, res, next) => {
     const id = Number(req.params.id);
     const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    db.prepare('DELETE FROM posts WHERE id = ?').run(id);
+    if (!canModify(post, req.query.user_id ?? req.body?.user_id)) return res.status(403).json({ error: 'Only the person who posted this can delete it' });
+    // foreign_keys isn't enabled on this connection, so the schema's ON
+    // DELETE CASCADEs never fire — remove the child rows explicitly or they
+    // stay behind as orphans.
+    db.transaction(() => {
+      for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights']) {
+        db.prepare(`DELETE FROM ${table} WHERE post_id = ?`).run(id);
+      }
+      db.prepare('DELETE FROM posts WHERE id = ?').run(id);
+    })();
     res.json({ message: 'Post deleted' });
   } catch (err) { next(err); }
 });

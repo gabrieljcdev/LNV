@@ -232,3 +232,92 @@ export async function getChannelUploads(videoId, limit = 24) {
   setChannelCache(cacheKey, out);
   return out;
 }
+
+// ─── Track search (YouTube Data API search.list) ──────────────────────────────
+// Fills tracklist rows that Discogs' own videos[] didn't cover. search.list is
+// the one expensive YouTube call — 100 units against a 10,000/day project
+// quota — so every call goes through three guards:
+//   1. ONE query per track (the old /api/discogs/youtube/search tried up to 7),
+//   2. results cached in youtube_cache — hits for 90 days, misses for 14,
+//   3. a daily unit cap (YOUTUBE_DAILY_UNIT_CAP, default 5000) tracked in
+//      api_quota, leaving the rest of the quota for videos/channels lookups.
+
+const SEARCH_COST = 100;
+const SEARCH_HIT_TTL = 90 * 24 * 60 * 60 * 1000;
+const SEARCH_MISS_TTL = 14 * 24 * 60 * 60 * 1000;
+const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+const today = () => new Date().toISOString().slice(0, 10);
+
+export function quotaUsed(provider = 'youtube') {
+  return db.prepare('SELECT units FROM api_quota WHERE provider = ? AND day = ?').get(provider, today())?.units || 0;
+}
+
+// Reserve units up front; false if that would cross the cap.
+function spendQuota(units, provider = 'youtube') {
+  if (quotaUsed(provider) + units > dailyCap()) return false;
+  db.prepare(`INSERT INTO api_quota (provider, day, units) VALUES (?, ?, ?)
+              ON CONFLICT(provider, day) DO UPDATE SET units = units + excluded.units`)
+    .run(provider, today(), units);
+  return true;
+}
+
+function searchScore(item, trackTitle, artist) {
+  const vt = item.snippet?.title || '';
+  const ch = normalize(item.snippet?.channelTitle || '');
+  let score = matchScore(vt, trackTitle, artist);
+  if (!artist) score -= 20; // matchScore's artist bonus: '' is in every title
+  const v = normalize(vt), tt = normalize(trackTitle);
+  // matchScore penalises "remix"/"live" outright; undo that when the track
+  // itself is a remix/live version.
+  if (/remix|live/.test(tt) && /remix|live/.test(v)) score += 20;
+  if (artist && ch.includes(normalize(artist))) score += 15; // artist's own / Topic channel
+  if (/ topic$/.test(ch)) score += 10;                        // distributor upload = the release audio
+  if (/full album|full ep|album mix/.test(v)) score -= 40;
+  return score;
+}
+
+/**
+ * Best YouTube video for one track, or null.
+ * Returns { youtube_url, youtube_title, cached, capped }.
+ */
+export async function searchTrackVideo(artist, trackTitle, { label = '' } = {}) {
+  const a = /^various$/i.test((artist || '').trim()) ? '' : (artist || '').trim();
+  const title = (trackTitle || '').trim();
+  if (!title) return { youtube_url: null, youtube_title: null };
+
+  const cacheKey = `search|${a}|${title}`.toLowerCase();
+  const row = db.prepare('SELECT * FROM youtube_cache WHERE query = ?').get(cacheKey);
+  if (row) {
+    const age = Date.now() - new Date(row.fetched_at).getTime();
+    if (age < (row.youtube_url ? SEARCH_HIT_TTL : SEARCH_MISS_TTL)) {
+      return { youtube_url: row.youtube_url, youtube_title: row.youtube_title, cached: true };
+    }
+  }
+
+  if (!spendQuota(SEARCH_COST)) return { youtube_url: null, youtube_title: null, capped: true };
+
+  const q = a ? `${a} ${title}` : `${title} ${label}`.trim();
+  let data;
+  try {
+    data = await ytApi('search', { part: 'snippet', type: 'video', maxResults: '5', q });
+  } catch (e) {
+    // Out of quota at Google's end: treat as capped, don't cache a false miss.
+    if (/quota/i.test(e.message)) return { youtube_url: null, youtube_title: null, capped: true };
+    throw e;
+  }
+
+  let best = null, bestScore = -Infinity;
+  for (const item of data.items || []) {
+    const s = searchScore(item, title, a);
+    if (s > bestScore) { bestScore = s; best = item; }
+  }
+  // Title must match (>=30). With a known artist, also want the artist in the
+  // video title (+20) or channel (+15) — a bare title match (50), even on a
+  // Topic channel (+10), could be anyone's track of the same name.
+  const threshold = a ? 65 : 30;
+  const hit = best && bestScore >= threshold ? best : null;
+  const youtube_url = hit ? `https://www.youtube.com/watch?v=${hit.id.videoId}` : null;
+  const youtube_title = hit?.snippet?.title || null;
+  setCache(cacheKey, youtube_url, youtube_title);
+  return { youtube_url, youtube_title, cached: false };
+}

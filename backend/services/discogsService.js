@@ -44,10 +44,15 @@ export async function searchDiscogs(query, type = 'release', page = 1) {
   return data;
 }
 
+// Bump when normaliseRelease gains a field, so cached releases stored in the
+// older shape are refetched once instead of being served without it.
+// 2 = per-track artists (2026-09-25).
+const RELEASE_SHAPE_VERSION = 2;
+
 export async function getRelease(releaseId) {
   const key = `release:${releaseId}`;
   const cached = getCached(key);
-  if (cached) return cached;
+  if (cached && cached._v >= RELEASE_SHAPE_VERSION) return cached;
 
   const url = `${DISCOGS_BASE}/releases/${releaseId}`;
   const res = await fetch(url, { headers: getHeaders() });
@@ -173,16 +178,18 @@ function normaliseArtistReleases(data) {
       pages: data.pagination?.pages || 1,
       items: data.pagination?.items || 0,
     },
-    releases: (data.releases || [])
+    // Discogs lists a release once PER ROLE (Producer + Appearance = two
+    // rows, same id), which surfaced as duplicate React keys in the spotlight
+    // grid. One entry per type+id, roles merged ("Producer, Appearance").
+    releases: [...(data.releases || [])
       .filter(r => r.type === 'release' || r.type === 'master')
-      .map(r => ({
-        id: r.id,
-        type: r.type,
-        title: r.title,
-        year: r.year || null,
-        role: r.role || null,
-        thumb: r.thumb || null,
-      })),
+      .reduce((m, r) => {
+        const k = `${r.type}:${r.id}`;
+        const prev = m.get(k);
+        if (prev) { if (r.role && !prev.role?.split(', ').includes(r.role)) prev.role = prev.role ? `${prev.role}, ${r.role}` : r.role; }
+        else m.set(k, { id: r.id, type: r.type, title: r.title, year: r.year || null, role: r.role || null, thumb: r.thumb || null });
+        return m;
+      }, new Map()).values()],
   };
 }
 
@@ -218,9 +225,15 @@ function normaliseRelease(data) {
     styles: data.styles || [],
     artists: (data.artists || []).map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') })),
     labels: (data.labels || []).map(l => ({ id: l.id, name: l.name, catno: l.catno })),
-    tracklist: (data.tracklist || []).map(t => ({ position: t.position, title: t.title, duration: t.duration })),
+    // Per-track artists only exist on compilations ("Various" releases),
+    // where they're the only record of who made each track.
+    tracklist: (data.tracklist || []).map(t => ({
+      position: t.position, title: t.title, duration: t.duration,
+      artists: (t.artists || []).map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') })),
+    })),
     coverImage: data.images?.[0]?.uri || null,
     thumbImage: data.thumb || null,
+    _v: RELEASE_SHAPE_VERSION,
     videos: (data.videos || []).map(v => ({ url: v.uri, title: v.title })),
     notes: data.notes || null,
     discogsUrl: data.uri,
@@ -242,4 +255,51 @@ function normaliseMaster(data) {
     videos: (data.videos || []).map(v => ({ url: v.uri, title: v.title })),
     discogsUrl: data.uri,
   };
+}
+
+// ─── Any Discogs URL -> release id ────────────────────────────────────────────
+// Compose used to accept only /release/<id> links, so a shop listing
+// (/shop/item/<id>, /sell/item/<id>) or a master page hit a "not a valid
+// release URL" wall. This does the extra hop instead:
+//   /release/<id>, /sell/release/<id>, ?release_id=<id>  -> that release
+//   /shop/item/<id>, /sell/item/<id>                     -> the listing's release (1 call)
+//   /master/<id>, ?master_id=<id>                        -> the master's main release (1 call)
+// Locale prefixes (/de/, /fr/...) and slugs after the id are fine.
+// Mapping results are cached: a release/master pairing never changes, and a
+// listing's release doesn't either (the listing just disappears when sold).
+export async function resolveDiscogsUrl(url) {
+  const u = String(url || '');
+  const release = u.match(/\/release\/(\d+)/)?.[1] || u.match(/[?&]release_id=(\d+)/)?.[1];
+  if (release) return { releaseId: Number(release), via: 'release' };
+
+  const listing = u.match(/\/(?:shop|sell)\/item\/(\d+)/)?.[1];
+  if (listing) {
+    const key = `listing:${listing}`;
+    const cached = getCached(key);
+    if (cached) return cached;
+    const res = await fetch(`${DISCOGS_BASE}/marketplace/listings/${listing}`, { headers: getHeaders() });
+    if (res.status === 404) throw new Error('That Discogs listing has been sold or removed — paste the release page instead');
+    if (!res.ok) throw new Error(`Discogs listing ${listing}: ${res.status}`);
+    const data = await res.json();
+    if (!data.release?.id) throw new Error(`Discogs listing ${listing} has no release`);
+    const out = { releaseId: data.release.id, via: 'listing' };
+    setCache(key, out);
+    return out;
+  }
+
+  const master = u.match(/\/master\/(\d+)/)?.[1] || u.match(/[?&]master_id=(\d+)/)?.[1];
+  if (master) {
+    const key = `master-main:${master}`;
+    const cached = getCached(key);
+    if (cached) return cached;
+    const res = await fetch(`${DISCOGS_BASE}/masters/${master}`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`Discogs master ${master}: ${res.status}`);
+    const data = await res.json();
+    if (!data.main_release) throw new Error(`Discogs master ${master} has no main release`);
+    const out = { releaseId: data.main_release, via: 'master' };
+    setCache(key, out);
+    return out;
+  }
+
+  throw new Error('Paste a Discogs release, master or shop link');
 }

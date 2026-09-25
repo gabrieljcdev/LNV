@@ -4,7 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
 import Clock from './Clock'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH } from './Strip'
-import { getUserId } from '../lib/auth'
+import { getUserId, isAdmin } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 
@@ -182,6 +182,9 @@ function timeAgo(d) {
 
 function cleanNote(t)  { return (t || '').replace(/https?:\/\/\S+/g, '').trim() }
 function artistName(p) { return p.artists?.[0]?.artist_name || p.artists?.[0]?.name || p.artist_name || '' }
+// Discogs' compilation credit, not an individual artist: shown on the post,
+// but never an artist spotlight or an artist-drawer link.
+const isVariousArtist = name => /^various( artists)?$/i.test((name || '').trim())
 function labelName(p)  { return p.labels?.[0]?.label_name  || p.labels?.[0]?.name  || p.label_name  || '' }
 function channelName(p){ return p.channel || '' }
 function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image || p.thumbImage || p.cover_art || '' }
@@ -219,6 +222,17 @@ const PLATFORM_COLORS = {
   applemusic: '#fc3c44', tidal: '#000', beatport: '#01ff95',
   ra: '#f03', boilerroom: '#111', discogs: '#333',
 }
+
+// URL -> platform id, so the platform badge can name (and link to) whatever
+// is actually playing rather than only the post's original platform.
+const URL_PLATFORMS = [
+  ['youtube', /youtube\.com|youtu\.be/i], ['soundcloud', /soundcloud\.com/i],
+  ['bandcamp', /bandcamp\.com/i], ['mixcloud', /mixcloud\.com/i],
+  ['spotify', /spotify\.com/i], ['deezer', /deezer\.com/i],
+  ['applemusic', /music\.apple\.com/i], ['tidal', /tidal\.com/i],
+  ['beatport', /beatport\.com/i], ['discogs', /discogs\.com/i],
+]
+const platformOfUrl = url => URL_PLATFORMS.find(([, re]) => re.test(url || ''))?.[0] || null
 
 const POST_BG_CYCLE = ['dark1','dark2','dark3','dark1','dark2','light1','dark3','dark1','dark2','dark3','light1','dark1','dark2']
 
@@ -328,7 +342,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
   return (
     <div style={{ padding: `${d?.cmPy ?? 8}px ${d?.cmPx ?? 16}px 12px`, borderTop: hasComments ? '0.5px solid var(--theme-border)' : 'none', flexShrink: 0 }}>
       {hasComments && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: maxH, overflowY: 'auto' }}>
+        <div data-inner-scroll="" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: maxH, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
           {comments.map(c => (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
               <span style={{ fontWeight: 700, color: 'var(--theme-text-pri)', flexShrink: 0 }}>{c.username || c.display_name || 'anon'}</span>
@@ -370,9 +384,57 @@ function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
 // rendered inline in the flow instead of an absolutely-positioned overlay),
 // discogs/stream links are unchanged, genre pills still filter via openD3.
 
-const TRACK_ROWS = 6 // Task C — was 3, capped by the old rail's fixed slot height; the flow rail absorbs the extra rows on its own now.
+// ── In-card scroll boxes (2026-09-25) ─────────────────────────────────────────
+// Description, tracklist and comments scroll inside the card when their
+// content is taller than the space they get. Shared bits:
+//   useScrollFit(ref, deps) -> { overflows, atEnd, onScroll }
+//   fadeMask(fit)           -> bottom fade while there's more below
+//   INNER_SCROLL_STYLE      -> thin, theme-coloured scrollbar
+// The box also needs data-inner-scroll so LayoutProvider's wheel handler
+// lets it take the wheel (it otherwise sends every wheel to the feed).
+const INNER_SCROLL_STYLE = { scrollbarWidth: 'thin', scrollbarColor: 'var(--theme-border) transparent', overscrollBehavior: 'contain' }
+const FADE = 'linear-gradient(to bottom, #000 70%, transparent)'
+function fadeMask(fit) {
+  return fit.overflows && !fit.atEnd ? { maskImage: FADE, WebkitMaskImage: FADE } : null
+}
+function useScrollFit(ref, deps) {
+  const [overflows, setOverflows] = useState(false)
+  const [atEnd, setAtEnd] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => {
+      setOverflows(el.scrollHeight > el.clientHeight + 1)
+      setAtEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 2)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, deps) // eslint-disable-line react-hooks/exhaustive-deps
+  const onScroll = e => { const el = e.currentTarget; setAtEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 2) }
+  return { overflows, atEnd, onScroll }
+}
 
-function PostCard({ post, cardBg, spectrum, d }) {
+function PostCard({ post, cardBg, spectrum, d, onEdit }) {
+  // Edit/delete: the post's author (or lnv_admin). The backend checks the
+  // same thing (canModify in routes/posts.js).
+  const queryClient = useQueryClient()
+  const myUserId = getUserId()
+  const canModify = !!myUserId && (String(post.user_id) === String(myUserId) || isAdmin())
+  const [deleting, setDeleting] = useState(false)
+  async function deletePost() {
+    if (deleting || !window.confirm(`Delete post #${post.id} "${post.title}"? This can't be undone.`)) return
+    setDeleting(true)
+    try {
+      const r = await fetch(`${API}/posts/${post.id}?user_id=${encodeURIComponent(myUserId)}`, { method: 'DELETE' })
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.status) }
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+    } catch (err) {
+      window.alert(`Couldn't delete: ${err.message}`)
+      setDeleting(false)
+    }
+  }
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
   const [hoveredTrack, setHoveredTrack] = useState(null)
@@ -386,6 +448,11 @@ function PostCard({ post, cardBg, spectrum, d }) {
   const artistNameRef = useRef(null)
   const artBoxRef = useRef(null)
   const [dynamicArtMbBottom, setDynamicArtMbBottom] = useState(d.artMbBottom)
+  // In-card scroll boxes — see useScrollFit.
+  const descRef = useRef(null)
+  const descFit = useScrollFit(descRef, [post.notes, post.body])
+  const trackListRef = useRef(null)
+  const trackFit = useScrollFit(trackListRef, [post.tracks?.length])
 
   const type = detectType(post)
   const artist = artistName(post)
@@ -412,19 +479,47 @@ function PostCard({ post, cardBg, spectrum, d }) {
   // badge's white text.
   const tagColor = isLiveMix ? 'var(--theme-accent)' : 'var(--theme-showcase)'
 
-  const platformColor = PLATFORM_COLORS[platform] || 'var(--theme-accent)'
-  const platformLabel = platform?.toUpperCase()
+  // 2026-09-25: the badges are links. The platform badge follows what's
+  // playing — B2 open on YouTube means the badge reads YOUTUBE and opens B2
+  // there; nothing playing, it's the post's own link. DISCOGS opens the
+  // release page; BUY opens the Discogs marketplace for it, or the Bandcamp
+  // page for a Bandcamp-only release.
+  const playingUrl = activeTrackUrl || post.stream_url || ''
+  const playingPlatform = platformOfUrl(playingUrl) || platform
+  const playingYtId = playingPlatform === 'youtube' ? playingUrl.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] : null
+  const playingHref = playingYtId ? `https://www.youtube.com/watch?v=${playingYtId}` : (playingUrl || null)
+  // No release matched (yet — discogsMatcher retries daily): still give a
+  // way in, as a Discogs search for the artist + title. Not for live sets.
+  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+  const discogsHref = discogsExact || (!isLiveMix && (artist || post.title)
+    ? `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}`
+    : null)
+  const buyHref = post.discogs_id
+    ? `https://www.discogs.com/sell/release/${post.discogs_id}`
+    : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
+
+  const platformColor = PLATFORM_COLORS[playingPlatform] || 'var(--theme-accent)'
+  const platformLabel = playingPlatform?.toUpperCase()
 
   const streamUrl = activeTrackUrl || post.stream_url || post.embed_url || tracks[0]?.youtube_url || tracks[0]?.stream_url || ''
   const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
   const ytId = ytMatch ? ytMatch[1] : null
   const scUrl = /soundcloud\.com/i.test(streamUrl) ? streamUrl : null
   const mcUrl = /mixcloud\.com/i.test(streamUrl) ? streamUrl : null
+  // Bandcamp's player can't be built from the page URL (it needs the album/
+  // track id), so it's the embed_url the resolver saved with the post. The
+  // size=large/minimal=true player is the square artwork with a play button.
+  const bcEmbed = /bandcamp\.com/i.test(streamUrl) && /bandcamp\.com\/EmbeddedPlayer/i.test(post.embed_url || '')
+    ? post.embed_url : null
 
-  const embedSrc = ytId
+  const embedSrc = bcEmbed
+    ? bcEmbed
+    : ytId
     ? `https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1&color=white`
     : scUrl
-    ? `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true`
+    // visual=true: the artwork fills the player, so in the square art frame
+    // it stands in for the cover. Live sets keep the compact bar in the well.
+    ? `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true&visual=${isLiveMix ? 'false' : 'true'}`
     : mcUrl
     ? `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(mcUrl.replace('https://www.mixcloud.com',''))}`
     : null
@@ -432,7 +527,8 @@ function PostCard({ post, cardBg, spectrum, d }) {
   // The embed's size comes from the platform actually detected in the post's
   // URL, not from the designer's preset — the preset only picks which one the
   // preview mocks up.
-  const [embedW, embedH] = ytId ? [560, 315]
+  const [embedW, embedH] = bcEmbed ? [350, 350]
+    : ytId ? [560, 315]
     : scUrl ? [480, 166]
     : mcUrl ? [400, 60]
     : [d.embedW, d.embedH]
@@ -474,7 +570,23 @@ function PostCard({ post, cardBg, spectrum, d }) {
   // Click the same row again to flip back. Livemix posts are unaffected —
   // they show their channel embed the same way they always did. Unchanged
   // by Task B.
-  const albumFlipped = !isLiveMix && !!activeTrackUrl && !!embedSrc
+  // 2026-09-25: SoundCloud posts start flipped — the SoundCloud player shows
+  // the artwork itself, so there's nothing to click through to. A tracklist
+  // row with its own link still swaps the player; un-clicking it returns to
+  // the SoundCloud one.
+  // Bandcamp too (2026-09-25): its player is the artwork as well.
+  const playerIsArt = /soundcloud\.com|bandcamp\.com/i.test(post.stream_url || '')
+  const albumFlipped = !isLiveMix && !!embedSrc && (!!activeTrackUrl || playerIsArt)
+
+  // 2026-09-25: clicking the front of the art does what clicking track A's
+  // row does — flips to its player and highlights the row. Falls back to the
+  // first track that has a link, then the post's own link. Once flipped the
+  // iframe takes the clicks, so flipping back stays on the active row.
+  const firstTrackUrl = tracks.map(t => t.stream_url || t.youtube_url).find(Boolean)
+    || post.stream_url || post.embed_url || null
+  const playFromArt = !isLiveMix && !albumFlipped && firstTrackUrl
+    ? () => setActiveTrackUrl(firstTrackUrl)
+    : undefined
 
   const BOX = {}
 
@@ -483,21 +595,27 @@ function PostCard({ post, cardBg, spectrum, d }) {
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: railJustify }}>
         <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: tagColor, color: '#fff', fontFamily: d.labelFf }}>{tagLabel}</span>
         {platformLabel && (
-          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: platformColor, color: platform === 'beatport' ? '#000' : '#fff', fontFamily: d.labelFf }}>{platformLabel}</span>
+          <a href={playingHref || undefined} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            title={playingHref ? `Open on ${platformLabel.toLowerCase()}` : undefined}
+            style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: platformColor, color: playingPlatform === 'beatport' ? '#000' : '#fff', fontFamily: d.labelFf, textDecoration: 'none', cursor: playingHref ? 'pointer' : 'default' }}>{platformLabel}</a>
         )}
-        {post.source === 'discogs' && (
+        {discogsHref && (
           // "badge (secondary)" per the v2 spec — no-fill, outline only.
-          // The old discogs badge used a dark3 fill like the other two;
-          // this is the one badge that's genuinely secondary/neutral among
-          // the three, so it gets the new outline treatment. Flagged in the
-          // summary rather than silently guessed past.
-          <span style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'none', border: `1px solid ${divider}`, color: textSec, fontFamily: d.labelFf }}>◈ DISCOGS</span>
+          // Was gated on post.source, a field posts never carry, so it
+          // never rendered; now shown whenever the post has a release.
+          <a href={discogsHref} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'}
+            style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'none', border: `1px solid ${divider}`, color: textSec, fontFamily: d.labelFf, textDecoration: 'none', cursor: 'pointer' }}>◈ DISCOGS</a>
+        )}
+        {buyHref && (
+          <a href={buyHref} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            title={post.discogs_id ? 'Buy on the Discogs marketplace' : 'Buy on Bandcamp'}
+            style={{ fontSize: d.badgeSize, fontWeight: d.badgeWeight, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, background: 'none', border: `1px solid ${divider}`, color: textSec, fontFamily: d.labelFf, textDecoration: 'none', cursor: 'pointer' }}>BUY ↗</a>
         )}
       </div>
       <div
         ref={artistNameRef}
-        onClick={() => artist && openD3?.('artists', { filter: artist })}
-        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, marginTop: d.artistMt, cursor: artist ? 'pointer' : 'default', wordBreak: 'break-word' }}
+        onClick={() => artist && !isVariousArtist(artist) && openD3?.('artists', { filter: artist })}
+        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, marginTop: d.artistMt, cursor: artist && !isVariousArtist(artist) ? 'pointer' : 'default', wordBreak: 'break-word' }}
       >{artist || post.title}</div>
       {/* v2: the post title gets promoted to its own large italic line
           (same size as the artist name) instead of sharing the small
@@ -517,18 +635,6 @@ function PostCard({ post, cardBg, spectrum, d }) {
       <div style={{ fontSize: d.numeralSize, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: textPri, fontFamily: d.numeralFf, margin: d.numeralMargin }}>
         {String(post.id).padStart(2, '0')}
       </div>
-      {(post.discogs_url || (streamUrl && platformLabel)) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8, justifyContent: railJustify }}>
-          {post.discogs_url && (
-            <a href={post.discogs_url} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ discogs</a>
-          )}
-          {streamUrl && platformLabel && (
-            <a href={streamUrl} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf, textDecoration: 'none' }}>↗ {platform}</a>
-          )}
-        </div>
-      )}
     </div>
   )
 
@@ -539,14 +645,19 @@ function PostCard({ post, cardBg, spectrum, d }) {
     // with the number/play-indicator and duration on the opposite side.
     // Mirrors properly for the left-plate variants too.
     const trackTextAlign = d.plateAlign === 'left' ? 'left' : d.plateAlign === 'center' ? 'center' : 'right'
+    // 2026-09-25: every track is listed (was the first TRACK_ROWS + "+N
+    // more"). The box shrinks to the rail's free space (flex-shrink +
+    // minHeight) and the rows scroll inside it, wheel included — see
+    // data-inner-scroll in LayoutProvider's wheel handler.
     BOX.track = (
-      <div key="track" style={{ overflow: 'hidden', textAlign: trackTextAlign }}>
-        <div style={zlabel}>{isLiveMix ? 'Channel' : 'Album listing'}</div>
+      <div key="track" style={{ overflow: 'hidden', textAlign: trackTextAlign, display: 'flex', flexDirection: 'column', flex: '0 1 auto', minHeight: isLiveMix ? undefined : Math.min(tracks.length, 3) * (d.trackSize * 1.4 + d.trackRowpad * 2) + 18 }}>
+        <div style={{ ...zlabel, flexShrink: 0 }}>{isLiveMix ? 'Channel' : 'Album listing'}</div>
         {isLiveMix ? (
           <div style={{ fontSize: d.trackSize, color: textPri, fontFamily: d.bodyFf }}>{channel}</div>
         ) : (
-          <>
-            {tracks.slice(0, TRACK_ROWS).map((t, i) => {
+          <div ref={trackListRef} data-inner-scroll={trackFit.overflows ? '' : undefined} onScroll={trackFit.onScroll}
+            style={{ minHeight: 0, overflowY: trackFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(trackFit) }}>
+            {tracks.map((t, i) => {
               const tUrl = t.stream_url || t.youtube_url || null
               const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
               const isHovered = hoveredTrack === i
@@ -574,8 +685,7 @@ function PostCard({ post, cardBg, spectrum, d }) {
                 </div>
               )
             })}
-            {tracks.length > TRACK_ROWS && <div style={{ fontSize: d.trackMoreSize, color: textTer, fontFamily: d.monoFf, paddingTop: 5 }}>+{tracks.length - TRACK_ROWS} more</div>}
-          </>
+          </div>
         )}
       </div>
     )
@@ -602,6 +712,14 @@ function PostCard({ post, cardBg, spectrum, d }) {
       </button>
       <span style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.user?.username || post.username}</span>
       <span style={{ fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: textTer, fontFamily: d.monoFf, marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(post.created_at)}</span>
+      {canModify && (
+        <span style={{ display: 'flex', gap: 8, flexShrink: 0, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, fontFamily: d.monoFf }}>
+          <button onClick={e => { e.stopPropagation(); onEdit?.(post) }} title="Edit this post"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: textTer, font: 'inherit', letterSpacing: 'inherit' }}>edit</button>
+          <button onClick={e => { e.stopPropagation(); deletePost() }} disabled={deleting} title="Delete this post"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', color: 'var(--theme-accent)', font: 'inherit', letterSpacing: 'inherit', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+        </span>
+      )}
     </div>
   )
 
@@ -634,7 +752,7 @@ function PostCard({ post, cardBg, spectrum, d }) {
   }, [isLiveMix, d.plateBottom, d.padY, d.artSize, dynamicArtMbBottom])
 
   BOX.art = !isLiveMix ? (
-    <div ref={artBoxRef} style={{ width: d.artSize, height: d.artSize, flexShrink: 0, position: 'relative', background: matTransparent ? 'transparent' : d.matColor, borderRadius: d.matRadius, padding: d.matPad, overflow: 'hidden', perspective: 1400, transition: 'background 0.8s', marginTop: d.plateBottom ? d.captionMtTop : d.artMtTop, marginBottom: d.plateBottom ? dynamicArtMbBottom : 0, marginLeft: mediaCenterOffset }}>
+    <div key="art" ref={artBoxRef} onClick={playFromArt} style={{ cursor: playFromArt ? 'pointer' : 'default', width: d.artSize, height: d.artSize, flexShrink: 0, position: 'relative', background: matTransparent ? 'transparent' : d.matColor, borderRadius: d.matRadius, padding: d.matPad, overflow: 'hidden', perspective: 1400, transition: 'background 0.8s', marginTop: d.plateBottom ? d.captionMtTop : d.artMtTop, marginBottom: d.plateBottom ? dynamicArtMbBottom : 0, marginLeft: mediaCenterOffset }}>
       <div style={{
         position: 'relative', width: '100%', height: '100%',
         transformStyle: 'preserve-3d',
@@ -692,17 +810,32 @@ function PostCard({ post, cardBg, spectrum, d }) {
   ) : null
 
   BOX.caption = (
-    <div key="caption" style={{ marginTop: isLiveMix ? d.captionMt : (d.plateBottom ? d.captionMtBottom : d.captionMtTop), marginLeft: mediaCenterOffset, maxWidth: d.captionMaxW, fontFamily: d.bodyFf, fontSize: d.captionSize, lineHeight: d.captionLh, color: captionColor }}>
+    <div key="caption" style={{ flexShrink: 0, marginTop: isLiveMix ? d.captionMt : (d.plateBottom ? d.captionMtBottom : d.captionMtTop), marginLeft: mediaCenterOffset, maxWidth: d.captionMaxW, fontFamily: d.bodyFf, fontSize: d.captionSize, lineHeight: d.captionLh, color: captionColor }}>
       <div style={{ fontFamily: d.artistFf, fontWeight: d.captionNameWeight, fontSize: d.captionNameSize, lineHeight: 1.3, color: captionNameColor }}>{label || '—'}</div>
       <div style={{ fontFamily: d.monoFf, fontWeight: 500, fontSize: d.catSize, letterSpacing: `${d.catLs}em`, marginTop: d.catMt }}>{[catNo, post.year].filter(Boolean).join(' · ')}</div>
     </div>
   )
 
+  // 2026-09-25: the description used to be sized to its text inside a
+  // fixed-height, overflow:hidden column, so anything longer than the space
+  // left under the art + caption was silently cut off (or, on plate-bottom
+  // cards, pushed out of the top). It now takes only the space that's left
+  // (flex-shrink + minHeight 0) and scrolls in place, fading at the bottom
+  // until scrolled to the end — see useScrollFit.
   BOX.desc = (
-    <div key="desc" style={{ marginTop: (!isLiveMix && !d.plateBottom) ? d.descMtTop : d.descMt, marginLeft: mediaCenterOffset }}>
-      <div style={zlabel}>Post description</div>
+    <div key="desc" style={{ marginTop: (!isLiveMix && !d.plateBottom) ? d.descMtTop : d.descMt, marginLeft: mediaCenterOffset, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ ...zlabel, flexShrink: 0 }}>Post description</div>
       {note ? (
-        <p style={{ fontSize: d.descSize, color: textSec, lineHeight: d.descLh, fontFamily: d.bodyFf, margin: 0 }}>{note}</p>
+        <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
+          style={{
+            fontSize: d.descSize, color: textSec, lineHeight: d.descLh, fontFamily: d.bodyFf, margin: 0,
+            // Long notes keep >= 3 visible lines rather than being squeezed
+            // to nothing on short screens; short ones size to their text.
+            minHeight: note.length > 120 ? Math.round(d.descSize * d.descLh * 3) : 0,
+            flex: note.length > 120 ? '0 1 auto' : '0 0 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line',
+            overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0,
+            ...INNER_SCROLL_STYLE, ...fadeMask(descFit),
+          }}>{note}</p>
       ) : (
         <p style={{ fontSize: d.descSize, color: textTer, fontStyle: 'italic', fontFamily: d.bodyFf, margin: 0 }}>No description</p>
       )}
@@ -972,14 +1105,19 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // already in the feed. Only checked against `posts` — the loaded feed
   // window, not a DB-wide query — so something posted outside the currently
   // loaded ~60 posts won't be flagged even if it really is on the site.
-  const allReleases = catalogue?.releases || []
+  // One entry per type+id: Discogs repeats a release once per artist role,
+  // and a master and a release can share a numeric id. (The backend merges
+  // these now too; this also covers discographies cached before it did.)
+  const allReleases = [...new Map((catalogue?.releases || []).map(r => [`${r.type || 'release'}:${r.id}`, r])).values()]
   const onSiteIds = new Set(
     type === 'channel'
       ? posts.map(p => ytIdOf(postStreamUrl(p))).filter(Boolean)
       : posts.map(p => p.discogs_id).filter(Boolean)
   )
-  const onSiteItems = allReleases.filter(r => onSiteIds.has(r.id))
-  const notYetItems = allReleases.filter(r => !onSiteIds.has(r.id))
+  // posts.discogs_id is always a RELEASE id, so a master never counts as on-site.
+  const isOnSite = r => r.type !== 'master' && onSiteIds.has(r.id)
+  const onSiteItems = allReleases.filter(isOnSite)
+  const notYetItems = allReleases.filter(r => !isOnSite(r))
   const catalogueItems = [...onSiteItems, ...notYetItems]
   // The zone opens on the grid (nothing flipped) until a real click picks an
   // entry, per the "grid first, tap to flip" interaction gabriel approved.
@@ -1161,9 +1299,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
                 {catalogueItems.map(r => (
                   <div
-                    key={r.id}
+                    key={`${r.type || 'release'}:${r.id}`}
                     onClick={() => setSelectedReleaseId(r.id)}
-                    style={{ position: 'relative', width: '100%', aspectRatio: type === 'channel' ? '16 / 9' : '1 / 1', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: 'pointer', outline: onSiteIds.has(r.id) ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}
+                    style={{ position: 'relative', width: '100%', aspectRatio: type === 'channel' ? '16 / 9' : '1 / 1', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: 'pointer', outline: isOnSite(r) ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}
                   >
                     {r.thumb
                       ? <img src={r.thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1255,7 +1393,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                 <>
                   <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Already on the site</div>
                   {onSiteItems.map(r => (
-                    <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
+                    <div key={`${r.type || 'release'}:${r.id}`} onClick={() => setSelectedReleaseId(r.id)}
                       style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                       {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
                       <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
@@ -1269,7 +1407,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                 {onSiteItems.length > 0 ? 'Not yet uploaded' : `From ${catalogueSource} — not in the feed yet`}
               </div>
               {notYetItems.map(r => (
-                <div key={r.id} onClick={() => setSelectedReleaseId(r.id)}
+                <div key={`${r.type || 'release'}:${r.id}`} onClick={() => setSelectedReleaseId(r.id)}
                   style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                   {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
                   <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
@@ -1357,7 +1495,7 @@ function buildSpotlightPool(posts) {
   const byChannel = new Map()
   for (const p of posts) {
     const a = artistName(p)
-    if (a) { if (!byArtist.has(a)) byArtist.set(a, []); byArtist.get(a).push(p) }
+    if (a && !isVariousArtist(a)) { if (!byArtist.has(a)) byArtist.set(a, []); byArtist.get(a).push(p) }
     const l = labelName(p)
     if (l) { if (!byLabel.has(l)) byLabel.set(l, []); byLabel.get(l).push(p) }
     // Channel only makes sense for live sets — a channel name on a regular
@@ -1580,6 +1718,7 @@ export default function Feed() {
   const [themeIdx, setThemeIdx]       = useState(-1)
   const [pickerOpen, setPickerOpen]   = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)
+  const [editingPost, setEditingPost] = useState(null)
   const [composeInitialUrl, setComposeInitialUrl] = useState('')
   // "Add to feed" from a spotlight's Discogs discography preview — opens
   // the normal compose flow pre-loaded with that release's Discogs URL, so
@@ -1834,7 +1973,7 @@ export default function Feed() {
             nodes.push(<FeedGap key={`gap-${item.key}`} from={prevBg} to={cardBg} />)
             nodes.push(item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
-              : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} />)
+              : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
             prevBg = cardBg
           })
           return nodes
@@ -1870,6 +2009,15 @@ export default function Feed() {
         <button onClick={() => setComposeOpen(true)}
           style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
       </div>
+
+      {editingPost && (
+        <ComposeModal
+          key={`edit-${editingPost.id}`}
+          editPost={editingPost}
+          onClose={() => setEditingPost(null)}
+          onPosted={() => { setEditingPost(null); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
+        />
+      )}
 
       {composeOpen && (
         <ComposeModal

@@ -11,6 +11,7 @@ import artistRoutes from './routes/artists.js';
 import genreRoutes from './routes/genres.js';
 import labelRoutes from './routes/labels.js';
 import mediaRoutes from './routes/media.js';
+import { startDiscogsMatcher } from './services/discogsMatcher.js';
 
 dotenv.config();
 const app = express();
@@ -37,4 +38,5 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
+  startDiscogsMatcher();
 });

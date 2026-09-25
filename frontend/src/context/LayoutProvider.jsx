@@ -333,6 +333,17 @@ export function LayoutProvider({ children }) {
      // scroll instead of doing nothing (preventDefault'd) while ALSO
      // driving the feed underneath, which is what happened before this.
      if (e.target.closest?.('#lnv-drawer, #lnv-drawer-backdrop')) return;
+     // 2026-09-25: boxes inside a card that scroll on their own (post
+     // description, long tracklists, the comment list) opt in with
+     // data-inner-scroll. They get the wheel while they can still move in
+     // that direction; at their top/bottom edge the wheel falls through to
+     // the feed as before, so the feed never feels "stuck" on a card.
+     const inner = e.target.closest?.('[data-inner-scroll]');
+     if (inner && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+       const canDown = inner.scrollTop + inner.clientHeight < inner.scrollHeight - 1;
+       const canUp = inner.scrollTop > 0;
+       if ((e.deltaY > 0 && canDown) || (e.deltaY < 0 && canUp)) return;
+     }
      e.preventDefault();
      if (!so) return;
      let dy = e.deltaY;

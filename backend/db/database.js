@@ -160,6 +160,18 @@ const migrations = [
     data TEXT NOT NULL,
     fetched_at TEXT DEFAULT (datetime('now'))
   )`,
+  // Per-provider daily API spend, so paid-by-quota calls (YouTube
+  // search.list = 100 units each) can be capped below the provider's own
+  // limit. See youtubeService's spendQuota.
+  // When discogsMatcher last tried (and failed) to find this post's release,
+  // so unmatched posts are retried daily rather than on every sweep.
+  'ALTER TABLE posts ADD COLUMN discogs_checked_at TEXT',
+  `CREATE TABLE IF NOT EXISTS api_quota (
+    provider TEXT NOT NULL,
+    day TEXT NOT NULL,
+    units INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (provider, day)
+  )`,
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }
