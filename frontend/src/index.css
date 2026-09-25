@@ -99,6 +99,19 @@ html, body, #root {
 }
 .blink { animation: blink 1s step-end infinite; }
 
+/* ── Spotlight sleeve strip — slow endless drift (Feed.jsx SpotlightCard) ──
+   The track holds the sleeves twice over; moving it -50% lands the second
+   copy exactly where the first started, so the loop has no seam. Each tile
+   carries its own right padding (not a flex gap) so both halves are exactly
+   equal width. Paused on hover from React (animationPlayState). */
+@keyframes lnv-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lnv-marquee-track { animation: none !important; }
+}
+
 /* ── FADE F-bars logomark — idle "live EQ" bounce (Strip.jsx #lnv-fbars) ──
    Ported from the verified ScrollReveal.dc.html canvas prototype. Each bar
    is an absolutely-positioned .bar-outer (rotation lives here, written per

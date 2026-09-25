@@ -166,6 +166,21 @@ const migrations = [
   // When discogsMatcher last tried (and failed) to find this post's release,
   // so unmatched posts are retried daily rather than on every sweep.
   'ALTER TABLE posts ADD COLUMN discogs_checked_at TEXT',
+  // YouTube link per Discogs release track, saved the first time one is
+  // found (spotlight track click, compose's track search). youtube_url NULL
+  // = searched, nothing found — retried after 14 days. Keyed by release +
+  // position so a spotlight can show every known link the moment a release
+  // opens. Precursor to the catalogue's tracks/entity_links tables.
+  `CREATE TABLE IF NOT EXISTS release_track_links (
+    release_id INTEGER NOT NULL,
+    position TEXT NOT NULL,
+    title TEXT,
+    youtube_url TEXT,
+    youtube_title TEXT,
+    source TEXT,
+    fetched_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (release_id, position)
+  )`,
   `CREATE TABLE IF NOT EXISTS api_quota (
     provider TEXT NOT NULL,
     day TEXT NOT NULL,

@@ -142,6 +142,37 @@ YouTube/SoundCloud/Bandcamp posts that matched Discogs were saved without it
 
 ---
 
+## Spotlight redesign — Studio PIC index (late session)
+Reference: awwwards.com/inspiration/list-and-grid-view-studio-pic. gabriel
+chose "strip on top, list below".
+- **Header**: name at 34px with the catalogue count in superscript
+  (`Nina Kraviz [248]`), spotlight tag + small mark image.
+- **Sleeve strip** (240px): every sleeve drifting left in an endless loop
+  (`@keyframes lnv-marquee` in index.css, duration = 6 s per sleeve, min 30 s),
+  pauses on hover, off under prefers-reduced-motion; click a sleeve → opens its
+  row and scrolls the list to it (list scrollTop, not scrollIntoView).
+- **Index list**: no · title · label/role (artist on label spotlights) · catno ·
+  year; accent dot = already on LNV; click → inverted row + tracklist. Track
+  click → player opens directly under that track (autoplay). Channel uploads
+  and own posts without a tracklist (live sets) open straight into their
+  player. Subjects with no catalogue list their own LNV posts the same way.
+- **Track links saved**: new table `release_track_links (release_id, position,
+  title, youtube_url, youtube_title, source, fetched_at)`. A track-click search
+  (and compose's track search) saves its result — found or not — against the
+  Discogs release + position; `GET /api/discogs/release/:id/track-links` loads
+  them when a row opens, so tracks play instantly and known misses show "—".
+  Misses retried after 14 days.
+- **Full-size covers**: list thumbs are 150px and signed. `GET
+  /api/discogs/covers?keys=release:ID,master:ID` returns cached 600px covers
+  now and queues the rest (1 Discogs call / 2 s, cached forever); the card
+  re-asks every 5 s while any are pending. (Verified: 12/12, 18/18, and a 25-
+  sleeve strip filling in.)
+- Release lists now keep artist / label / catno / format (cache keys bumped to
+  `artist-releases:v2:` / `label-releases:v2:`). Only page 1 (25) of a
+  discography is listed even when the count is larger.
+- Not seen live by me (pane hidden): the strip's motion and row fades —
+  gabriel to eyeball.
+
 ## Backend: Discogs matcher (new)
 `backend/services/discogsMatcher.js`: posts with no `discogs_id` (not live sets)
 are looked up with the same `tryDiscogsLookup` + plausibility check — after

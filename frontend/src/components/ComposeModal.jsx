@@ -228,7 +228,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  setTracks(mapped)
  setPostType(rel.tracks.length >= 6 ? 'album' : rel.tracks.length <= 2 ? 'single' : 'album')
  setDiscogsVideos(rel.videos || [])
- backgroundYTSearch(mapped, relArtist, rel.label, rel.catNo, rel.videos || [])
+ backgroundYTSearch(mapped, relArtist, rel.label, rel.catNo, rel.videos || [], rel.discogs_id)
  }
  setAllReleases(null)
  }
@@ -305,7 +305,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const ytCount = rawTracks.filter(t => t.stream_url).length
  const missing = rawTracks.filter(t => !t.stream_url)
  setFetchStatus(`✓ FETCHED · ${rawTracks.length} TRACKS · ${ytCount} YT LINKS${missing.length ? ` · SEARCHING ${missing.length} MORE...` : ''}`)
- if (missing.length > 0 && fArtist) backgroundYTSearch(rawTracks, fArtist, fLabel, fCatno, data.videos)
+ if (missing.length > 0 && fArtist) backgroundYTSearch(rawTracks, fArtist, fLabel, fCatno, data.videos, id)
  } catch (err) { setFetchError(`FETCH FAILED — ${err.message}`) } finally { setFetching(false) }
  return
  }
@@ -323,7 +323,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (data.detected_type === 'livemix') { setFetchStatus(`✓ ${platform.label}${src} · LIVE SET DETECTED`) }
  else if (tCount > 0) {
  setFetchStatus(`✓ ${platform.label}${src} · ${tCount} TRACKS · ${lCount} LINKS`)
- if (data.artist) { const missing = data.tracks.filter(t => !t.stream_url); if (missing.length) backgroundYTSearch(data.tracks, data.artist, data.label, data.catNo, data.videos) }
+ if (data.artist) { const missing = data.tracks.filter(t => !t.stream_url); if (missing.length) backgroundYTSearch(data.tracks, data.artist, data.label, data.catNo, data.videos, data.discogs_id) }
  } else { setFetchStatus(`✓ ${platform.label}${src} · TITLE & ARTIST PRE-FILLED`) }
  } catch (err) { setFetchError(`${platform.label} FETCH FAILED — ${err.message}`) }
  finally { setFetching(false) }
@@ -338,7 +338,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  // (empty) list. searchGen stops a run whose tracklist has been replaced
  // (new fetch / other release picked), and rows are only filled while still
  // empty, so a URL typed by hand mid-search is never overwritten.
- function backgroundYTSearch(initial, fArtist, fLabel, fCatno, videos = discogsVideos) {
+ // releaseId: when the tracklist is a Discogs release, each search result is
+ // saved per release + position (release_track_links) for spotlights to reuse.
+ function backgroundYTSearch(initial, fArtist, fLabel, fCatno, videos = discogsVideos, releaseId = null) {
  const gen = searchGen.current
  const stale = () => searchGen.current !== gen
  const setUrl = (i, url) => setTracks(prev => prev.map((t, idx) => (idx === i && !t.stream_url ? { ...t, stream_url: url } : t)))
@@ -374,7 +376,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(' ') || releaseArtist
  setFetchStatus(`SEARCHING YOUTUBE · ${updated[i].position || i + 1} ${(updated[i].title || '').toUpperCase()}...`)
  try {
- const r = await fetch(`${API}/discogs/youtube/search?${new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '' })}`)
+ const q = new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '' })
+ if (releaseId && updated[i].position) { q.set('release_id', releaseId); q.set('position', updated[i].position) }
+ const r = await fetch(`${API}/discogs/youtube/search?${q}`)
  const d = await r.json()
  if (d.capped) { capped = true; break }
  if (d.youtube_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.youtube_url }; setUrl(i, d.youtube_url) }

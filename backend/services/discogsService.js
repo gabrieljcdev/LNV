@@ -119,7 +119,7 @@ export async function getLabel(labelId) {
 // table/TTL as everything else here — an artist's back catalogue doesn't
 // change day to day.
 export async function getArtistReleases(artistId, page = 1) {
-  const key = `artist-releases:${artistId}:${page}`;
+  const key = `artist-releases:v2:${artistId}:${page}`;
   const cached = getCached(key);
   if (cached) return cached;
 
@@ -136,7 +136,7 @@ export async function getArtistReleases(artistId, page = 1) {
 // no year=desc sort param the way /artists/{id}/releases does, so results
 // come back in Discogs' own catalogue order rather than newest-first.
 export async function getLabelReleases(labelId, page = 1) {
-  const key = `label-releases:${labelId}:${page}`;
+  const key = `label-releases:v2:${labelId}:${page}`;
   const cached = getCached(key);
   if (cached) return cached;
 
@@ -187,7 +187,7 @@ function normaliseArtistReleases(data) {
         const k = `${r.type}:${r.id}`;
         const prev = m.get(k);
         if (prev) { if (r.role && !prev.role?.split(', ').includes(r.role)) prev.role = prev.role ? `${prev.role}, ${r.role}` : r.role; }
-        else m.set(k, { id: r.id, type: r.type, title: r.title, year: r.year || null, role: r.role || null, thumb: r.thumb || null });
+        else m.set(k, { id: r.id, type: r.type, title: r.title, year: r.year || null, role: r.role || null, thumb: r.thumb || null, artist: r.artist || null, label: r.label || null, format: r.format || null });
         return m;
       }, new Map()).values()],
   };
@@ -210,6 +210,10 @@ function normaliseLabelReleases(data) {
       year: r.year || null,
       role: null,
       thumb: r.thumb || null,
+      // Spotlight index columns (2026-09-25): who made it + catalogue number.
+      artist: r.artist || null,
+      catno: r.catno || null,
+      format: r.format || null,
     })),
   };
 }
@@ -302,4 +306,58 @@ export async function resolveDiscogsUrl(url) {
   }
 
   throw new Error('Paste a Discogs release, master or shop link');
+}
+
+// ─── Full-size covers for catalogue lists ─────────────────────────────────────
+// Discogs' release LISTS (artist/label discographies) only carry a 150px
+// thumb, and its image URLs are signed, so a bigger size can't be requested
+// by editing the URL. The full-size cover comes with each release's own
+// detail — one call per release. getCovers answers from the cache at once
+// and queues whatever's missing, fetched one every COVER_GAP_MS (≈30/min,
+// leaving headroom under Discogs' 60/min for everything else). Each fetch
+// lands in discogs_cache via getRelease/getMaster, so a cover is fetched
+// once, ever. Keys: 'release:<id>' / 'master:<id>'.
+const COVER_GAP_MS = 2000;
+const coverQueue = [];
+const coverQueued = new Set();
+let coverWorking = false;
+
+function cachedCover(key) {
+  const hit = getCached(key);
+  if (!hit) return undefined;           // not fetched yet
+  return hit.coverImage || null;        // fetched; null = Discogs has no image
+}
+
+async function drainCovers() {
+  if (coverWorking) return;
+  coverWorking = true;
+  try {
+    while (coverQueue.length) {
+      const key = coverQueue.shift();
+      coverQueued.delete(key);
+      if (cachedCover(key) !== undefined) continue;
+      const [kind, id] = key.split(':');
+      try {
+        if (kind === 'master') await getMaster(Number(id));
+        else await getRelease(Number(id));
+      } catch { /* leave it; it'll be re-queued next time it's asked for */ }
+      await new Promise(r => setTimeout(r, COVER_GAP_MS));
+    }
+  } finally {
+    coverWorking = false;
+  }
+}
+
+export function getCovers(keys = []) {
+  const covers = {};
+  let pending = 0;
+  for (const key of keys) {
+    if (!/^(release|master):\d+$/.test(key)) continue;
+    const c = cachedCover(key);
+    if (c !== undefined) { covers[key] = c; continue; }
+    pending++;
+    if (!coverQueued.has(key)) { coverQueued.add(key); coverQueue.push(key); }
+  }
+  if (pending) drainCovers();
+  return { covers, pending };
 }

@@ -1026,7 +1026,6 @@ const SPOTLIGHT_PAD = 60
 function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const { registerPostRef, openD3 } = useLayout() || {}
   const { type, name, posts } = subject
-  const recent = posts.slice(0, 4)
   // Artists and labels have a real browse page behind them (ContentPanel's
   // 'artists'/'labels' drawers). Channels don't yet — no Channels page
   // exists — so the title/"view all" click-through is disabled for that
@@ -1078,12 +1077,18 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const catalogueKey = type === 'channel' ? channelVideoUrl : discogsId
   const hasCatalogue = !!catalogueKey
 
-  const [selectedReleaseId, setSelectedReleaseId] = useState(null)
-  // Which of this subject's own posts (own-posts grid only) currently has its
-  // embed loaded in place of its cover — null means every tile still shows
-  // cover+play. Same "don't mount an iframe you can't see" reasoning as
-  // everywhere else this pattern is used (PostCard's flip): only one at a time.
-  const [playingPostId, setPlayingPostId] = useState(null)
+  // Index state (see the PIC-style layout note above the return): which row
+  // is open, which track is embedded (only ever one iframe), whether the
+  // sleeve strip is paused (hover), and per-track YouTube lookups done on
+  // click ('none' / 'capped' when nothing came back).
+  const [openKey, setOpenKey] = useState(null)
+  const [playing, setPlaying] = useState(null)
+  const [searching, setSearching] = useState(null)
+  const [foundUrls, setFoundUrls] = useState({})
+  const [stripPaused, setStripPaused] = useState(false)
+  const listRef = useRef(null)
+  const rowRefs = useRef(new Map())
+  const rowKeyOf = r => `${r.type || 'release'}:${r.id}`
 
   const { data: catalogue } = useQuery({
     queryKey: ['spotlight-catalogue', type, catalogueKey],
@@ -1119,10 +1124,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const onSiteItems = allReleases.filter(isOnSite)
   const notYetItems = allReleases.filter(r => !isOnSite(r))
   const catalogueItems = [...onSiteItems, ...notYetItems]
-  // The zone opens on the grid (nothing flipped) until a real click picks an
-  // entry, per the "grid first, tap to flip" interaction gabriel approved.
-  // null here means "show the grid."
-  const selectedRelease = catalogueItems.find(r => r.id === selectedReleaseId) || null
+  // The open row's catalogue entry (null when nothing's open, or when the
+  // rows are this subject's own posts rather than a catalogue).
+  const selectedRelease = catalogueItems.find(r => rowKeyOf(r) === openKey) || null
 
   // Release detail — artists and labels only. A channel's entry is a video:
   // there's no tracklist to fetch, the reveal is the player itself.
@@ -1131,6 +1135,22 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     queryFn: async () => {
       const res = await fetch(`${API}/discogs/release/${selectedRelease.id}`)
       if (!res.ok) return null
+      return res.json()
+    },
+    enabled: type !== 'channel' && !!selectedRelease,
+    staleTime: Infinity,
+  })
+  // YouTube links already found for this release's tracks (saved per
+  // release + position by the backend — see release_track_links), so a
+  // track clicked once plays instantly next time and known misses show "—"
+  // without searching again.
+  const queryClient = useQueryClient()
+  const trackLinksKey = ['release-track-links', selectedRelease?.id]
+  const { data: savedLinks } = useQuery({
+    queryKey: trackLinksKey,
+    queryFn: async () => {
+      const res = await fetch(`${API}/discogs/release/${selectedRelease.id}/track-links`)
+      if (!res.ok) return { links: {} }
       return res.json()
     },
     enabled: type !== 'channel' && !!selectedRelease,
@@ -1168,282 +1188,282 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const LABEL_FF = "'VT323',monospace"
   const postsLine = `${posts.length} ${type === 'channel' ? 'live set' : 'post'}${posts.length !== 1 ? 's' : ''} in the feed`
 
-  // 2026-08-25 (Spotlight Card Editor, second pass) — replaces the old
-  // rail(276px)/media two-column split with one stacked layout shared by
-  // all three subject types: badge+mark, name, metaline, dashed rule, a
-  // visual zone, a caption line, a recent/catalogue list, then a cta
-  // row. Same skeleton gabriel built and tuned in the editor artifact
-  // (https://claude.ai/code/artifact/30033b88-ff72-41a6-8063-ba4ed822de7e),
-  // ported with two adjustments the editor's absolute-px mockup couldn't
-  // capture on its own: card width stays DESIGN_BASE.cardW (800, matching
-  // every other card in the feed — "Spotlights use the same standard width
-  // so they read as 'one of these cards'", see the comment above
-  // DESIGN_BASE — rather than the editor's own 700px preview canvas), and
-  // the card's real rendered height is whatever the feed row is (100vh via
-  // #scroll-inner, not the editor's fixed 702px mock), so the vertical
-  // rhythm below is expressed as flex padding/gaps with the visual zone as
-  // the one flex:1 element, instead of the editor's baked-in Y coordinates.
-  // Horizontal padding is SPOTLIGHT_PAD (see its own comment above),
-  // shared card-wide so every element sits at the same inset instead of
-  // the media sitting further in than the text around it.
+  // 2026-09-25 — Studio PIC-style index (gabriel's reference:
+  // awwwards.com/inspiration/list-and-grid-view-studio-pic). Replaces the
+  // 08-25/08-26 stacked layout (sleeve grid that flipped to a tracklist, plus
+  // a separate picker list). Now, for all three subject types:
+  //   header  — name in large type with the catalogue count in superscript
+  //   strip   — every sleeve drifting slowly left in an endless loop
+  //             (lnv-marquee in index.css); hover pauses it, a click opens
+  //             that release's row
+  //   index   — numbered rows (no · title · artist-or-label · catno · year);
+  //             a click inverts the row and opens it: releases show their
+  //             tracklist (each track playable in place), channel uploads
+  //             open straight into the player
+  //   cta     — unchanged (+ add to feed / view all)
+  // Rows come from the catalogue when there is one, otherwise from this
+  // subject's own LNV posts, so every spotlight gets the same anatomy.
+  const rows = hasCatalogue
+    ? catalogueItems.map(r => ({
+        key: rowKeyOf(r),
+        kind: type === 'channel' ? 'video' : 'release',
+        id: r.id,
+        title: r.title || '',
+        sub: type === 'label' ? (r.artist || '') : (r.label || r.role || ''),
+        catno: r.catno || '',
+        year: r.year || '',
+        thumb: r.thumb || '',
+        onSite: isOnSite(r),
+      }))
+    : posts.map(p => ({
+        key: `post:${p.id}`,
+        kind: 'post',
+        id: p.id,
+        title: p.title || '',
+        sub: type === 'label' ? artistName(p) : labelName(p),
+        catno: p.labels?.[0]?.catalogue_number || '',
+        year: p.year || '',
+        thumb: coverSrc(p),
+        onSite: true,
+        post: p,
+      }))
+  const openRow = rows.find(r => r.key === openKey) || null
+  const stripItems = rows.filter(r => r.thumb).slice(0, 40)
+
+  // Full-size sleeves for the strip. Discogs list thumbs are 150px (and
+  // signed, so no bigger size can be asked for); the backend returns the
+  // 600px covers it has cached and fetches the rest slowly in the background
+  // (GET /discogs/covers). Re-asked every 5s while any are still pending;
+  // the 150px thumb shows until each one arrives.
+  const coverKeys = hasCatalogue && type !== 'channel' ? stripItems.map(r => r.key) : []
+  const { data: coverData } = useQuery({
+    queryKey: ['spotlight-covers', coverKeys.join(',')],
+    queryFn: async () => {
+      const res = await fetch(`${API}/discogs/covers?keys=${encodeURIComponent(coverKeys.join(','))}`)
+      return res.ok ? res.json() : { covers: {}, pending: 0 }
+    },
+    enabled: coverKeys.length > 0,
+    staleTime: Infinity,
+    refetchInterval: q => (q.state.data?.pending > 0 ? 5000 : false),
+  })
+
+  // Tracks for the open row, each with the best link we already have:
+  // Discogs' own videos (matched by title), then the tracks of a post that
+  // already carries this release. Anything still empty is searched on
+  // click (playTrack) — one capped, cached YouTube search, never up front.
+  const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === openRow.id) : null
+  const openTracks = !openRow ? []
+    : openRow.kind === 'post'
+      ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '' }))
+      : openRow.kind === 'release'
+        ? (selectedFull?.tracklist || []).map(t => {
+            const tt = normT(t.title)
+            const video = tt && (selectedFull.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
+            const posted = tt && (onSitePost?.tracks || []).find(pt => normT(pt.title) === tt)
+            const saved = savedLinks?.links?.[t.position]
+            return { position: t.position, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || posted?.stream_url || posted?.youtube_url || saved?.url || '', knownMiss: !!saved && !saved.url }
+          })
+        : []
+
+  async function playTrack(t, i) {
+    const trackKey = `${openKey}#${i}`
+    if (t.url) { setPlaying(p => (p?.key === trackKey ? null : { key: trackKey, url: t.url })); return }
+    if (searching === trackKey) return
+    setSearching(trackKey)
+    try {
+      const artist = (t.artists || []).map(a => a.name).join(' ')
+        || (type === 'artist' ? name : type === 'label' ? openRow?.sub : '') || ''
+      const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '' })
+      if (openRow?.kind === 'release' && t.position) { q.set('release_id', openRow.id); q.set('position', t.position) }
+      const r = await fetch(`${API}/discogs/youtube/search?${q}`)
+      const d = await r.json()
+      if (openRow?.kind === 'release' && t.position && !d.capped) {
+        queryClient.setQueryData(['release-track-links', openRow.id], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
+      }
+      if (d.youtube_url) {
+        setFoundUrls(m => ({ ...m, [trackKey]: d.youtube_url }))
+        setPlaying({ key: trackKey, url: d.youtube_url })
+      } else {
+        setFoundUrls(m => ({ ...m, [trackKey]: d.capped ? 'capped' : 'none' }))
+      }
+    } catch {
+      setFoundUrls(m => ({ ...m, [trackKey]: 'none' }))
+    } finally {
+      setSearching(null)
+    }
+  }
+
+  function toggleRow(key) {
+    setPlaying(null)
+    setOpenKey(k => (k === key ? null : key))
+  }
+  // From the strip: open the row and bring it into view inside the list —
+  // by setting the list's own scrollTop, not scrollIntoView, which would
+  // also drag the horizontal feed.
+  function openFromStrip(key) {
+    setPlaying(null)
+    setOpenKey(key)
+    requestAnimationFrame(() => {
+      const list = listRef.current, row = rowRefs.current.get(key)
+      if (list && row) list.scrollTop = row.offsetTop - list.offsetTop - 4
+    })
+  }
+
+  const count = hasCatalogue && catalogue ? (catalogue.pagination?.items ?? rows.length) : rows.length
+  const STRIP_H = 240
+  const COLS = '30px minmax(0, 1.7fr) minmax(0, 1fr) 84px 38px 14px'
+  const rowText = { fontFamily: BODY_FF, fontSize: 11.5, letterSpacing: '0.03em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
   return (
     <div
       ref={el => registerPostRef?.(cardKey, el)}
       style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `65px ${SPOTLIGHT_PAD}px`, overflow: 'hidden', transition: 'background 0.8s' }}
     >
-      {/* badge + mark */}
+      {/* header — tag + mark, then the name at index scale with its count */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: 'var(--theme-accent)', color: '#fff', fontFamily: LABEL_FF, textTransform: 'uppercase' }}>{type} spotlight</span>
-        <div style={{ width: type === 'channel' ? 66 : 70, height: 70, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 44, height: 44, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           {markImageUrl ? (
-            type === 'label' ? (
-              <div style={{ width: 70, height: 70, borderRadius: 12, background: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, overflow: 'hidden' }}>
-                <img src={markImageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-              </div>
-            ) : (
-              <img src={markImageUrl} alt="" style={{ width: 70, height: 70, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${divider}` }} />
-            )
-          ) : SPOTLIGHT_MARK[type]}
+            <img src={markImageUrl} alt="" style={{ width: 44, height: 44, borderRadius: type === 'label' ? 8 : '50%', objectFit: type === 'label' ? 'contain' : 'cover' }} />
+          ) : <div style={{ transform: 'scale(0.42)', transformOrigin: 'center' }}>{SPOTLIGHT_MARK[type]}</div>}
         </div>
       </div>
-
-      {/* name */}
       <div
         onClick={browsable ? () => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name }) : undefined}
-        style={{ flexShrink: 0, marginTop: 14, fontSize: 21, fontWeight: 700, lineHeight: 1.25, color: textPri, fontFamily: BODY_FF, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
-      >{name}</div>
-
-      {/* metaline */}
-      <div style={{ flexShrink: 0, marginTop: 6, fontSize: 17, color: textSec, fontFamily: BODY_FF }}>
-        {hasCatalogue && catalogue
-          ? `${postsLine} · ${catalogue.pagination?.items ?? allReleases.length} on ${catalogueSource}`
+        style={{ flexShrink: 0, marginTop: 6, fontSize: 34, fontWeight: 500, lineHeight: 1.05, letterSpacing: '-0.01em', color: textPri, fontFamily: BODY_FF, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
+      >
+        {name}<sup style={{ fontSize: 12, fontWeight: 500, marginLeft: 6, verticalAlign: 'super', color: textSec }}>[{count}]</sup>
+      </div>
+      <div style={{ flexShrink: 0, marginTop: 6, fontSize: 12, color: textSec, fontFamily: BODY_FF }}>
+        {hasCatalogue
+          ? (catalogue === undefined ? `${postsLine} · pulling the ${catalogueSource} catalogue…` : `${postsLine} · ${count} on ${catalogueSource}`)
           : postsLine}
       </div>
 
-      {/* dashed rule */}
-      <div style={{ flexShrink: 0, marginTop: 10, borderTop: `1px dashed ${divider}` }} />
-
-      {/* visual zone — 2026-08-26 rework (per gabriel's mockup review, LNV
-          Spotlight Concepts canvas):
-          - label: a scrollable 2-col grid of sleeve art (LabelGrid.dc.html)
-            that flips (LabelReveal.dc.html) to that release's tracklist on
-            click, back arrow returns to the grid. Grid scrolls its own
-            overflow once there are more than 4 sleeves (2 rows) rather than
-            squeezing everything into the fixed card height.
-          - artist / channel: a grid of this subject's own recent LNV posts
-            (Main.dc.html / ChannelGrid.dc.html) — cover + play button by
-            default, swaps to an inline embed for whichever tile is clicked
-            (playingPostId), using the same stream-url → embed derivation
-            PostCard's own flip uses (postStreamUrl/toEmbedSrc above).
-          No padding of its own — see SPOTLIGHT_PAD's own comment and the
-          outer container's padding above, which now cover this along with
-          everything else in the card. */}
-      <div style={{ flex: 1, minHeight: 0, marginTop: 20, position: 'relative' }}>
-        {hasCatalogue ? (
-          catalogue === undefined ? (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>fetching catalogue…</div>
-          ) : catalogueItems.length === 0 ? (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>{`nothing found on ${catalogueSource}`}</div>
-          ) : selectedRelease ? (
-            // Reveal state. What a click opens depends on what the entry
-            // IS: an artist's or label's release reveals its tracklist
-            // (fetched lazily into selectedFull); a channel's entry is a
-            // video, so it reveals the player itself — there is no
-            // tracklist for a DJ set, and making one up would be worse
-            // than playing it.
-            <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', background: divider, position: 'relative', display: 'flex', flexDirection: 'column' }}>
-              <button
-                onClick={() => setSelectedReleaseId(null)}
-                title="back to grid"
-                style={{ position: 'absolute', top: 8, left: 8, zIndex: 1, width: 26, height: 26, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', fontFamily: LABEL_FF, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
-              >←</button>
-              <div style={{ flexShrink: 0, display: 'flex', gap: 10, padding: '12px 12px 12px 44px', alignItems: 'center', background: 'rgba(0,0,0,0.06)' }}>
-                {(selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb) && (
-                  <img src={selectedFull?.coverImage || selectedFull?.thumbImage || selectedRelease.thumb} alt="" style={{ width: 46, height: 46, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: textPri, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedRelease.title}</div>
-                  <div style={{ fontSize: 10.5, color: textTer, fontFamily: LABEL_FF, marginTop: 2 }}>{selectedRelease.year || ''}{selectedOnSite ? '' : (selectedRelease.year ? ' · not in the feed yet' : 'not in the feed yet')}</div>
+      {/* sleeve strip */}
+      <div
+        onMouseEnter={() => setStripPaused(true)}
+        onMouseLeave={() => setStripPaused(false)}
+        style={{ flexShrink: 0, marginTop: 18, height: STRIP_H, overflow: 'hidden', marginLeft: -SPOTLIGHT_PAD, marginRight: -SPOTLIGHT_PAD, maskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)' }}
+      >
+        {stripItems.length > 0 ? (
+          <div
+            className="lnv-marquee-track"
+            style={{ display: 'flex', width: 'max-content', height: '100%', animation: `lnv-marquee ${Math.max(30, stripItems.length * 6)}s linear infinite`, animationPlayState: stripPaused ? 'paused' : 'running' }}
+          >
+            {[...stripItems, ...stripItems].map((r, i) => (
+              <div key={`${r.key}~${i}`} onClick={() => openFromStrip(r.key)} title={r.title}
+                style={{ paddingRight: 8, height: '100%', flexShrink: 0, cursor: 'pointer' }}>
+                <div style={{ width: type === 'channel' ? Math.round(STRIP_H * 16 / 9) : STRIP_H, height: '100%', background: 'var(--theme-dark3)', overflow: 'hidden', outline: r.key === openKey ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}>
+                  <img src={coverData?.covers?.[r.key] || (r.kind === 'release' && queryClient.getQueryData(['spotlight-release', r.id])?.coverImage) || r.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 </div>
               </div>
-              {type === 'channel' ? (
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <iframe
-                    key={selectedRelease.id}
-                    src={`https://www.youtube.com/embed/${selectedRelease.id}?rel=0&modestbranding=1&color=white`}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen title={selectedRelease.title} />
-                </div>
-              ) : (
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 14px 12px' }}>
-                {selectedFull?.tracklist?.length ? (
-                  selectedFull.tracklist.map((t, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '5px 0', borderBottom: `1px dotted ${divider}` }}>
-                      <span style={{ fontSize: 10, color: textTer, fontFamily: LABEL_FF, flexShrink: 0, width: 22 }}>{t.position || i + 1}</span>
-                      <span style={{ flex: 1, fontSize: 12, color: textSec, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                      <span style={{ fontSize: 10, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{t.duration || ''}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '24px 0', textAlign: 'center' }}>fetching tracklist…</div>
-                )}
-              </div>
-              )}
-            </div>
-          ) : (
-            // grid — 2 columns, own overflowY so it scrolls independently
-            // of the card once there are more than 4 sleeves.
-            <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
-                {catalogueItems.map(r => (
-                  <div
-                    key={`${r.type || 'release'}:${r.id}`}
-                    onClick={() => setSelectedReleaseId(r.id)}
-                    style={{ position: 'relative', width: '100%', aspectRatio: type === 'channel' ? '16 / 9' : '1 / 1', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: 'pointer', outline: isOnSite(r) ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}
-                  >
-                    {r.thumb
-                      ? <img src={r.thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontSize: 22 }}>◈</div>}
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))', fontSize: 9.5, color: '#fff', fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
+            ))}
+          </div>
         ) : (
-          // No catalogue key (an artist/label whose posts carry no Discogs
-          // id, or a channel with no YouTube post to resolve from) — fall
-          // back to a grid of this subject's own recent LNV posts, each
-          // playable inline. Same treatment for all three types.
-          <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, Math.min(2, recent.length))}, 1fr)`, gridTemplateRows: recent.length > 2 ? 'repeat(2, 1fr)' : '1fr', gap: 6 }}>
-            {recent.slice(0, 4).map(p => {
-              const embedSrc = toEmbedSrc(postStreamUrl(p))
-              const isPlaying = playingPostId === p.id && embedSrc
-              return (
-                <div key={p.id} style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden', background: 'var(--theme-dark3)' }}>
-                  {isPlaying ? (
-                    <iframe
-                      src={embedSrc}
-                      style={{ width: '100%', height: '100%', border: 'none' }}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen title={p.title} />
-                  ) : (
-                    <div
-                      onClick={() => embedSrc && setPlayingPostId(p.id)}
-                      style={{ width: '100%', height: '100%', position: 'relative', cursor: embedSrc ? 'pointer' : 'default' }}
-                    >
-                      {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      {embedSrc && (
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)' }}>
-                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <div style={{ width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderLeft: '11px solid #1a1a1a', marginLeft: 3 }} />
-                          </div>
-                        </div>
-                      )}
-                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))', fontSize: 9.5, color: '#fff', fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
+            {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : 'no sleeves to show'}
           </div>
         )}
       </div>
 
-      {/* caption — three-way now that a label's selectedRelease can be
-          null even after catalogue has loaded (grid-first, see above). */}
-      <p style={{ flexShrink: 0, margin: 0, marginTop: 14, fontSize: 12.5, lineHeight: 1.55, color: textSec, fontFamily: BODY_FF, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-        {hasCatalogue
-          ? (selectedRelease
-              ? `${selectedRelease.title}${selectedRelease.year ? ` · ${selectedRelease.year}` : ''}${selectedOnSite ? '' : ' · not in the feed yet'}`
-              : catalogue === undefined
-                ? `Pulling ${name}'s ${catalogueSource} catalogue…`
-                : type === 'channel'
-                  ? `${catalogueItems.length} set${catalogueItems.length !== 1 ? 's' : ''} on the channel — tap one to play it here.`
-                  : `${catalogueItems.length} release${catalogueItems.length !== 1 ? 's' : ''} — tap a sleeve to see the tracklist.`)
-          : type === 'channel'
-            ? `${posts.length} live set${posts.length !== 1 ? 's' : ''} deep and counting — tap a set to play it here.`
-            : `${posts.length} record${posts.length !== 1 ? 's' : ''} deep and counting — tap a post to play it here.`}
-      </p>
-
-      {/* Catalogue picker — the same list for all three subject types now,
-          fed by whichever source that type uses (see the catalogue block
-          above). A real scrollable list (maxHeight + its own overflowY) so a
-          label with a big back catalogue can't blow out the card's fixed
-          height, split into an "already on the site" section and a gap down
-          to "not yet uploaded". Subjects with no catalogue key fall back to
-          the plain real-posts "Recent" list. */}
-      <div style={{ flexShrink: 0, marginTop: 14 }}>
-        {hasCatalogue ? (
-          catalogue === undefined ? (
-            <>
-              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Channel uploads' : 'Discography'}</div>
-              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>fetching catalogue…</div>
-            </>
-          ) : catalogueItems.length === 0 ? (
-            <>
-              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Channel uploads' : 'Discography'}</div>
-              <div style={{ fontSize: 11, color: textTer, fontFamily: LABEL_FF }}>{`nothing found on ${catalogueSource}`}</div>
-            </>
-          ) : (
-            <div style={{ maxHeight: 140, overflowY: 'auto' }}>
-              {onSiteItems.length > 0 && (
-                <>
-                  <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>Already on the site</div>
-                  {onSiteItems.map(r => (
-                    <div key={`${r.type || 'release'}:${r.id}`} onClick={() => setSelectedReleaseId(r.id)}
-                      style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
-                      {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
-                      <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-                      <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
-                    </div>
-                  ))}
-                  <div style={{ height: 14 }} />
-                </>
-              )}
-              <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>
-                {onSiteItems.length > 0 ? 'Not yet uploaded' : `From ${catalogueSource} — not in the feed yet`}
+      {/* index */}
+      <div style={{ flexShrink: 0, marginTop: 18, display: 'grid', gridTemplateColumns: COLS, gap: 10, padding: '0 6px 6px', borderBottom: `1px solid ${textPri}` }}>
+        {['No', 'Title', type === 'label' ? 'Artist' : 'Label', 'Cat', 'Year', ''].map((h, i) => (
+          <span key={i} style={{ ...rowText, fontSize: 9.5, color: textTer }}>{h}</span>
+        ))}
+      </div>
+      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+        {rows.length === 0 && (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
+            {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : `nothing found on ${catalogueSource}`}
+          </div>
+        )}
+        {rows.map((r, idx) => {
+          const open = r.key === openKey
+          return (
+            <div key={r.key} ref={el => { if (el) rowRefs.current.set(r.key, el); else rowRefs.current.delete(r.key) }}>
+              <div
+                onClick={() => toggleRow(r.key)}
+                style={{ display: 'grid', gridTemplateColumns: COLS, gap: 10, alignItems: 'center', padding: '6px 6px', borderBottom: `1px solid ${divider}`, cursor: 'pointer', background: open ? textPri : 'transparent', color: open ? cardBg : textPri, transition: 'background 0.15s, color 0.15s' }}
+                onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 10%, transparent)' }}
+                onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ ...rowText, fontVariantNumeric: 'tabular-nums' }}>{String(idx + 1).padStart(2, '0')}</span>
+                <span style={{ ...rowText, fontWeight: 500 }}>
+                  {r.onSite && hasCatalogue && <span title="on LNV" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 6, verticalAlign: 'middle' }} />}
+                  {r.title}
+                </span>
+                <span style={rowText}>{r.sub}</span>
+                <span style={rowText}>{r.catno}</span>
+                <span style={{ ...rowText, fontVariantNumeric: 'tabular-nums' }}>{r.year}</span>
+                <span style={{ ...rowText, textAlign: 'right' }}>{open ? '▴' : '▾'}</span>
               </div>
-              {notYetItems.map(r => (
-                <div key={`${r.type || 'release'}:${r.id}`} onClick={() => setSelectedReleaseId(r.id)}
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: 'pointer', background: selectedRelease?.id === r.id ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
-                  {r.thumb && <img src={r.thumb} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
-                  <span style={{ flex: 1, fontSize: 12, color: selectedRelease?.id === r.id ? textPri : textSec, fontWeight: selectedRelease?.id === r.id ? 600 : 400, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-                  <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{r.year || ''}</span>
+
+              {open && (
+                <div style={{ padding: '10px 6px 14px', borderBottom: `1px solid ${divider}` }}>
+                  {/* A channel upload, or one of this subject's own posts that
+                      has no tracklist (a live set), opens straight into its
+                      player — there's nothing to list. */}
+                  {(r.kind === 'video' || (r.kind === 'post' && !(r.post.tracks || []).length)) ? (() => {
+                    const src = r.kind === 'video'
+                      ? `https://www.youtube.com/embed/${r.id}?rel=0&modestbranding=1&color=white`
+                      : (toEmbedSrc(postStreamUrl(r.post)) || (/bandcamp\.com\/EmbeddedPlayer/.test(r.post.embed_url || '') ? r.post.embed_url : null))
+                    return src ? (
+                      <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260 }}>
+                        <iframe key={src} src={src}
+                          style={{ width: '100%', height: '100%', border: 'none' }}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen title={r.title} />
+                      </div>
+                    ) : <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>no player for this link</div>
+                  })() : (
+                    <>
+                      {r.kind === 'release' && !selectedFull ? (
+                        <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>fetching tracklist…</div>
+                      ) : openTracks.length === 0 ? (
+                        <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>no tracklist</div>
+                      ) : openTracks.map((t, i) => {
+                        const trackKey = `${openKey}#${i}`
+                        const found = foundUrls[trackKey]
+                        const url = t.url || (found && found !== 'none' && found !== 'capped' ? found : '')
+                        const isPlaying = playing?.key === trackKey
+                        const miss = found === 'none' || (t.knownMiss && !url)
+                        const state = searching === trackKey ? '…' : miss ? '—' : found === 'capped' ? '×' : isPlaying ? '▶' : '▷'
+                        return (
+                          <div key={i}>
+                          <div onClick={() => { if (!miss) playTrack({ ...t, url }, i) }}
+                            title={miss ? 'no YouTube link found' : found === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}
+                            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+                            <span style={{ ...rowText, fontSize: 10.5, color: textTer }}>{t.position || i + 1}</span>
+                            <span style={{ ...rowText, textTransform: 'none', fontSize: 12.5, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
+                            <span style={{ ...rowText, fontSize: 10.5, color: textTer, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{t.duration || ''}</span>
+                            <span style={{ ...rowText, fontSize: 11, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
+                          </div>
+                          {/* The player opens right under the track that was clicked. */}
+                          {isPlaying && toEmbedSrc(playing.url) && (
+                            <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px' }}>
+                              <iframe key={playing.url} src={`${toEmbedSrc(playing.url)}${/youtube/.test(toEmbedSrc(playing.url)) ? '&autoplay=1' : ''}`}
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen title={t.title} />
+                            </div>
+                          )}
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           )
-        ) : (
-          <>
-            <div style={{ fontFamily: LABEL_FF, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: textTer, marginBottom: 8 }}>{type === 'channel' ? 'Recent sets' : 'Recent posts'}</div>
-            <div>
-              {recent.slice(0, 3).map(p => (
-                <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${divider}` }}>
-                  {coverSrc(p) && <img src={coverSrc(p)} alt="" style={{ width: 22, height: 22, borderRadius: 3, flexShrink: 0, objectFit: 'cover' }} />}
-                  <span style={{ flex: 1, fontSize: 12, color: textSec, fontFamily: BODY_FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
-                  <span style={{ fontSize: 9, color: textTer, fontFamily: 'monospace', flexShrink: 0 }}>{timeAgo(p.created_at)}</span>
-                </div>
-              ))}
-              {posts.length > 3 && <div style={{ fontSize: 9, color: textTer, fontFamily: LABEL_FF, marginTop: 4 }}>+{posts.length - 3} more</div>}
-            </div>
-          </>
-        )}
+        })}
       </div>
 
-      {/* cta row — 2026-08-25 fourth pass: now context-sensitive to the
-          currently selected release rather than a single fixed action.
-          When one's picked and it's already on the site, "view all →"
-          (browse the artist/label) makes more sense than an add button
-          that would just re-post a duplicate; when it's not on the site
-          yet, "+ add to feed" is the useful action. Falls back to plain
-          "view all →" while the catalogue is still loading/empty. For a
-          channel the add url is the YouTube watch link rather than a Discogs
-          release (see addUrl above) — ComposeModal's initialUrl pipeline
-          resolves either. Channels have no browse drawer, so they get
-          nothing rather than a dead "view all". */}
+      {/* cta row — unchanged behaviour: "+ add to feed" for an open
+          catalogue entry that isn't on LNV yet, otherwise "view all →". */}
       <div style={{ flexShrink: 0, marginTop: 15, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         {hasCatalogue && selectedRelease && !selectedOnSite ? (
           <button
