@@ -183,11 +183,16 @@ unused `extractYTId` in ComposeModal.jsx, 2 in LayoutProvider.jsx).
 4. Edit + delete on own posts.
 
 **Decisions pending**
-- **BPM + key**: chosen — auto + editable, Camelot (8A), per track row. Source:
-  analyse Deezer 30 s previews (8/9 test tracks have one; Deezer's own `bpm` is
-  filled for only 3/9, no key). **Blocked on library choice**: Essentia (best,
-  AGPL — LNV would need an AGPL licence; repo is public, no licence yet) vs.
-  own MIT-only analysis (BPM solid, key ~60–70%).
+- **BPM + key — DROPPED (gabriel, 2026-09-25: "not necessary")**. Also looked
+  at and rejected: MusicalKeyCNN (MIT, key only, ~66.7% on GiantSteps) + QM Vamp
+  tempo/key plugins via Sonic Annotator (GPL, run as a separate program) —
+  would have needed PyTorch + Sonic Annotator installs. Earlier notes: only worth doing from free,
+  simple outside data; no audio analysis. Options found: Deezer's `bpm` field
+  (free, keyless, but filled for only 3/9 test tracks, no key) and GetSongBPM
+  (free API with BPM + key; needs gabriel to register a key and a visible
+  attribution link; coverage of underground releases untested). If revisited:
+  put the key in backend/.env and test coverage against the feed first.
+  Earlier choices if it's ever built: auto + editable, Camelot (8A), per track row.
 - Make `ADMIN` an admin too (currently only `lnv_admin` can edit/delete others'
   posts)?
 - Rail placement for search + post button (from the handover) — unanswered.
