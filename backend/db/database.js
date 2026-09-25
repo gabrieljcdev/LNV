@@ -148,6 +148,18 @@ const migrations = [
   // save. That's why PostCard's Channel box (and now the channel spotlight)
   // read empty: not a rendering bug, a missing column.
   'ALTER TABLE posts ADD COLUMN channel TEXT',
+  // Channel spotlights need a back catalogue the same way artist and label
+  // spotlights use a Discogs discography — but a channel isn't a Discogs
+  // entity, so theirs comes from the YouTube Data API instead (see
+  // youtubeService's getChannelUploads). Cached here rather than in
+  // youtube_cache, which is a fixed url/title pair table and can't hold a
+  // JSON payload. Short TTL: channels keep uploading.
+  `CREATE TABLE IF NOT EXISTS youtube_channel_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key TEXT UNIQUE NOT NULL,
+    data TEXT NOT NULL,
+    fetched_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

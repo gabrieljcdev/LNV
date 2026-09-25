@@ -1,10 +1,11 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import { searchDiscogs, getRelease, getMaster } from '../services/discogsService.js';
+import { getChannelUploads, extractVideoId } from '../services/youtubeService.js';
 
 const router = express.Router();
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
 
 // ─── Known live-set channels ──────────────────────────────────────────────────
 const KNOWN_CHANNELS = [
@@ -217,28 +218,23 @@ function genresFromKeywords(text = '') {
 }
 
 /**
- * Proxy a Discogs search through the internal route (avoids 401).
+ * Discogs search, straight through the cached service layer.
  */
 async function discogsSearch(q) {
   try {
-    const r = await fetch(`${BACKEND}/api/discogs/search?q=${encodeURIComponent(q)}`);
-    if (!r.ok) return null;
-    const data = await r.json();
-    // Shape: { results: [] } or { error }
-    return data.results ? data.results[0] || null : null;
+    const data = await searchDiscogs(q);
+    return data?.results?.[0] || null;
   } catch {
     return null;
   }
 }
 
 /**
- * Proxy a Discogs release fetch through the internal route.
+ * Discogs release fetch, straight through the cached service layer.
  */
 async function discogsRelease(id) {
   try {
-    const r = await fetch(`${BACKEND}/api/discogs/release/${id}`);
-    if (!r.ok) return null;
-    return await r.json();
+    return await getRelease(Number(id));
   } catch {
     return null;
   }
@@ -246,16 +242,19 @@ async function discogsRelease(id) {
 
 /**
  * Attempt a Discogs reverse-lookup for a non-live result.
- * Returns partial release data or null.
+ * Returns partial release data (plus up to 4 alternates) or null.
+ *
+ * Artist and label DISCOGS IDS are carried through here, not just names:
+ * post_artists.discogs_artist_id / post_labels.discogs_label_id are what the
+ * spotlight discography feature resolves against, and before 2026-08-26
+ * nothing on the reverse-lookup path ever produced them.
  */
 async function tryDiscogsLookup(artist, title) {
   if (!artist || !title) return null;
   try {
-    // Fetch all search results (up to 20), not just the first
-    const searchRes = await fetch(`${BACKEND}/api/discogs/search?q=${encodeURIComponent(artist + ' ' + title)}&type=release`);
-    if (!searchRes.ok) return null;
-    const searchData = await searchRes.json();
-    const results = searchData.results || [];
+    // Search results (up to 20), not just the first
+    const searchData = await searchDiscogs(`${artist} ${title}`.trim(), 'release');
+    const results = searchData?.results || [];
     if (!results.length) return null;
 
     // Deduplicate by album title — keep the best pressing of each unique release title
@@ -276,17 +275,30 @@ async function tryDiscogsLookup(artist, title) {
       }
     }
 
-    // Take up to 5 unique releases and fetch their full data
+    // Take up to 5 unique releases and fetch their full data.
+    // IN PARALLEL — this used to be an await inside a for-loop, i.e. five
+    // sequential Discogs round-trips stacked onto every single paste of a
+    // YouTube/SoundCloud/Bandcamp link. Ordering is preserved (Promise.all
+    // resolves positionally), so the "primary = first = Discogs' own best
+    // match" contract below is unchanged; only the wall-clock cost is.
     const uniqueResults = [...seen.values()].slice(0, 5);
+    const fetched = await Promise.all(uniqueResults.map(r => discogsRelease(r.id)));
+
     const releases = [];
-    for (const result of uniqueResults) {
-      const release = await discogsRelease(result.id);
+    for (let i = 0; i < uniqueResults.length; i++) {
+      const release = fetched[i];
       if (!release) continue;
+      const result = uniqueResults[i];
+      const relLabel = release.labels?.[0] || null;
       releases.push({
         discogs_id: release.discogsId,
         release_title: release.title,
-        label: release.labels?.[0]?.name || '',
-        catNo: release.labels?.[0]?.catno || '',
+        // [{ id, name }] — ids are the whole point, see the note above
+        artists: (release.artists || []).filter(a => a?.name),
+        artist: (release.artists || []).map(a => a.name).filter(Boolean).join(', '),
+        label: relLabel?.name || '',
+        label_id: relLabel?.id || null,
+        catNo: relLabel?.catno || '',
         year: release.year ? String(release.year) : null,
         genres: [...(release.genres || []), ...(release.styles || [])],
         cover_image: release.coverImage || null,
@@ -904,19 +916,23 @@ async function resolveBoilerRoom(url) {
 }
 
 async function resolveDiscogs(url) {
-  // Proxy through internal route
   const releaseMatch = url.match(/discogs\.com\/(?:[\w-]+\/)?release\/(\d+)/);
   const masterMatch = url.match(/discogs\.com\/(?:[\w-]+\/)?master\/(\d+)/);
   const id = releaseMatch?.[1] || masterMatch?.[1];
   if (!id) throw new Error('Cannot parse Discogs release ID from URL');
 
-  const r = await fetch(`${BACKEND}/api/discogs/release/${id}`);
-  if (!r.ok) throw new Error(`Discogs release fetch failed: ${r.status}`);
-  const data = await r.json();
-  if (data.error) throw new Error(data.error);
+  // A /master/ URL is a master id, and Discogs' /releases/{id} endpoint will
+  // happily return a DIFFERENT, unrelated release for it rather than erroring.
+  // Route each id to its own endpoint. (Masters carry no `labels`, so label /
+  // catNo come back empty for those — the release-level pressing is where
+  // that data lives.)
+  const data = releaseMatch
+    ? await getRelease(Number(id))
+    : await getMaster(Number(id));
+  if (!data || data.error) throw new Error(data?.error || `Discogs fetch failed for ${id}`);
 
   const artist = data.artists?.map(a => a.name).join(', ') || '';
-  const artists = (data.artists || []).map(a => ({ name: a.name }));
+  const artists = (data.artists || []).filter(a => a?.name);
   const rawReleaseTitle = data.title || '';
   const title = rawReleaseTitle.includes(' - ') ? rawReleaseTitle.split(' - ').slice(1).join(' - ') : rawReleaseTitle;
 
@@ -989,10 +1005,70 @@ router.get('/resolve', async (req, res) => {
       case 'discogs':     result = await resolveDiscogs(url);     break;
       default:            return res.status(400).json({ error: 'Unknown platform' });
     }
+
+    // ── Attach real Discogs artist/label ids ────────────────────────────────
+    // One place for all twelve platforms. Whenever a resolver landed on a
+    // Discogs release (directly, or via tryDiscogsLookup's reverse match),
+    // that release is the source of truth for WHO made it — so take its
+    // artists (which carry `id`) and its label id, rather than the loose
+    // names parsed out of a video title or an oEmbed `author_name`.
+    //
+    // Those ids are what end up in post_artists.discogs_artist_id /
+    // post_labels.discogs_label_id (backend/routes/posts.js reads `a.id` and
+    // `l.id`), which is what the spotlight discography feature resolves
+    // against. Before this, every row in both tables was NULL.
+    //
+    // getRelease() is served from the 30-day SQLite cache in discogsService,
+    // and tryDiscogsLookup has almost always just fetched this exact release
+    // moments earlier, so in practice this is a local DB read, not an API
+    // call. Livemix posts never get a discogs_id, so DJ names parsed off the
+    // set title are left exactly as they were.
+    if (result?.discogs_id) {
+      const rel = await getRelease(Number(result.discogs_id)).catch(() => null);
+      if (rel?.artists?.length) {
+        result.artists = rel.artists.filter(a => a?.name);
+        // Keep the visible artist string in step with the ids being saved —
+        // a divergence between the two is exactly the bug this fixes.
+        result.artist = result.artists.map(a => a.name).join(', ');
+      }
+      const relLabel = rel?.labels?.find(l => l.name === result.label) || rel?.labels?.[0] || null;
+      if (relLabel) {
+        result.label_id = relLabel.id || null;
+        result.label = result.label || relLabel.name || '';
+        result.catNo = result.catNo || relLabel.catno || '';
+      }
+    }
+
     res.json(result);
   } catch (err) {
     console.error(`[media/resolve] ${platform} error:`, err.message);
     res.status(500).json({ error: err.message, platform });
+  }
+});
+
+// GET /api/media/channel-uploads?videoUrl=<any video from the channel>&limit=24
+//
+// The channel spotlight's catalogue source. Artists and labels resolve their
+// back catalogue through Discogs (/api/discogs/artist|label/:id/releases);
+// a channel isn't a Discogs entity, so its catalogue is the YouTube channel's
+// own uploads. Same response shape as the two Discogs endpoints
+// ({ releases: [{ id, title, year, thumb }], pagination: { items } }) so
+// SpotlightCard renders all three subject types through one code path.
+//
+// Takes a VIDEO url rather than a channel name because posts only ever store
+// `channel` as free text ("HOR", "Boiler Room") — resolving that by name would
+// cost 100 quota units and still be a guess. Any post from the channel gives
+// an exact answer for 3.
+router.get('/channel-uploads', async (req, res) => {
+  const { videoUrl, limit } = req.query;
+  if (!videoUrl) return res.status(400).json({ error: 'videoUrl query param required' });
+  const videoId = extractVideoId(videoUrl);
+  if (!videoId) return res.status(400).json({ error: 'Not a YouTube URL', videoUrl });
+  try {
+    res.json(await getChannelUploads(videoId, limit));
+  } catch (err) {
+    console.error('[media/channel-uploads]', err.message);
+    res.status(502).json({ error: err.message });
   }
 });
 

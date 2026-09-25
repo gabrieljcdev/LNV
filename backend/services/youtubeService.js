@@ -125,3 +125,110 @@ export async function enrichPostTracks(postId) {
   }
   return results;
 }
+
+// ─── Channel catalogue ────────────────────────────────────────────────────────
+// The channel spotlight's equivalent of an artist's or a label's Discogs
+// discography: everything that channel has uploaded, so a Boiler Room / HÖR /
+// fabric spotlight can show its back catalogue and flag which sets are already
+// in the feed. Channels are not a Discogs entity (see subjectDiscogsId in
+// Feed.jsx), so this is the one of the three catalogue sources that comes from
+// YouTube rather than Discogs.
+//
+// Resolved from a VIDEO the channel actually published, not from the channel's
+// display name: posts only store `channel` as a free-text label ("HÖR"), and
+// search.list-by-name costs 100 quota units AND guesses. Going video -> channel
+// -> uploads playlist is exact and costs 3 units total, cached for a day.
+//
+// Shape deliberately mirrors discogsService's getArtistReleases/getLabelReleases
+// ({ releases: [{ id, title, year, thumb }], pagination: { items } }) so
+// SpotlightCard can render all three subject types through one code path.
+
+const CHANNEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day — channels keep uploading
+
+function getChannelCached(key) {
+  try {
+    const row = db.prepare('SELECT * FROM youtube_channel_cache WHERE cache_key = ?').get(key);
+    if (!row) return null;
+    if (Date.now() - new Date(row.fetched_at).getTime() > CHANNEL_CACHE_TTL) return null;
+    return JSON.parse(row.data);
+  } catch { return null; }
+}
+
+function setChannelCache(key, data) {
+  try {
+    db.prepare('INSERT OR REPLACE INTO youtube_channel_cache (cache_key, data, fetched_at) VALUES (?, ?, datetime(\'now\'))')
+      .run(key, JSON.stringify(data));
+  } catch { /* ignore cache write errors */ }
+}
+
+async function ytApi(path, params) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) throw new Error('YOUTUBE_API_KEY is not set');
+  const qs = new URLSearchParams({ ...params, key }).toString();
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/${path}?${qs}`);
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data?.error?.message || `YouTube ${path} failed: ${res.status}`);
+  }
+  return data;
+}
+
+export function extractVideoId(url) {
+  return (url || '').match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] || null;
+}
+
+/**
+ * Uploads for the channel that published `videoId`.
+ * Returns { channel: { id, title, thumb }, releases: [...], pagination: { items } }.
+ */
+export async function getChannelUploads(videoId, limit = 24) {
+  const max = Math.min(Math.max(Number(limit) || 24, 1), 50); // playlistItems caps at 50
+  const cacheKey = `channel-uploads:${videoId}:${max}`;
+  const cached = getChannelCached(cacheKey);
+  if (cached) return cached;
+
+  // 1 unit — the video tells us which channel it belongs to, exactly.
+  const vid = await ytApi('videos', { part: 'snippet', id: videoId });
+  const snippet = vid.items?.[0]?.snippet;
+  if (!snippet) throw new Error(`Video ${videoId} not found`);
+  const channelId = snippet.channelId;
+
+  // 1 unit — every channel has an auto-maintained "uploads" playlist.
+  const ch = await ytApi('channels', { part: 'contentDetails,snippet', id: channelId });
+  const chItem = ch.items?.[0];
+  const uploadsId = chItem?.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploadsId) throw new Error(`No uploads playlist for channel ${channelId}`);
+
+  // 1 unit — newest first, which is what playlistItems returns for uploads.
+  const pl = await ytApi('playlistItems', { part: 'snippet,contentDetails', playlistId: uploadsId, maxResults: String(max) });
+
+  const releases = (pl.items || []).map(it => {
+    const s = it.snippet || {};
+    const publishedAt = it.contentDetails?.videoPublishedAt || s.publishedAt || '';
+    return {
+      // `id` is the VIDEO id (a string), not a Discogs numeric id — the
+      // frontend keys and on-site matching both treat it as opaque.
+      id: it.contentDetails?.videoId || s.resourceId?.videoId || null,
+      title: s.title || '',
+      year: publishedAt ? Number(publishedAt.substring(0, 4)) : null,
+      thumb: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || null,
+      url: (it.contentDetails?.videoId || s.resourceId?.videoId)
+        ? `https://www.youtube.com/watch?v=${it.contentDetails?.videoId || s.resourceId?.videoId}`
+        : null,
+    };
+  }).filter(r => r.id);
+
+  const out = {
+    channel: {
+      id: channelId,
+      title: chItem?.snippet?.title || snippet.channelTitle || '',
+      thumb: chItem?.snippet?.thumbnails?.default?.url || null,
+    },
+    releases,
+    // Total uploads on the channel, not just the page we fetched — matches
+    // what the Discogs endpoints report in pagination.items.
+    pagination: { items: pl.pageInfo?.totalResults ?? releases.length, perPage: max },
+  };
+  setChannelCache(cacheKey, out);
+  return out;
+}

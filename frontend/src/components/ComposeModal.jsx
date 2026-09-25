@@ -50,6 +50,32 @@ function splitArtists(str) {
  return str.split(ARTIST_SPLIT_RE).map(s => s.trim()).filter(Boolean).map(name => ({ name }))
 }
 
+// -- Discogs id book ---------------------------------------------------------
+// The artist/label text inputs are free text, and splitArtists() re-derives the
+// whole artist list from that text on every keystroke. Until 2026-08-26 that
+// silently threw away the Discogs id each artist arrived with, and the label
+// field never carried one at all -- so post_artists.discogs_artist_id and
+// post_labels.discogs_label_id were NULL on every row in the database, which is
+// what left the spotlight discography feature with nothing to resolve.
+//
+// Rather than fight the free-text field (splitting "what was typed" from "what
+// was selected" and having to decide which wins), every id we ever see is
+// remembered here against its normalised name and re-attached at POST time.
+// Free text still wins for the NAME; the id simply follows any name we know.
+// Rename an artist to something unrecognised and its id correctly drops to null.
+const normName = n => (n || '').toLowerCase().replace(/\s*\(\d+\)$/, '').replace(/[^a-z0-9]+/g, ' ').trim()
+
+function rememberIds(book, list) {
+ for (const item of list || []) {
+  const key = normName(item?.name)
+  if (key && item?.id != null) book.set(key, item.id)
+ }
+}
+function withId(book, name) {
+ const id = book.get(normName(name))
+ return id != null ? { name, id } : { name }
+}
+
 function pillBtn(variant = 'outlined', extra = {}) {
  const base = { borderRadius: 20, padding: '5px 16px', fontFamily: 'VT323, monospace', fontSize: 13, letterSpacing: '0.04em', border: 'none', cursor: 'pointer', lineHeight: 1.4, ...extra }
  const v = {
@@ -109,6 +135,24 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const [discogsVideos, setDiscogsVideos] = useState([])
  const [allReleases, setAllReleases] = useState(null)
 
+ // Normalised name -> Discogs id, for artists and labels. Survives every
+ // free-text edit of those fields; see the note by rememberIds above.
+ const artistIds = useRef(new Map())
+ const labelIds = useRef(new Map())
+
+ // Names come from whatever is in the fields right now; ids are re-attached
+ // from the book by name (see rememberIds above). backend/routes/posts.js
+ // writes a.id -> post_artists.discogs_artist_id and l.id ->
+ // post_labels.discogs_label_id, so this is the last point at which the id
+ // can be lost -- and, before 2026-08-26, always was.
+ const artistsForDB = (artistsList.length ? artistsList : splitArtists(artist))
+  .filter(a => a?.name?.trim())
+  .map(a => (a.id != null ? { name: a.name.trim(), id: a.id } : withId(artistIds.current, a.name.trim())))
+ const labelsForDB = label.trim()
+  ? [{ ...withId(labelIds.current, label.trim()), catno: catNo.trim() }]
+  : []
+ const linkedIdCount = artistsForDB.filter(a => a.id != null).length + labelsForDB.filter(l => l.id != null).length
+
  const inputRef = useRef(null)
  const activePlatform = detectPlatform(inputUrl)
  const isDiscogs = activePlatform?.id === 'discogs'
@@ -122,12 +166,19 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  }, [onClose])
 
  function clearForm() {
+ artistIds.current.clear(); labelIds.current.clear()
  setTitle(''); setArtist(''); setArtistsList([]); setYear(''); setLabel(''); setCatNo('')
  setGenres([]); setTracks([]); setCoverArt(''); setStreamUrl(''); setEmbedUrl(''); setChannel('')
  setFetchSource(null); setAllReleases(null); setDiscogsVideos([])
  }
 
  function applyEnrichment(data) {
+ // /api/media/resolve returns artists as [{ id, name }] plus a label_id
+ // whenever it landed on a Discogs release -- for any of the 12 platforms,
+ // not just discogs.com links. See the id-attaching block at the end of
+ // backend/routes/media.js.
+ rememberIds(artistIds.current, data.artists)
+ if (data.label && data.label_id != null) rememberIds(labelIds.current, [{ name: data.label, id: data.label_id }])
  if (data.title) setTitle(data.title)
  if (data.artist) setArtist(data.artist)
  if (data.artists?.length) setArtistsList(data.artists)
@@ -148,6 +199,11 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  }
 
  function applyRelease(rel) {
+ // Alternates from tryDiscogsLookup carry their own artists / label_id.
+ rememberIds(artistIds.current, rel.artists)
+ if (rel.label && rel.label_id != null) rememberIds(labelIds.current, [{ name: rel.label, id: rel.label_id }])
+ const relArtist = rel.artists?.length ? rel.artists.map(a => a.name).filter(Boolean).join(', ') : artist
+ if (rel.artists?.length) { setArtistsList(rel.artists); setArtist(relArtist) }
  const cleanTitle = rel.release_title?.includes(' - ') ? rel.release_title.split(' - ').slice(1).join(' - ') : (rel.release_title || '')
  if (cleanTitle) setTitle(cleanTitle)
  if (rel.label) setLabel(rel.label)
@@ -159,7 +215,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const mapped = rel.tracks.map(t => ({ ...t, stream_url: '' }))
  setTracks(mapped)
  setPostType(rel.tracks.length >= 6 ? 'album' : rel.tracks.length <= 2 ? 'single' : 'album')
- if (rel.videos?.length) { setDiscogsVideos(rel.videos); backgroundYTSearch(mapped, artist, rel.label, rel.catNo) }
+ if (rel.videos?.length) { setDiscogsVideos(rel.videos); backgroundYTSearch(mapped, relArtist, rel.label, rel.catNo) }
  }
  setAllReleases(null)
  }
@@ -192,12 +248,16 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  const fArtist = data.artists?.map(a => a.name).join(', ') || ''
  const fLabel = data.labels?.[0]?.name || ''
  const fCatno = data.labels?.[0]?.catno || ''
+ // normaliseRelease() in discogsService returns artists AND labels as
+ // [{ id, name, ... }]; both ids are kept from here on.
+ rememberIds(artistIds.current, data.artists)
+ rememberIds(labelIds.current, data.labels)
  setTitle(cleanTitle); setArtist(fArtist); setLabel(fLabel); setCatNo(fCatno); setYear(String(data.year || ''))
  setCoverArt(data.coverImage || data.thumbImage || '')
  setDiscogsVideos(data.videos || [])
  setGenres([...(data.genres || []), ...(data.styles || [])].slice(0, 6))
  setFetchSource('discogs'); setStreamUrl(url)
- const discogsArtists = data.artists?.map(a => ({ name: a.name })) || splitArtists(fArtist)
+ const discogsArtists = data.artists?.length ? data.artists : splitArtists(fArtist)
  setArtistsList(discogsArtists)
  const fmtName = data.formats?.map(f => f.name).join(' ') || ''
  const tCount = (data.tracklist || []).length
@@ -282,9 +342,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  async function handlePost() {
  if (!title.trim()) return
  setPosting(true); setFetchError('')
- const artistsForDB = artistsList.length ? artistsList : splitArtists(artist)
  try {
- const postRes = await fetch(`${API}/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, username: user, discogs_url: isDiscogs ? inputUrl : '', stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: label.trim() ? [{ name: label.trim(), catno: catNo.trim() }] : [], year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks, body: comment.trim(), notes: comment.trim() }) })
+ const postRes = await fetch(`${API}/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, username: user, discogs_url: isDiscogs ? inputUrl : '', stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks, body: comment.trim(), notes: comment.trim() }) })
  if (!postRes.ok) throw new Error(`POST failed: ${postRes.status}`)
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId
@@ -347,6 +406,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '' }) {
  {fetchSource === 'discogs' && <span style={{ ...pillBtn('dark'), fontSize: 10, padding: '2px 10px' }}>◈ DISCOGS MATCH</span>}
  {fetchSource === 'platform' && <span style={{ ...pillBtn('muted'), fontSize: 10, padding: '2px 10px' }}>PLATFORM DATA ONLY</span>}
  {artistsList.length > 1 && <span style={{ ...pillBtn('pastel'), fontSize: 10, padding: '2px 10px' }}>{artistsList.length} ARTISTS SPLIT</span>}
+ {/* 2026-08-26: shows how many Discogs artist/label ids will actually be
+     written with this post. Zero here on a discogs-matched fetch means the
+     id chain broke again -- which is exactly what it silently did before. */}
+ {hasFetched && (
+ <span style={{ ...pillBtn(linkedIdCount ? 'dark' : 'muted'), fontSize: 10, padding: '2px 10px' }}>
+ {linkedIdCount ? `◈ ${linkedIdCount} DISCOGS ID${linkedIdCount > 1 ? 'S' : ''} LINKED` : 'NO DISCOGS IDS'}
+ </span>
+ )}
  </div>
  )}
 

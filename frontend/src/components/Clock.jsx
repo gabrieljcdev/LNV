@@ -13,7 +13,7 @@ export default function Clock() {
   const datetimeRef = useRef(null)
 
   useEffect(() => {
-    function tick() {
+    function paint() {
       const now = new Date()
       const h   = String(now.getHours()).padStart(2, '0')
       const m   = String(now.getMinutes()).padStart(2, '0')
@@ -22,8 +22,16 @@ export default function Clock() {
       if (datetimeRef.current) datetimeRef.current.textContent =
         `${DAYS[now.getDay()]} · ${getPeriod(now.getHours())}`
     }
-    tick()
-    const id = setInterval(tick, 1000)
+    paint()
+    // 2026-08-26 (reverted same day): gabriel wants the seconds back — the
+    // HH:MM-only, once-a-minute version didn't look right. Back to a
+    // straight once-a-second tick. `fontVariantNumeric:'tabular-nums'`
+    // below is the one thing kept from the jank theory: it pins every
+    // digit to the same width, so the tick is a pure text repaint with no
+    // layout-width change on this box, rather than possibly reflowing.
+    // Doesn't touch the update frequency itself — if scroll jank is still
+    // traced back to this, the actual fix is elsewhere.
+    const id = setInterval(paint, 1000)
     return () => clearInterval(id)
   }, [])
 
@@ -50,6 +58,7 @@ export default function Clock() {
           color:         'var(--theme-sidebar)',
           letterSpacing: '-0.03em',
           lineHeight:    0.78,
+          fontVariantNumeric: 'tabular-nums',
         }}
       />
       {/* Day / time-of-day line — reverted to its previous colour
