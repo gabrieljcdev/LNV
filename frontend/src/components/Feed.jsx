@@ -105,8 +105,8 @@ const DESIGN_BASE = {
   monoFf: "'IBM Plex Mono',monospace", // was VT323 for stamp/track-meta — see index.css import
 
   // ── media column ─────────────────────────────────────────────────────
-  padY: 120, bandPadX: 32,
-  artSize: 396, artRadius: 40, // artSize: 344*1.15 per gabriel 2026-08-29; artRadius: KEEP AT 40 per gabriel
+  padY: 32, bandPadX: 32, // padY was 120; 2026-09-26 the card itself is trimmed by FLOAT_INSET_Y top/bottom instead (FloatSlot), so content still starts 120px down
+  artSize: 390, artRadius: 40, // artSize: 390 per gabriel 2026-09-26 — one size for single AND album cards (was 330 earlier the same day, 396 = 344*1.15 on 2026-08-29); artRadius: KEEP AT 40 per gabriel
   artOffsetY: 0, artOffsetX: 0, artMbBottom: -21, artMtTop: 40, // artMbBottom: -21 per gabriel 2026-08-29 (art top flush with rail artist-name top, not container bottom — see round 9 note below)
   artShadowY: 0, artShadowB: 0, artShadowA: 0,
   captionMt: 11, captionMtBottom: 0, captionMtTop: 16, captionMaxW: 344, captionSize: 12, captionLh: 1.5, // captionMtBottom: 0 per gabriel 2026-08-29 (desc/caption flush in bottom-plate stack)
@@ -139,10 +139,14 @@ const DESIGN_BASE = {
 // live-only, same mechanism as before (designFor only merges a live-set
 // slot in for isLiveMix posts).
 const DESIGN_VARIANTS = {
-  // Only 2 ways: v0 is the top plate, v1 is the bottom plate — both
+  // Only 2 ways: v0 is the top plate, v1 was the bottom plate — both
   // media-right. See the 2026-08-28 note by ROTATION.
+  // 2026-09-26 (gabriel): the inverted bottom-plate card is retired — every
+  // regular post card uses the standard (top-plate) orientation. The
+  // "lower orientation" numeral now lives on AlbumCard instead. The
+  // plateBottom code paths stay in PostCard, just unused.
   'v0:album': { mediaSide: 'right', plateAlign: 'right', plateBottom: false },
-  'v1:album': { mediaSide: 'right', plateAlign: 'right', plateBottom: true },
+  'v1:album': { mediaSide: 'right', plateAlign: 'right', plateBottom: false },
 
   'v0:live': { mediaSide: 'right', plateAlign: 'right', plateBottom: false, cardW: 900, padY: 40 },
   'v1:live': { mediaSide: 'right', plateAlign: 'right', plateBottom: false, cardW: 900, padY: 40 },
@@ -291,30 +295,50 @@ const POST_BG_CYCLE = ['dark1','dark2','dark3','dark1','dark2','light1','dark3',
 // sat either side (50/100/200 — "a bigger gap means new section") but
 // gabriel flagged it as reading inconsistent rather than legible once it
 // was actually on screen, so it's back to one number. U stays as the meter
-// unit — card widths are still multiples of it (800 = 8U, 900 = 9U) — GAP
-// just isn't tiered off it any more.
+// unit — card widths are still multiples of it (800 = 8U, 900 = 9U).
 const U = 100
-const GAP = 0.5 * U // 50px, every seam
+// Floating cards (2026-09-26, gabriel): cards stay full size ("don't reduce
+// any size") but read as separate objects moving over a surface — rounded
+// corners and a deep layered shadow on each card, FLOAT_GAP of surface
+// between them, over the feed surface (FEED_SURFACE). Replaces full-height
+// cards joined by two-tone seams (FeedGap).
+const FLOAT_GAP = 28   // was 56; halved per gabriel 2026-09-26
+const FLOAT_RADIUS = 14
+// Cards are trimmed top and bottom by this much (the space shows the
+// underlay + shadow). With padY 32 inside the card, content sits where the
+// old 120px padding put it: 88 + 32 = 120.
+// 58 (was 88): every card got the album card's height, gabriel 2026-09-26 —
+// the album needs it so its 390px sleeve and the big number under the title
+// fit on a 900px-tall screen; all cards now share that height.
+// 14 = the previous 58 minus two dot-grid steps (2 × FEED_DOT): cards two
+// dots taller top and bottom, gabriel 2026-09-26.
+const FEED_DOT = 22
+const FLOAT_INSET_Y = 58 - 2 * FEED_DOT
+// The live-set card's width is derived from its video height; the video
+// keeps the size it had at the old 88px inset so card widths don't change.
+const LIVE_VIDEO_INSET_Y = 88
+// Layered: a wide ambient halo (reads in the gaps either side — cards run
+// full height, so that's where the lift shows), a deeper offset drop, and a
+// tight contact edge.
+const FLOAT_SHADOW = '0 0 48px rgba(0,0,0,0.22), 0 30px 60px -12px rgba(0,0,0,0.38), 0 2px 6px rgba(0,0,0,0.12)'
+// White with a fine dot grid (gabriel, 2026-09-26 — the surface will get
+// more work later; a per-card contrasting palette underlay was tried and
+// parked). A scroll container's background doesn't scroll with its content,
+// so the dots stay put while the cards glide over them.
+const FEED_SURFACE = `radial-gradient(rgba(0,0,0,0.16) 1px, transparent 1.6px) 0 0 / ${FEED_DOT}px ${FEED_DOT}px, #ffffff`
 
-// The seam is a real element now, not a margin — margin only ever exposed
-// the page's flat var(--theme-bg) behind it, which didn't match either
-// card's own tint (POST_BG_CYCLE and the spectrum both paint the CARD, not
-// the page — see postSpectrum.js). 2026-08-28: FeedGap first tried a
-// linear-gradient blend across the full seam; gabriel didn't want the blur
-// — he wants the gap to read as each neighbour's OWN card extending into
-// it, solid, meeting at a hard line in the middle, not melting into each
-// other. So it's two solid halves, no gradient: the left GAP/2 carries
-// `from` (the card just rendered), the right GAP/2 carries `to` (the card
-// about to render) — same colors as before, just not blended.
-function FeedGap({ from, to }) {
-  const half = GAP / 2
+// One floating card: FLOAT_INSET_Y of surface above and below, half the gap
+// either side, and the card itself rounded and lifted (FLOAT_SHADOW).
+function FloatSlot({ children }) {
   return (
-    <div aria-hidden="true" style={{ display: 'flex', flexShrink: 0, width: GAP, height: '100%', alignSelf: 'stretch' }}>
-      <div style={{ flexShrink: 0, width: half, height: '100%', background: from, transition: 'background 0.8s' }} />
-      <div style={{ flexShrink: 0, width: half, height: '100%', background: to, transition: 'background 0.8s' }} />
+    <div style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
+      <div style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW }}>
+        {children}
+      </div>
     </div>
   )
 }
+
 
 // ── CoverArt ──────────────────────────────────────────────────────────────────
 
@@ -991,6 +1015,23 @@ function isLiveSetPost(p) {
   return detectType(p) === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 }
 
+// Readable ink on whatever colour a card lands on: sets --lv-pri / -sec /
+// -ter / -line on the card from its actual background luminance. Used by
+// LiveSetCard and AlbumCard.
+function useCardInk(cardRef, cardBg) {
+  useLayoutEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)
+    if (!m) return
+    const [r, g, b] = m.slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+    const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
+    const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)']
+                     : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
+    ;['--lv-pri', '--lv-sec', '--lv-ter', '--lv-line'].forEach((v, i) => el.style.setProperty(v, ink[i]))
+  }, [cardRef, cardBg])
+}
+
 function LiveSetCard({ post, cardBg, d, onEdit }) {
   const { registerPostRef } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
@@ -1010,7 +1051,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   // is then exactly that video's 16:9 width plus LIVE_PADX each side, so
   // the tags / year / edit-delete on the right sit flush with the video's
   // right edge and the side padding is equal.
-  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * T.padY + 270}px))`
+  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 270}px))`
   const cardW = `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
 
   // Some older sets were saved with no link, only a YouTube thumbnail as the
@@ -1026,18 +1067,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   const subtitle = (post.title || '').includes('|') ? post.title.split('|').slice(1).join('|').trim() : post.title
   const platform = post.platform || platformOfUrl(streamUrl) || ''
 
-  // Readable ink on whatever colour the card gets.
-  useLayoutEffect(() => {
-    const el = cardRef.current
-    if (!el) return
-    const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)
-    if (!m) return
-    const [r, g, b] = m.slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
-    const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
-    const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)']
-                     : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
-    ;['--lv-pri', '--lv-sec', '--lv-ter', '--lv-line'].forEach((v, i) => el.style.setProperty(v, ink[i]))
-  }, [cardBg])
+  useCardInk(cardRef, cardBg)
 
   const MONO = "'IBM Plex Mono', monospace", SANS = "'Barlow', sans-serif"
   const pill = { display: 'inline-block', fontFamily: SANS, fontWeight: 600, fontSize: 10, lineHeight: 1, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: 3, textDecoration: 'none' }
@@ -1054,7 +1084,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       {/* Fills the card's inner width; the card itself is sized from the
           video height (videoH / cardW above), so this lands at exactly
           that height. */}
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#000', flexShrink: 0, overflow: 'hidden' }}>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#000', flexShrink: 0, overflow: 'hidden', borderRadius: T.artRadius /* same corners as post-card art */ }}>
         {playing && embedSrc ? (
           <TrackPlayer key={embedSrc} src={embedSrc} title={post.title} autoplay />
         ) : (
@@ -1113,6 +1143,165 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
             <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
             <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </span>
+        )}
+      </div>
+      {commentsOpen && (
+        <div style={{ marginTop: 8, flexShrink: 0 }}>
+          <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Album card (2026-09-26) ────────────────────────────────────────────────────
+// From the card mockup's "C · record out" template, which gabriel picked for
+// albums, reworked with gabriel 2026-09-26: the sleeve with the post
+// description beside it; underneath, badges / artist / title / metaline with
+// the big post number below them (the "lower orientation" numeral), and a
+// two-column tracklist on the right. (The record peeking out of the sleeve
+// and the top-right numeral were tried and dropped.) Used for posts with
+// more than ALBUM_MIN_TRACKS tracks.
+// Same size, padding and type as the regular post card — everything reads
+// from `d` (DESIGN_BASE + the slot's variant): cardW, padY/bandPadX, the
+// numeral, badge, artist/title, metaline, track, description and byline
+// tokens, and artSize for the sleeve (shrunk only when the screen is too
+// short to fit the text under it). Playback works like PostCard: the sleeve
+// plays track A, a track row plays that track, the player takes the
+// sleeve's place and the album plays through (TrackPlayer).
+const ALBUM_MIN_TRACKS = 6   // "over 6 tracks"
+
+function isAlbumPost(p) {
+  return (p.tracks?.length || 0) > ALBUM_MIN_TRACKS
+}
+
+function AlbumCard({ post, cardBg, d, onEdit }) {
+  const { registerPostRef } = useLayout() || {}
+  const { canModify, deleting, deletePost } = usePostActions(post)
+  const [activeUrl, setActiveUrl] = useState(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+  const cardRef = useRef(null)
+  useCardInk(cardRef, cardBg)
+
+  const tracks = post.tracks || []
+  const urlOf = t => t.stream_url || t.youtube_url || null
+  const artist = artistName(post)
+  const label = labelName(post)
+  const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
+  const note = cleanNote(post.notes || post.body)
+  const cover = coverSrc(post)
+  const descRef = useRef(null)
+  const descFit = useScrollFit(descRef, [post.notes, post.body])
+  const listRef = useRef(null)
+  const listFit = useScrollFit(listRef, [tracks.length])
+
+  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
+  const playingSrc = activeUrl ? toEmbedSrc(activeUrl) : null
+  function playNext() {
+    const urls = tracks.map(urlOf)
+    const i = urls.indexOf(activeUrl)
+    const next = i >= 0 ? urls.slice(i + 1).find(Boolean) : null
+    if (next) setActiveUrl(next)
+  }
+
+  // Badges, same behaviour as PostCard's: platform follows what's playing.
+  const playingUrl = activeUrl || post.stream_url || ''
+  const playingPlatform = platformOfUrl(playingUrl) || post.platform || ''
+  const playingYtId = playingPlatform === 'youtube' ? ytIdOf(playingUrl) : null
+  const playingHref = playingYtId ? `https://www.youtube.com/watch?v=${playingYtId}` : (playingUrl || null)
+  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+  const discogsHref = discogsExact || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}`
+  const buyHref = post.discogs_id ? `https://www.discogs.com/sell/release/${post.discogs_id}` : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
+
+  // Sleeve = the regular card's art size, unless the screen is too short to
+  // fit the text block + byline under it inside the 120px padding.
+  // Room reserved below the sleeve: badges + artist/title + metaline + the
+  // big numeral (~290px) + byline — the numeral moved under the title.
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + 330}px))`
+  const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, textDecoration: 'none' }
+  const half = Math.ceil(tracks.length / 2)
+  const indexed = tracks.map((t, i) => ({ t, i }))
+  const trackCol = list => (
+    <div style={{ minWidth: 0 }}>
+      {list.map(({ t, i }) => {
+        const u = urlOf(t)
+        const active = !!activeUrl && u === activeUrl
+        return (
+          <div key={i} onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+            style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+            <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
+            <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400 }}>{t.title}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <div
+      ref={el => { registerPostRef?.(post.id, el); cardRef.current = el }}
+      style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${d.padY}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}
+    >
+      {/* top row: sleeve (the player takes its place) | post description,
+          the same height as the sleeve and scrolling inside it */}
+      <div style={{ display: 'flex', gap: 24, height: stageH, flexShrink: 0 }}>
+        <div style={{ position: 'relative', height: '100%', aspectRatio: '1 / 1', flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' /* same corners as post-card art */ }}>
+          {playingSrc ? (
+            <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+          ) : (
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)}
+              style={{ position: 'absolute', inset: 0, background: cover ? `#000 center/cover no-repeat url("${cover}")` : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }} />
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.zlabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: d.zlabelMb, flexShrink: 0 }}>Post description</div>
+          {note ? (
+            <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
+              style={{ fontSize: d.descSize, lineHeight: d.descLh, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: 0, flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+          ) : (
+            <p style={{ fontSize: d.descSize, fontFamily: d.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
+          )}
+        </div>
+      </div>
+
+      {/* bottom row: badges, artist/title, metaline and the big post number
+          under them ("lower orientation" numeral) | tracklist */}
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 24, marginTop: 24 }}>
+        <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flexShrink: 0 }}>
+            <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{post.post_type || 'album'}</span>
+            {playingPlatform && <a href={playingHref || undefined} target="_blank" rel="noopener noreferrer" style={{ ...badge, background: PLATFORM_COLORS[playingPlatform] || '#444', color: playingPlatform === 'beatport' ? '#000' : '#fff' }}>{playingPlatform}</a>}
+            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+          </div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+          <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>{[label, catNo, post.year].filter(Boolean).join(' · ')}</div>
+          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: 12, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
+            {String(post.id).padStart(2, '0')}
+          </div>
+        </div>
+
+        <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
+          style={{ minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 18, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
+          {trackCol(indexed.slice(0, half))}
+          {trackCol(indexed.slice(half))}
+        </div>
+      </div>
+
+      {/* byline — the regular card's byline sizes */}
+      <div style={{ marginTop: d.bylineMt, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
+        <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
+          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
+        </button>
+        <span style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }}>{post.user?.username || post.username}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>{timeAgo(post.created_at)}</span>
+        {canModify && (
+          <span style={{ display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
           </span>
         )}
       </div>
@@ -1571,7 +1760,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   return (
     <div
       ref={el => registerPostRef?.(cardKey, el)}
-      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `65px ${SPOTLIGHT_PAD}px`, overflow: 'hidden', transition: 'background 0.8s' }}
+      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `32px ${SPOTLIGHT_PAD}px` /* was 65px; trimmed floating card, see FLOAT_INSET_Y */, overflow: 'hidden', transition: 'background 0.8s' }}
     >
       {/* header — tag + mark, then the name at index scale with its count */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -2243,7 +2432,7 @@ export default function Feed() {
           -> #scroll-outer.scrollTop instead. 'hidden' still allows
           programmatic .scrollLeft writes (which is all this ever needs), it
           just stops the browser from independently claiming wheel input. */}
-      <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
+      <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
@@ -2253,20 +2442,19 @@ export default function Feed() {
           </div>
         )}
         {(() => {
-          // FeedIntro's own background is the starting color the very
-          // first gap blends from — see FeedIntro's `background` below.
           const items = shelfItems.current
           const nodes = []
-          let prevBg = 'var(--theme-showcase)'
           items.forEach((item, idx) => {
             const cardBg = getCardBg(idx, item)
-            nodes.push(<FeedGap key={`gap-${item.key}`} from={prevBg} to={cardBg} />)
-            nodes.push(item.kind === 'spotlight'
+            const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
                 ? <LiveSetCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
+                : isAlbumPost(item.post)
+                ? <AlbumCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
-            prevBg = cardBg
+            // Floating card — rounded and lifted off the surface (FloatSlot).
+            nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
           })
           return nodes
         })()}

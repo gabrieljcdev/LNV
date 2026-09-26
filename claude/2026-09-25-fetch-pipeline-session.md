@@ -220,6 +220,30 @@ chose "strip on top, list below".
   "The Throne Of Drones"). Masters now resolve to their main release for
   the tracklist, saved links and "+ add to feed" (master URL).
 
+## 2026-09-26 (later) — album card, floating cards, uniform sizing
+- **AlbumCard** (posts with > 6 tracks, `isAlbumPost`): same width, padding
+  and type tokens as the regular card (all read from `d`). Top row: sleeve
+  (390px, rounded 40) with the post description beside it; bottom row:
+  badges / artist / title / metaline with the big 180px numeral under them
+  ("lower orientation" numeral) | two-column tracklist. Sleeve/track click
+  plays in place with play-through. Tried and dropped along the way: the
+  record peeking out of the sleeve, a top-right numeral.
+- **Inverted (plate-bottom) regular card retired**: both rotation slots
+  (`v0:album`, `v1:album`) are plateBottom:false. Code paths kept, unused.
+- **Floating cards**: every feed card sits in `FloatSlot` — rounded 14px,
+  layered shadow (`FLOAT_SHADOW`), `FLOAT_GAP` 28px between cards,
+  `FLOAT_INSET_Y` 14px above/below (cards 872px tall on a 900px screen).
+  Cards' internal padY is 32 (DESIGN_BASE, was 120). Surface: white with
+  a 22px dot grid (`FEED_SURFACE`, `FEED_DOT`) that stays put while cards
+  scroll over it. FeedGap two-tone seams removed. Tried and dropped: CSS
+  zoom scaling, plain white, a per-card contrasting palette underlay
+  (parked — gabriel will revisit the surface).
+- **Uniform sizing**: art 390px on single and album cards (one `artSize`);
+  every card type shares the same height; live-set card keeps its width by
+  sizing its video from the old 88px inset (`LIVE_VIDEO_INSET_Y`). Live
+  video and album sleeve rounded to `artRadius` (40), like post-card art.
+- `useCardInk` shared by LiveSetCard/AlbumCard (text colour per card bg).
+
 ## Backend: Discogs matcher (new)
 `backend/services/discogsMatcher.js`: posts with no `discogs_id` (not live sets)
 are looked up with the same `tryDiscogsLookup` + plausibility check — after
