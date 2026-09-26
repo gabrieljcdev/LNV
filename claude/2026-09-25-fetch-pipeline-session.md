@@ -192,6 +192,34 @@ chose "strip on top, list below".
   (seeked to 2 s before the end, muted). YouTube only — SoundCloud widget API
   possible later; Bandcamp has no end event.
 
+## 2026-09-26 — card redesign exploration, live-set card, spotlight masters
+- **Mockup** `frontend/mockup.html` (dev-only, untracked): real posts in
+  candidate templates (A sleeve hero, B back cover, C record out, F pull
+  quote, G wide set), size (full/medium/compact) and scroll (glide/snap/
+  vertical) switches. gabriel's calls: floating cards with space between
+  and a mix of post types appeal; the description must be prominent on
+  every card; no crate spines; G (live set) approved as-is. The feed's
+  full-height cards + vertical-wheel-to-sideways glide read as
+  disorienting ("sea sick") — Medium + Snap was the suggested direction;
+  not built into the feed yet.
+- **Live-set card (shipped)**: `LiveSetCard` in Feed.jsx, used for posts
+  typed livemix OR with set-like titles (`isLiveSetPost`). Wide 16:9
+  screen (play → autoplay embed via TrackPlayer; video id falls back to
+  the cover thumbnail's for old link-less posts), name + set line at the
+  regular card's sizes (DESIGN_BASE artist/title, 30px), post description
+  with the same label/size/in-card scroll, quiet byline (replies, poster,
+  time, edit/delete via the new shared `usePostActions`). Padding: the
+  regular cards' 120px top/bottom; 56px each side. The video height is
+  min(1088-wide 16:9, what fits after padding + text), and the card width
+  = that video's width + 2×56, so tags/year/edit sit flush with the video.
+  Ink picked per card from its background colour.
+- Tried and reverted: media-on-top for plate-bottom cards (gabriel: "no
+  that doesn't work").
+- **Spotlight masters fix**: an artist's Discogs list is ~⅓–⅔ masters; a
+  master id fetched as a release is an unrelated record (Buck Bumble OST →
+  "The Throne Of Drones"). Masters now resolve to their main release for
+  the tracklist, saved links and "+ add to feed" (master URL).
+
 ## Backend: Discogs matcher (new)
 `backend/services/discogsMatcher.js`: posts with no `discogs_id` (not live sets)
 are looked up with the same `tryDiscogsLookup` + plausibility check — after

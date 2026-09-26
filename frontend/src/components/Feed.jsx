@@ -465,9 +465,10 @@ function useScrollFit(ref, deps) {
   return { overflows, atEnd, onScroll }
 }
 
-function PostCard({ post, cardBg, spectrum, d, onEdit }) {
-  // Edit/delete: the post's author (or lnv_admin). The backend checks the
-  // same thing (canModify in routes/posts.js).
+// Edit/delete for a post card: the post's author (or lnv_admin). The
+// backend checks the same thing (canModify in routes/posts.js). Shared by
+// PostCard and LiveSetCard.
+function usePostActions(post) {
   const queryClient = useQueryClient()
   const myUserId = getUserId()
   const canModify = !!myUserId && (String(post.user_id) === String(myUserId) || isAdmin())
@@ -484,6 +485,11 @@ function PostCard({ post, cardBg, spectrum, d, onEdit }) {
       setDeleting(false)
     }
   }
+  return { queryClient, canModify, deleting, deletePost }
+}
+
+function PostCard({ post, cardBg, spectrum, d, onEdit }) {
+  const { canModify, deleting, deletePost } = usePostActions(post)
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
   const [hoveredTrack, setHoveredTrack] = useState(null)
@@ -965,6 +971,160 @@ function PostCard({ post, cardBg, spectrum, d, onEdit }) {
   )
 }
 
+// ── Live set card (2026-09-26) ─────────────────────────────────────────────────
+// gabriel approved this composition from the card mockup (frontend/
+// mockup.html, template "G · wide set") as-is: a wide 16:9 screen with a
+// "● live set" tag and a centred play button, then the DJ / channel name
+// huge, the set title in light italic under it, and the badges + year on
+// the right. Clicking play swaps the thumbnail for the real embed
+// (autoplay). The byline (replies, poster, time, edit/delete) sits as one
+// quiet row at the bottom so nothing the old card could do is lost.
+// Ink (text colours) is picked from the card's actual background, so it
+// stays readable whatever palette/spectrum colour the card lands on.
+const LIVE_W = 1200     // widest the card gets (video 1088 wide + 2 × LIVE_PADX)
+const LIVE_PADX = 56    // same padding left and right
+
+// A post is shown as a live set when it's typed as one, or its title reads
+// like one ("Artist | Channel - Date", b2b, dj set, live at, session) —
+// several older sets were saved as "album".
+function isLiveSetPost(p) {
+  return detectType(p) === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
+}
+
+function LiveSetCard({ post, cardBg, d, onEdit }) {
+  const { registerPostRef } = useLayout() || {}
+  const { canModify, deleting, deletePost } = usePostActions(post)
+  const [playing, setPlaying] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+  const cardRef = useRef(null)
+  const note = cleanNote(post.notes || post.body)
+  const descRef = useRef(null)
+  const descFit = useScrollFit(descRef, [post.notes, post.body])
+  // Type matches the regular post card exactly (DESIGN_BASE, not the per-slot
+  // variants) — gabriel, 2026-09-26: one uniform type scale across all posts.
+  const T = DESIGN_BASE
+  // One video height drives the whole card: the full-width size, or whatever
+  // fits under the regular cards' top/bottom padding once the name row,
+  // ~3 description lines and the byline (~270px) are allowed for. The card
+  // is then exactly that video's 16:9 width plus LIVE_PADX each side, so
+  // the tags / year / edit-delete on the right sit flush with the video's
+  // right edge and the side padding is equal.
+  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * T.padY + 270}px))`
+  const cardW = `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
+
+  // Some older sets were saved with no link, only a YouTube thumbnail as the
+  // cover — its URL (i.ytimg.com/vi/<id>/…) still carries the video id.
+  const coverVid = (coverSrc(post) || '').match(/ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\//)?.[1]
+  const streamUrl = postStreamUrl(post) || (coverVid ? `https://www.youtube.com/watch?v=${coverVid}` : '')
+  const vid = ytIdOf(streamUrl)
+  const embedSrc = toEmbedSrc(streamUrl)
+  const [thumb, setThumb] = useState(vid ? `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg` : coverSrc(post))
+
+  // "Artist | Channel - Date" titles split into the big name and the line under it.
+  const artist = (artistName(post) || '').replace(/ - Topic$/, '') || (post.title || '').split('|')[0].trim()
+  const subtitle = (post.title || '').includes('|') ? post.title.split('|').slice(1).join('|').trim() : post.title
+  const platform = post.platform || platformOfUrl(streamUrl) || ''
+
+  // Readable ink on whatever colour the card gets.
+  useLayoutEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)
+    if (!m) return
+    const [r, g, b] = m.slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+    const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
+    const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)']
+                     : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
+    ;['--lv-pri', '--lv-sec', '--lv-ter', '--lv-line'].forEach((v, i) => el.style.setProperty(v, ink[i]))
+  }, [cardBg])
+
+  const MONO = "'IBM Plex Mono', monospace", SANS = "'Barlow', sans-serif"
+  const pill = { display: 'inline-block', fontFamily: SANS, fontWeight: 600, fontSize: 10, lineHeight: 1, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: 3, textDecoration: 'none' }
+  const discogsHref = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+
+  return (
+    <div
+      ref={el => { registerPostRef?.(post.id, el); cardRef.current = el }}
+      // Top/bottom padding = the regular post card's (DESIGN_BASE.padY) —
+      // trial 2026-09-26, gabriel: "just see what it looks like".
+      style={{ flexShrink: 0, width: cardW, height: '100%', background: cardBg, padding: `${T.padY}px ${LIVE_PADX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}
+    >
+      {/* screen */}
+      {/* Fills the card's inner width; the card itself is sized from the
+          video height (videoH / cardW above), so this lands at exactly
+          that height. */}
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#000', flexShrink: 0, overflow: 'hidden' }}>
+        {playing && embedSrc ? (
+          <TrackPlayer key={embedSrc} src={embedSrc} title={post.title} autoplay />
+        ) : (
+          <>
+            {thumb && <img src={thumb} alt="" onError={() => vid && setThumb(`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`)}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+            <span style={{ ...pill, position: 'absolute', left: 18, top: 18, background: 'var(--theme-showcase)', color: '#fff' }}>● live set</span>
+            {embedSrc && (
+              <button onClick={() => setPlaying(true)} aria-label="Play set"
+                style={{ position: 'absolute', left: '50%', top: '50%', width: 92, height: 92, margin: '-46px 0 0 -46px', borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.92)', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                <span style={{ width: 0, height: 0, borderLeft: '26px solid #111', borderTop: '16px solid transparent', borderBottom: '16px solid transparent', marginLeft: 7 }} />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* name + set line | badges + year */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 30, marginTop: 26, flexShrink: 0 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)' }}>00-{post.id}</div>
+          <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: T.artistSize, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, marginTop: 10, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist}</div>
+          <div style={{ fontFamily: T.artistFf, fontStyle: 'italic', fontSize: T.titleSize, lineHeight: T.titleLh, letterSpacing: `${T.titleLs}em`, marginTop: 4, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <span style={{ ...pill, background: 'var(--theme-showcase)', color: '#fff' }}>live set</span>{' '}
+          {platform && (
+            <a href={streamUrl || undefined} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+              style={{ ...pill, background: PLATFORM_COLORS[platform] || '#444', color: '#fff' }}>{platform}</a>
+          )}
+          {discogsHref && <>{' '}<a href={discogsHref} target="_blank" rel="noopener noreferrer" style={{ ...pill, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a></>}
+          <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)', marginTop: 10 }}>{post.year || ''}</div>
+        </div>
+      </div>
+
+      {/* post description — same label, size and in-card scroll as the
+          regular post card */}
+      <div style={{ marginTop: 22, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
+        <div style={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.zlabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.zlabelMb, flexShrink: 0 }}>Post description</div>
+        {note ? (
+          <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
+            style={{ fontSize: T.descSize, lineHeight: T.descLh, fontFamily: T.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: (note.length > 120 ? 3 : 1) * Math.round(T.descSize * T.descLh), flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+        ) : (
+          <p style={{ fontSize: T.descSize, fontFamily: T.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
+        )}
+      </div>
+
+      {/* byline — kept quiet at the bottom */}
+      <div style={{ marginTop: 'auto', paddingTop: 18, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
+        <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
+          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
+        </button>
+        <span style={{ color: 'var(--lv-sec)' }}>{post.user?.username || post.username}</span>
+        <span>{timeAgo(post.created_at)}</span>
+        {canModify && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </span>
+        )}
+      </div>
+      {commentsOpen && (
+        <div style={{ marginTop: 8, flexShrink: 0 }}>
+          <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Spotlight card — two variants (artist / label) ─────────────────────────────
 // Purely client-side now — see buildSpotlightPool/buildShelfItems below.
 // `subject` is derived from posts already loaded in this fetch; nothing is
@@ -1186,10 +1346,23 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
   // Release detail — artists and labels only. A channel's entry is a video:
   // there's no tracklist to fetch, the reveal is the player itself.
+  // 2026-09-26: an artist's Discogs list mixes releases and MASTERS (one
+  // entry grouping every pressing). A master id fetched as a release is a
+  // different, unrelated record — "Buck Bumble OST" opened "The Throne Of
+  // Drones". Masters now resolve to their main release first (cached
+  // backend hop, resolveDiscogsUrl), so the tracklist, saved links and
+  // "+ add to feed" all refer to a real pressing of THAT record.
   const { data: selectedFull } = useQuery({
-    queryKey: ['spotlight-release', selectedRelease?.id],
+    queryKey: ['spotlight-release', selectedRelease?.type || 'release', selectedRelease?.id],
     queryFn: async () => {
-      const res = await fetch(`${API}/discogs/release/${selectedRelease.id}`)
+      let id = selectedRelease.id
+      if (selectedRelease.type === 'master') {
+        const r = await fetch(`${API}/discogs/resolve-url?url=${encodeURIComponent(`https://www.discogs.com/master/${id}`)}`)
+        const d = await r.json().catch(() => ({}))
+        if (!d.releaseId) return null
+        id = d.releaseId
+      }
+      const res = await fetch(`${API}/discogs/release/${id}`)
       if (!res.ok) return null
       return res.json()
     },
@@ -1201,15 +1374,17 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // track clicked once plays instantly next time and known misses show "—"
   // without searching again.
   const queryClient = useQueryClient()
-  const trackLinksKey = ['release-track-links', selectedRelease?.id]
+  // The real release the open row's tracks belong to (a master's main
+  // release, or the release itself).
+  const trackReleaseId = selectedFull?.discogsId || null
   const { data: savedLinks } = useQuery({
-    queryKey: trackLinksKey,
+    queryKey: ['release-track-links', trackReleaseId],
     queryFn: async () => {
-      const res = await fetch(`${API}/discogs/release/${selectedRelease.id}/track-links`)
+      const res = await fetch(`${API}/discogs/release/${trackReleaseId}/track-links`)
       if (!res.ok) return { links: {} }
       return res.json()
     },
-    enabled: type !== 'channel' && !!selectedRelease,
+    enabled: type !== 'channel' && !!trackReleaseId,
     staleTime: Infinity,
   })
   const selectedOnSite = !!selectedRelease && onSiteIds.has(selectedRelease.id)
@@ -1220,7 +1395,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     ? null
     : type === 'channel'
       ? (selectedRelease.url || `https://www.youtube.com/watch?v=${selectedRelease.id}`)
-      : `https://www.discogs.com/release/${selectedRelease.id}`
+      : `https://www.discogs.com/${selectedRelease.type === 'master' ? 'master' : 'release'}/${selectedRelease.id}`
   const catalogueSource = type === 'channel' ? 'YouTube' : 'Discogs'
 
   // Artist headshot / label logo from Discogs, or — for channels, which have
@@ -1308,7 +1483,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // already carries this release. Anything still empty is searched on
   // click (playTrack) — one capped, cached YouTube search, never up front.
   const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
-  const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === openRow.id) : null
+  const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === (trackReleaseId || openRow.id)) : null
   const openTracks = !openRow ? []
     : openRow.kind === 'post'
       ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '' }))
@@ -1332,11 +1507,11 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       const artist = (t.artists || []).map(a => a.name).join(' ')
         || (type === 'artist' ? name : type === 'label' ? openRow?.sub : '') || ''
       const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '' })
-      if (openRow?.kind === 'release' && t.position) { q.set('release_id', openRow.id); q.set('position', t.position) }
+      if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
       const d = await r.json()
-      if (openRow?.kind === 'release' && t.position && !d.capped) {
-        queryClient.setQueryData(['release-track-links', openRow.id], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
+      if (openRow?.kind === 'release' && trackReleaseId && t.position && !d.capped) {
+        queryClient.setQueryData(['release-track-links', trackReleaseId], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
       }
       if (d.youtube_url) {
         setFoundUrls(m => ({ ...m, [trackKey]: d.youtube_url }))
@@ -1434,7 +1609,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
               <div key={`${r.key}~${i}`} onClick={() => openFromStrip(r.key)} title={r.title}
                 style={{ paddingRight: 8, height: '100%', flexShrink: 0, cursor: 'pointer' }}>
                 <div style={{ width: type === 'channel' ? Math.round(STRIP_H * 16 / 9) : STRIP_H, height: '100%', background: 'var(--theme-dark3)', overflow: 'hidden', outline: r.key === openKey ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}>
-                  <img src={coverData?.covers?.[r.key] || (r.kind === 'release' && queryClient.getQueryData(['spotlight-release', r.id])?.coverImage) || r.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <img src={coverData?.covers?.[r.key] || (r.kind === 'release' && queryClient.getQueryData(['spotlight-release', r.key.startsWith('master:') ? 'master' : 'release', r.id])?.coverImage) || r.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 </div>
               </div>
             ))}
@@ -2088,7 +2263,9 @@ export default function Feed() {
             nodes.push(<FeedGap key={`gap-${item.key}`} from={prevBg} to={cardBg} />)
             nodes.push(item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
-              : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
+              : isLiveSetPost(item.post)
+                ? <LiveSetCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
+                : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
             prevBg = cardBg
           })
           return nodes
