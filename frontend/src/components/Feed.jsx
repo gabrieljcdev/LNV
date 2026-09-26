@@ -310,10 +310,12 @@ const FLOAT_RADIUS = 14
 // 58 (was 88): every card got the album card's height, gabriel 2026-09-26 —
 // the album needs it so its 390px sleeve and the big number under the title
 // fit on a 900px-tall screen; all cards now share that height.
-// 14 = the previous 58 minus two dot-grid steps (2 × FEED_DOT): cards two
-// dots taller top and bottom, gabriel 2026-09-26.
+// 58: cards clear the search bar (top 16 + 30 tall = 46, plus 12px), same
+// space at the bottom — gabriel 2026-09-26. Also exactly what the album
+// card needs for its 390px sleeve + big numeral on a 900px-tall screen.
+// (Briefly 14 = two dot steps taller, which ran cards under the search bar.)
 const FEED_DOT = 22
-const FLOAT_INSET_Y = 58 - 2 * FEED_DOT
+const FLOAT_INSET_Y = 58
 // The live-set card's width is derived from its video height; the video
 // keeps the size it had at the old 88px inset so card widths don't change.
 const LIVE_VIDEO_INSET_Y = 88
@@ -321,18 +323,47 @@ const LIVE_VIDEO_INSET_Y = 88
 // full height, so that's where the lift shows), a deeper offset drop, and a
 // tight contact edge.
 const FLOAT_SHADOW = '0 0 48px rgba(0,0,0,0.22), 0 30px 60px -12px rgba(0,0,0,0.38), 0 2px 6px rgba(0,0,0,0.12)'
-// White with a fine dot grid (gabriel, 2026-09-26 — the surface will get
-// more work later; a per-card contrasting palette underlay was tried and
-// parked). A scroll container's background doesn't scroll with its content,
-// so the dots stay put while the cards glide over them.
-const FEED_SURFACE = `radial-gradient(rgba(0,0,0,0.16) 1px, transparent 1.6px) 0 0 / ${FEED_DOT}px ${FEED_DOT}px, #ffffff`
+// The feed surface under the floating cards. History (2026-09-26): white
+// with a dot grid, then a per-card contrasting underlay (parked), then white
+// cards over the palette colour with dots, now the plain palette colour.
+// Plain palette colour (dot grid removed 2026-09-26, gabriel). FEED_DOT is
+// kept as the spacing unit it was introduced for.
+const FEED_SURFACE = 'var(--theme-bg)'
+// Text colours per card: the palette's --theme-text-* assume the palette's
+// own light/dark, but a card can be any tone of it (dark1 in a light
+// palette, a spectrum step…). FloatSlot sets light or dark ink on each card
+// from its actual colour — the same rule useCardInk applies inside
+// LiveSetCard / AlbumCard — and re-checks when the palette changes.
+// Tones are strong enough for >= 3:1 even on mid-tone spectrum cards, where
+// neither white nor black has much room.
+const INK_DARK_BG  = { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.66)', '--theme-border': 'rgba(255,255,255,0.18)' }
+const INK_LIGHT_BG = { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.60)', '--theme-border': 'rgba(0,0,0,0.12)' }
+function bgIsDark(el) {
+  const c = getComputedStyle(el).backgroundColor
+  const m = c.match(/\d+(\.\d+)?/g)
+  if (!m) return false
+  const k = /^color\(srgb/i.test(c) ? 255 : 1
+  const [r, g, b] = m.slice(0, 3).map(v => { v = (Number(v) * k) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18 // ≈ where white and black ink give equal contrast
+}
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
 function FloatSlot({ children }) {
+  const cardWrapRef = useRef(null)
+  const [ink, setInk] = useState(null)
+  useLayoutEffect(() => {
+    let t = null
+    const pick = () => { const card = cardWrapRef.current?.firstElementChild; if (card) setInk(bgIsDark(card) ? INK_DARK_BG : INK_LIGHT_BG) }
+    pick()
+    // applyPalette rewrites :root's style; card colours then fade for 0.8s.
+    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(pick, 850) })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    return () => { mo.disconnect(); clearTimeout(t) }
+  }, [])
   return (
     <div style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
-      <div style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW }}>
+      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW, ...ink }}>
         {children}
       </div>
     </div>
@@ -512,7 +543,7 @@ function usePostActions(post) {
   return { queryClient, canModify, deleting, deletePost }
 }
 
-function PostCard({ post, cardBg, spectrum, d, onEdit }) {
+function PostCard({ post, cardBg, d, onEdit }) {
   const { canModify, deleting, deletePost } = usePostActions(post)
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
@@ -619,7 +650,9 @@ function PostCard({ post, cardBg, spectrum, d, onEdit }) {
   // Same expression the card's own outer container uses below (spectrum
   // posts get the live spectrum color, everything else the flat theme bg)
   // — pulled out so the comments panel can match it exactly, per gabriel.
-  const cardBackground = spectrum ? cardBg : 'var(--theme-bg)'
+  // Was `spectrum ? cardBg : 'var(--theme-bg)'` (first three flat) — the
+  // feed passes their POST_BG_CYCLE tint now; see getCardBg.
+  const cardBackground = cardBg
 
   // A transparent mat puts the caption on the card background, which is dark
   // in most palettes — so it must use the theme tokens rather than the
@@ -1008,6 +1041,16 @@ function PostCard({ post, cardBg, spectrum, d, onEdit }) {
 const LIVE_W = 1200     // widest the card gets (video 1088 wide + 2 × LIVE_PADX)
 const LIVE_PADX = 56    // same padding left and right
 
+// Width of a live-set card as a CSS length: its video's 16:9 width plus
+// LIVE_PADX each side, where the video height is the full-size one or what
+// fits the screen height. Shared so spotlights are exactly as wide as live
+// sets at every screen size (gabriel, 2026-09-26).
+function liveCardWidth() {
+  const T = DESIGN_BASE
+  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 270}px))`
+  return `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
+}
+
 // A post is shown as a live set when it's typed as one, or its title reads
 // like one ("Artist | Channel - Date", b2b, dj set, live at, session) —
 // several older sets were saved as "album".
@@ -1022,13 +1065,11 @@ function useCardInk(cardRef, cardBg) {
   useLayoutEffect(() => {
     const el = cardRef.current
     if (!el) return
-    const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)
-    if (!m) return
-    const [r, g, b] = m.slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
-    const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
-    const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)']
-                     : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
-    ;['--lv-pri', '--lv-sec', '--lv-ter', '--lv-line'].forEach((v, i) => el.style.setProperty(v, ink[i]))
+    // Same rule and tones as FloatSlot's ink (bgIsDark / INK_*), which also
+    // reads color(srgb …) spectrum colours correctly.
+    const ink = bgIsDark(el) ? INK_DARK_BG : INK_LIGHT_BG
+    ;[['--lv-pri', '--theme-text-pri'], ['--lv-sec', '--theme-text-sec'], ['--lv-ter', '--theme-text-ter'], ['--lv-line', '--theme-border']]
+      .forEach(([v, from]) => el.style.setProperty(v, ink[from]))
   }, [cardRef, cardBg])
 }
 
@@ -1051,8 +1092,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   // is then exactly that video's 16:9 width plus LIVE_PADX each side, so
   // the tags / year / edit-delete on the right sit flush with the video's
   // right edge and the side padding is equal.
-  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 270}px))`
-  const cardW = `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
+  const cardW = liveCardWidth()
 
   // Some older sets were saved with no link, only a YouTube thumbnail as the
   // cover — its URL (i.ytimg.com/vi/<id>/…) still carries the video id.
@@ -1604,8 +1644,13 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // than falling back to the browser default — there's no global
   // font-family rule in this app, PostCard sets it per-element, and every
   // text node here needs to do the same.
-  const BODY_FF = "'Barlow',sans-serif"
-  const LABEL_FF = "'VT323',monospace"
+  // 2026-09-26 (gabriel): type is uniform with the post cards — every size,
+  // weight and family below comes from DESIGN_BASE (badge, artist, metaline,
+  // zone label, track, desc, meta-row, stamp tokens). VT323 is gone here.
+  const T = DESIGN_BASE
+  const BODY_FF = T.bodyFf
+  const LABEL_FF = T.labelFf
+  const msgText = { fontFamily: T.bodyFf, fontSize: T.descSize, fontStyle: 'italic', color: 'var(--theme-text-ter)' }
   const postsLine = `${posts.length} ${type === 'channel' ? 'live set' : 'post'}${posts.length !== 1 ? 's' : ''} in the feed`
 
   // 2026-09-25 — Studio PIC-style index (gabriel's reference:
@@ -1755,16 +1800,17 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const count = hasCatalogue && catalogue ? (catalogue.pagination?.items ?? rows.length) : rows.length
   const STRIP_H = 240
   const COLS = '30px minmax(0, 1.7fr) minmax(0, 1fr) 84px 38px 14px'
-  const rowText = { fontFamily: BODY_FF, fontSize: 11.5, letterSpacing: '0.03em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+  const rowText = { fontFamily: T.bodyFf, fontSize: T.trackSize, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+  const monoText = { ...rowText, fontFamily: T.monoFf, fontSize: T.tracknumSize, letterSpacing: `${T.stampLs}em`, fontVariantNumeric: 'tabular-nums' }
 
   return (
     <div
       ref={el => registerPostRef?.(cardKey, el)}
-      style={{ flexShrink: 0, width: DESIGN_BASE.cardW, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `32px ${SPOTLIGHT_PAD}px` /* was 65px; trimmed floating card, see FLOAT_INSET_Y */, overflow: 'hidden', transition: 'background 0.8s' }}
+      style={{ flexShrink: 0, width: liveCardWidth() /* same width as live-set cards */, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `32px ${SPOTLIGHT_PAD}px` /* was 65px; trimmed floating card, see FLOAT_INSET_Y */, overflow: 'hidden', transition: 'background 0.8s' }}
     >
       {/* header — tag + mark, then the name at index scale with its count */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '3px 8px', borderRadius: 3, background: 'var(--theme-accent)', color: '#fff', fontFamily: LABEL_FF, textTransform: 'uppercase' }}>{type} spotlight</span>
+        <span style={{ fontSize: T.badgeSize, fontWeight: T.badgeWeight, letterSpacing: `${T.badgeLs}em`, padding: `${T.badgePy}px ${T.badgePx}px`, borderRadius: T.badgeRadius, background: 'var(--theme-accent)', color: '#fff', fontFamily: T.labelFf, textTransform: 'uppercase' }}>{type} spotlight</span>
         <div style={{ width: 44, height: 44, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           {markImageUrl ? (
             <img src={markImageUrl} alt="" style={{ width: 44, height: 44, borderRadius: type === 'label' ? 8 : '50%', objectFit: type === 'label' ? 'contain' : 'cover' }} />
@@ -1773,11 +1819,11 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       </div>
       <div
         onClick={browsable ? () => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name }) : undefined}
-        style={{ flexShrink: 0, marginTop: 6, fontSize: 34, fontWeight: 500, lineHeight: 1.05, letterSpacing: '-0.01em', color: textPri, fontFamily: BODY_FF, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
+        style={{ flexShrink: 0, marginTop: T.artistMt, fontSize: T.artistSize, fontWeight: T.artistWeight, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, color: textPri, fontFamily: T.artistFf, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
       >
-        {name}<sup style={{ fontSize: 12, fontWeight: 500, marginLeft: 6, verticalAlign: 'super', color: textSec }}>[{count}]</sup>
+        {name}<sup style={{ fontFamily: T.monoFf, fontSize: T.metalineSize, fontWeight: 400, letterSpacing: `${T.metalineLs}em`, marginLeft: 6, verticalAlign: 'super', color: textSec }}>[{count}]</sup>
       </div>
-      <div style={{ flexShrink: 0, marginTop: 6, fontSize: 12, color: textSec, fontFamily: BODY_FF }}>
+      <div style={{ flexShrink: 0, marginTop: T.metalineMt, fontFamily: T.monoFf, fontSize: T.metalineSize, lineHeight: T.metalineLh, letterSpacing: `${T.metalineLs}em`, textTransform: 'uppercase', color: textSec }}>
         {hasCatalogue
           ? (catalogue === undefined ? `${postsLine} · pulling the ${catalogueSource} catalogue…` : `${postsLine} · ${count} on ${catalogueSource}`)
           : postsLine}
@@ -1797,14 +1843,14 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
             {[...stripItems, ...stripItems].map((r, i) => (
               <div key={`${r.key}~${i}`} onClick={() => openFromStrip(r.key)} title={r.title}
                 style={{ paddingRight: 8, height: '100%', flexShrink: 0, cursor: 'pointer' }}>
-                <div style={{ width: type === 'channel' ? Math.round(STRIP_H * 16 / 9) : STRIP_H, height: '100%', background: 'var(--theme-dark3)', overflow: 'hidden', outline: r.key === openKey ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}>
+                <div style={{ width: type === 'channel' ? Math.round(STRIP_H * 16 / 9) : STRIP_H, height: '100%', background: 'var(--theme-dark3)', overflow: 'hidden', borderRadius: DESIGN_BASE.artRadius /* same corners as post-card art */, outline: r.key === openKey ? '2px solid var(--theme-accent)' : 'none', outlineOffset: -2 }}>
                   <img src={coverData?.covers?.[r.key] || (r.kind === 'release' && queryClient.getQueryData(['spotlight-release', r.key.startsWith('master:') ? 'master' : 'release', r.id])?.coverImage) || r.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', ...msgText }}>
             {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : 'no sleeves to show'}
           </div>
         )}
@@ -1813,12 +1859,12 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       {/* index */}
       <div style={{ flexShrink: 0, marginTop: 18, display: 'grid', gridTemplateColumns: COLS, gap: 10, padding: '0 6px 6px', borderBottom: `1px solid ${textPri}` }}>
         {['No', 'Title', type === 'label' ? 'Artist' : 'Label', 'Cat', 'Year', ''].map((h, i) => (
-          <span key={i} style={{ ...rowText, fontSize: 9.5, color: textTer }}>{h}</span>
+          <span key={i} style={{ ...rowText, fontFamily: T.labelFf, fontWeight: 600, fontSize: T.zlabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: textTer }}>{h}</span>
         ))}
       </div>
       <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
         {rows.length === 0 && (
-          <div style={{ padding: '24px 0', textAlign: 'center', color: textTer, fontFamily: LABEL_FF, fontSize: 12.5 }}>
+          <div style={{ padding: '24px 0', textAlign: 'center', ...msgText }}>
             {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : `nothing found on ${catalogueSource}`}
           </div>
         )}
@@ -1832,14 +1878,14 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                 onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 10%, transparent)' }}
                 onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent' }}
               >
-                <span style={{ ...rowText, fontVariantNumeric: 'tabular-nums' }}>{String(idx + 1).padStart(2, '0')}</span>
+                <span style={monoText}>{String(idx + 1).padStart(2, '0')}</span>
                 <span style={{ ...rowText, fontWeight: 500 }}>
                   {r.onSite && hasCatalogue && <span title="on LNV" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 6, verticalAlign: 'middle' }} />}
                   {r.title}
                 </span>
                 <span style={rowText}>{r.sub}</span>
-                <span style={rowText}>{r.catno}</span>
-                <span style={{ ...rowText, fontVariantNumeric: 'tabular-nums' }}>{r.year}</span>
+                <span style={monoText}>{r.catno}</span>
+                <span style={monoText}>{r.year}</span>
                 <span style={{ ...rowText, textAlign: 'right' }}>{open ? '▴' : '▾'}</span>
               </div>
 
@@ -1853,19 +1899,19 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                       ? `https://www.youtube.com/embed/${r.id}?rel=0&modestbranding=1&color=white`
                       : (toEmbedSrc(postStreamUrl(r.post)) || (/bandcamp\.com\/EmbeddedPlayer/.test(r.post.embed_url || '') ? r.post.embed_url : null))
                     return src ? (
-                      <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260 }}>
+                      <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260, borderRadius: DESIGN_BASE.artRadius, overflow: 'hidden' }}>
                         <iframe key={src} src={src}
                           style={{ width: '100%', height: '100%', border: 'none' }}
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen title={r.title} />
                       </div>
-                    ) : <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>no player for this link</div>
+                    ) : <div style={{ ...msgText, padding: '6px 0' }}>no player for this link</div>
                   })() : (
                     <>
                       {r.kind === 'release' && !selectedFull ? (
-                        <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>fetching tracklist…</div>
+                        <div style={{ ...msgText, padding: '6px 0' }}>fetching tracklist…</div>
                       ) : openTracks.length === 0 ? (
-                        <div style={{ fontFamily: LABEL_FF, fontSize: 12, color: textTer, padding: '6px 0' }}>no tracklist</div>
+                        <div style={{ ...msgText, padding: '6px 0' }}>no tracklist</div>
                       ) : openTracks.map((t, i) => {
                         const trackKey = `${openKey}#${i}`
                         const found = foundUrls[trackKey]
@@ -1878,14 +1924,14 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                           <div onClick={() => { if (!miss) playTrack({ ...t, url }, i) }}
                             title={miss ? 'no YouTube link found' : found === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}
                             style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
-                            <span style={{ ...rowText, fontSize: 10.5, color: textTer }}>{t.position || i + 1}</span>
-                            <span style={{ ...rowText, textTransform: 'none', fontSize: 12.5, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
-                            <span style={{ ...rowText, fontSize: 10.5, color: textTer, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{t.duration || ''}</span>
-                            <span style={{ ...rowText, fontSize: 11, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
+                            <span style={{ ...monoText, color: textTer }}>{t.position || i + 1}</span>
+                            <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
+                            <span style={{ ...monoText, color: textTer, textAlign: 'right' }}>{t.duration || ''}</span>
+                            <span style={{ ...monoText, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
                           </div>
                           {/* The player opens right under the track that was clicked. */}
                           {isPlaying && toEmbedSrc(playing.url) && (
-                            <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px' }}>
+                            <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px', borderRadius: DESIGN_BASE.artRadius, overflow: 'hidden' }}>
                               <TrackPlayer key={playing.url} src={toEmbedSrc(playing.url)} title={t.title}
                                 autoplay onEnded={() => playNextFrom(i)} />
                             </div>
@@ -1908,12 +1954,12 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         {hasCatalogue && selectedRelease && !selectedOnSite ? (
           <button
             onClick={() => addUrl && onCreateFromDiscogs?.(addUrl)}
-            style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: LABEL_FF, fontSize: 13, letterSpacing: '0.04em', cursor: 'pointer' }}
+            style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
           >+ add to feed</button>
         ) : browsable ? (
-          <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: 11, fontWeight: 600, cursor: 'pointer', color: 'var(--theme-accent)', fontFamily: BODY_FF, borderBottom: '1px dotted currentColor' }}>view all →</span>
+          <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: 'var(--theme-accent)', fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
         ) : <span />}
-        <span style={{ fontSize: 10, fontFamily: LABEL_FF, color: textSec }}>LNV · editorial</span>
+        <span style={{ fontSize: T.stampSize, letterSpacing: `${T.stampLs}em`, fontFamily: T.monoFf, color: textSec }}>LNV · editorial</span>
       </div>
     </div>
   )
@@ -2408,9 +2454,17 @@ export default function Feed() {
   // POST_BG_CYCLE itself is untouched and left in place, just no longer
   // read here — it's still the intended source once/if the first three
   // posts get their own tint back.
+  // 2026-09-26 (gabriel): cards cycle through the palette again over the
+  // palette-coloured surface (FEED_SURFACE). The first three used to be flat
+  // var(--theme-bg) — which is now the surface itself, so they'd vanish into
+  // it — and take POST_BG_CYCLE (dark1/dark2/dark3) instead, the tint the
+  // note above always meant for them. (White cards were tried briefly.)
   function getCardBg(idx, item) {
     if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
+    // Trial (gabriel, 2026-09-26): the first three match the surface —
+    // lifted only by their shadow. POST_BG_CYCLE was:
+    // `var(--theme-${POST_BG_CYCLE[idx % POST_BG_CYCLE.length]})`
     return 'var(--theme-bg)'
   }
 
@@ -2452,7 +2506,7 @@ export default function Feed() {
                 ? <LiveSetCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
-                : <PostCard key={item.key} post={item.post} cardBg={cardBg} spectrum={idx >= SPECTRUM_START} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
+                : <PostCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
             nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
           })

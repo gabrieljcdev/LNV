@@ -244,6 +244,42 @@ chose "strip on top, list below".
   video and album sleeve rounded to `artRadius` (40), like post-card art.
 - `useCardInk` shared by LiveSetCard/AlbumCard (text colour per card bg).
 
+## 2026-09-26 (end of day) — colour, spotlights, spacing — WHERE WE LEFT OFF
+State of the feed as pushed (all in Feed.jsx):
+- **Surface**: plain `var(--theme-bg)` (`FEED_SURFACE`). Tried today, in
+  order: white + dot grid → per-card contrasting palette underlay (parked)
+  → white cards over palette + dots → palette + dots → plain palette.
+  gabriel will revisit the surface. `FEED_DOT` (22) is still defined as a
+  spacing unit but unused.
+- **Card colours** (`getCardBg`): spotlights `--theme-showcase`; posts from
+  `SPECTRUM_START` (4th) on use the palette spectrum; the first three are
+  `var(--theme-bg)` = same as the surface, lifted only by the shadow
+  (TRIAL — the previous `POST_BG_CYCLE` dark1/dark2/dark3 line is in a
+  comment right there). PostCard's old "first three flat" override is gone;
+  its unused `spectrum` prop was removed.
+- **Text ink per card**: `FloatSlot` sets light or dark `--theme-text-*`
+  from the card's actual colour (`bgIsDark`, luminance < 0.18 = where
+  white and black give equal contrast; handles `color(srgb …)`); re-checked
+  850ms after a palette change. `useCardInk` (live/album `--lv-*`) uses the
+  same rule and tones. Tones strengthened (INK_DARK_BG / INK_LIGHT_BG) so
+  text is ≥ 3:1 on mid-tone spectrum cards (805/805 text elements checked
+  on the Midday palette; spotlight rows only mis-measured because the
+  hidden pane freezes their colour fade).
+- **Spacing**: `FLOAT_INSET_Y` 58 — cards clear the search bar (bottom at
+  46px) by 12px, same at the bottom; also exactly what the album card needs
+  for its 390px sleeve + numeral at 900px tall. `FLOAT_GAP` 28, corners 14,
+  layered `FLOAT_SHADOW`.
+- **Spotlights**: width = live-set card width at every screen size
+  (`liveCardWidth()`, shared); media (strip sleeves, in-row players)
+  rounded to `artRadius` 40; all type on DESIGN_BASE tokens (VT323 gone,
+  name 30px/700, rows 13px Barlow, numbers/cat/year/durations 10px mono).
+- White cards were tried and reverted the same afternoon.
+
+**Pick up next**: the surface treatment; whether the first three cards keep
+the surface colour; the feed's scroll feel (Snap / vertical from the
+mockup) was never built into the real feed; the fetch-pipeline plan (step 1
+catalogue) is still untouched.
+
 ## Backend: Discogs matcher (new)
 `backend/services/discogsMatcher.js`: posts with no `discogs_id` (not live sets)
 are looked up with the same `tryDiscogsLookup` + plausibility check — after
