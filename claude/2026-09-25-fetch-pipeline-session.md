@@ -173,6 +173,25 @@ chose "strip on top, list below".
 - Not seen live by me (pane hidden): the strip's motion and row fades —
   gabriel to eyeball.
 
+## Search fix + album play-through (after the spotlight push)
+- **Typing "38" broke the page**: a no-match search left the view stranded
+  past the end of a now-empty shelf. (1) The "No results" panel was `flex: 1`
+  after a viewport-wide intro, so it was ~40 px wide just off-screen — now a
+  card-width panel. (2) The reset-on-new-results wrote `feedRef.scrollLeft`
+  during render, which LayoutProvider's ticker overwrote every frame. Now an
+  effect, only when the SEARCH text changes (never the 30 s refresh), calls
+  `driveFeedScroll` to the first result / no-results panel, or 0 on clear.
+  (Removing the render-time ref write also dropped Feed.jsx lint 7 → 5.)
+  Noted, not fixed: `/api/posts?search=` returns the unfiltered `total`.
+- **Album play-through**: `TrackPlayer` (Feed.jsx) wraps the embed; for YouTube
+  it adds `enablejsapi=1` and attaches the official IFrame Player API (loaded
+  once) to detect ENDED. PostCard: track/art clicks autoplay, and on end the
+  next track with a link plays. Spotlight: `playNextFrom(i)` plays the next
+  linked track, searching unknown ones on the fly (≤3 searches per step,
+  known misses skipped). Verified: Jabberwocky post A ended → B1 played
+  (seeked to 2 s before the end, muted). YouTube only — SoundCloud widget API
+  possible later; Bandcamp has no end event.
+
 ## Backend: Discogs matcher (new)
 `backend/services/discogsMatcher.js`: posts with no `discogs_id` (not live sets)
 are looked up with the same `tryDiscogsLookup` + plausibility check — after

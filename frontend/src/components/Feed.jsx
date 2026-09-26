@@ -198,6 +198,55 @@ function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image |
 function postStreamUrl(p) {
   return p.stream_url || p.embed_url || p.tracks?.[0]?.youtube_url || p.tracks?.[0]?.stream_url || ''
 }
+// ── TrackPlayer (2026-09-25) ─────────────────────────────────────────────────
+// An embed iframe that can say when its track has finished, so an album
+// plays through. YouTube only — via the official IFrame Player API
+// (loaded once, on first use), attached to our own iframe (enablejsapi=1),
+// which needs no DOM swap. Other platforms render as a plain iframe:
+// SoundCloud's widget API could do the same later; Bandcamp's embed gives no
+// end signal. The player is never destroy()ed here — React owns the iframe
+// and removes it itself (destroy() would pull it out from under React).
+let ytApiPromise = null
+function loadYouTubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT)
+  if (!ytApiPromise) {
+    ytApiPromise = new Promise(resolve => {
+      const prev = window.onYouTubeIframeAPIReady
+      window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT) }
+      const s = document.createElement('script')
+      s.src = 'https://www.youtube.com/iframe_api'
+      document.head.appendChild(s)
+    })
+  }
+  return ytApiPromise
+}
+function TrackPlayer({ src, onEnded, title, autoplay = false }) {
+  const ref = useRef(null)
+  const endedRef = useRef(onEnded)
+  useEffect(() => { endedRef.current = onEnded })
+  const isYT = /youtube\.com\/embed\//.test(src)
+  const finalSrc = isYT
+    ? `${src}${src.includes('?') ? '&' : '?'}enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}${autoplay ? '&autoplay=1' : ''}`
+    : src
+  useEffect(() => {
+    if (!isYT) return
+    let cancelled = false
+    loadYouTubeApi().then(YT => {
+      if (cancelled || !ref.current) return
+      new YT.Player(ref.current, {
+        events: { onStateChange: e => { if (e.data === YT.PlayerState.ENDED) endedRef.current?.() } },
+      })
+    })
+    return () => { cancelled = true }
+  }, [finalSrc, isYT])
+  return (
+    <iframe ref={ref} src={finalSrc}
+      style={{ width: '100%', height: '100%', border: 'none' }}
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen title={title} />
+  )
+}
+
 function toEmbedSrc(streamUrl) {
   if (!streamUrl) return null
   const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
@@ -776,10 +825,17 @@ function PostCard({ post, cardBg, spectrum, d, onEdit }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           {albumFlipped && embedSrc && (
-            <iframe key={embedSrc} src={embedSrc}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen title={post.title} />
+            // A clicked track autoplays; when it ends the next track with a
+            // link plays (album play-through). The pre-flipped SoundCloud /
+            // Bandcamp player (no activeTrackUrl) doesn't autoplay.
+            <TrackPlayer key={embedSrc} src={embedSrc} title={post.title}
+              autoplay={!!activeTrackUrl}
+              onEnded={() => {
+                const urls = tracks.map(t => t.stream_url || t.youtube_url || null)
+                const idx = urls.indexOf(activeTrackUrl)
+                const next = idx >= 0 ? urls.slice(idx + 1).find(Boolean) : null
+                if (next) setActiveTrackUrl(next)
+              }} />
           )}
         </div>
       </div>
@@ -1266,10 +1322,11 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
           })
         : []
 
+  // Returns 'played' | 'none' | 'capped' | 'busy' so playNextFrom can chain.
   async function playTrack(t, i) {
     const trackKey = `${openKey}#${i}`
-    if (t.url) { setPlaying(p => (p?.key === trackKey ? null : { key: trackKey, url: t.url })); return }
-    if (searching === trackKey) return
+    if (t.url) { setPlaying(p => (p?.key === trackKey ? null : { key: trackKey, url: t.url })); return 'played' }
+    if (searching === trackKey) return 'busy'
     setSearching(trackKey)
     try {
       const artist = (t.artists || []).map(a => a.name).join(' ')
@@ -1284,13 +1341,34 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       if (d.youtube_url) {
         setFoundUrls(m => ({ ...m, [trackKey]: d.youtube_url }))
         setPlaying({ key: trackKey, url: d.youtube_url })
-      } else {
-        setFoundUrls(m => ({ ...m, [trackKey]: d.capped ? 'capped' : 'none' }))
+        return 'played'
       }
+      setFoundUrls(m => ({ ...m, [trackKey]: d.capped ? 'capped' : 'none' }))
+      return d.capped ? 'capped' : 'none'
     } catch {
       setFoundUrls(m => ({ ...m, [trackKey]: 'none' }))
+      return 'none'
     } finally {
       setSearching(null)
+    }
+  }
+
+  // Album play-through: when track i ends, play the next track that has (or
+  // can get) a link. Known misses are skipped; tracks with no link yet are
+  // searched on the fly, at most 3 per step so a run of missing tracks can't
+  // drain the daily YouTube quota. Stops at the end of the album or the cap.
+  async function playNextFrom(i) {
+    let searches = 0
+    for (let j = i + 1; j < openTracks.length; j++) {
+      const t = openTracks[j]
+      const found = foundUrls[`${openKey}#${j}`]
+      const url = t.url || (found && found !== 'none' && found !== 'capped' ? found : '')
+      if (url) { setPlaying({ key: `${openKey}#${j}`, url }); return }
+      if (t.knownMiss || found === 'none') continue
+      if (found === 'capped' || searches >= 3) return
+      searches++
+      const res = await playTrack(t, j)
+      if (res === 'played' || res === 'capped') return
     }
   }
 
@@ -1444,10 +1522,8 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                           {/* The player opens right under the track that was clicked. */}
                           {isPlaying && toEmbedSrc(playing.url) && (
                             <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px' }}>
-                              <iframe key={playing.url} src={`${toEmbedSrc(playing.url)}${/youtube/.test(toEmbedSrc(playing.url)) ? '&autoplay=1' : ''}`}
-                                style={{ width: '100%', height: '100%', border: 'none' }}
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowFullScreen title={t.title} />
+                              <TrackPlayer key={playing.url} src={toEmbedSrc(playing.url)} title={t.title}
+                                autoplay onEnded={() => playNextFrom(i)} />
                             </div>
                           )}
                           </div>
@@ -1790,9 +1866,26 @@ export default function Feed() {
   if (postsSignature !== lastPostsSignature.current) {
     shelfItems.current = buildShelfItems(posts)
     lastPostsSignature.current = postsSignature
-    // New result set (e.g. a search) — jump the shelf back to the start.
-    if (feedRef?.current) feedRef.current.scrollLeft = 0
   }
+
+  // 2026-09-25: when the SEARCH changes (never on the 30 s background
+  // refresh), move the shelf once that search's results have landed — to the
+  // first result (or the no-results panel) while searching, back to the
+  // start when it's cleared. Must go through driveFeedScroll: the old
+  // `feedRef.current.scrollLeft = 0` here was overwritten by LayoutProvider's
+  // ticker on the very next frame, so a search that shrank the shelf left the
+  // view stranded past its end (typing "38" = blank, unscrollable page).
+  const scrolledForSearch = useRef('')
+  useEffect(() => {
+    if (searching || scrolledForSearch.current === search) return
+    scrolledForSearch.current = search
+    // Effects run after the new results are in the DOM, so measure now.
+    const feed = feedRef?.current
+    if (!feed) return
+    const first = search ? feed.children[1] : null
+    const target = first ? feed.scrollLeft + (first.getBoundingClientRect().left - feed.getBoundingClientRect().left) : 0
+    driveFeedScroll?.(Math.max(0, target))
+  }, [search, searching, postsSignature, feedRef, driveFeedScroll])
 
   // Scroll drag
   useEffect(() => {
@@ -1978,7 +2071,9 @@ export default function Feed() {
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none' }}>
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {!posts.length && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
+          // A card-width panel, not flex:1 — the intro already fills the
+          // viewport, so flex:1 squeezed this to ~40px just off-screen.
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: `0 0 ${DESIGN_BASE.cardW}px`, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
             {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
           </div>
         )}
