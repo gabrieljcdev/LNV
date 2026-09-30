@@ -1,4 +1,6 @@
+import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
+import Clock from './Clock';
 import { getUser, logout } from '../lib/auth';
 
 const BASE = import.meta.env.VITE_API_URL;
@@ -79,8 +81,13 @@ export const SECONDARY_STRIP_WIDTH = 210;  // secondary zone's width at full res
                                             // own overlay animation references it to mimic this
                                             // resting state, it no longer sizes a separate real element.
 export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 — combined resting width
+// Right-hand corner radius of both strip zones (2026-09-30, = DESIGN_BASE.artRadius).
+// The feed runs this far UNDER the strip (Layout.jsx) so its rounded corners
+// show the feed passing beneath — never the page background.
+export const STRIP_RADIUS = 40;
 
 export default function Strip({ activeView }) {
+  const onFeed = useLocation().pathname === '/' && activeView === 'feed';
   const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
 
   // Non-panel tabs (main feed / readme / about) swap the feed-zone content
@@ -110,12 +117,17 @@ export default function Strip({ activeView }) {
   }
 
   return (
-    <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', borderRight:'1px solid var(--theme-border)', overflow:'hidden', background:'var(--theme-dark2)', transition:'background 0.8s, border-color 0.8s' }}>
+    <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
           down to RAIL_WIDTH (108px), written every frame by
           LayoutProvider's handleFeedScroll from the same `raw` that drives
           the outer box — same formula the pre-round-17 rail always used. */}
-      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s', overflow:'hidden' }}>
+      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s', overflow:'hidden',
+        // Right-hand corners rounded, open / collapsing / collapsed alike —
+        // gabriel, 2026-09-30. 40 = DESIGN_BASE.artRadius in Feed.jsx (the
+        // covers' radius); was 14, too subtle at this height. Feed.jsx's
+        // FLOAT_RADIUS (cards, intro) is set from STRIP_RADIUS so all match.
+        borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS }}>
         {/* FADE text wordmark. FIXED position (round 23) — never moves as
             the rail collapses, only opacity animates (fadeTextOpacity,
             LayoutProvider). ROUND 24: gabriel wants this centered for the
@@ -160,7 +172,23 @@ export default function Strip({ activeView }) {
           moved out to be a direct sibling below (see ROUND 22 comment
           there) so its bigger size can't be clipped by this zone's own
           overflow:hidden as it narrows during the reveal window. */}
-      <div ref={secondaryStripRef} style={{ position:'absolute', left:`${RAIL_OPEN_WIDTH}px`, right:0, top:0, bottom:0, background:'var(--theme-dark2)', transition:'background 0.8s', overflow:'hidden' }} />
+      {/* 2026-09-30 (gabriel): zone 2 now starts at left 0, UNDER zone 1
+          (zIndex -1 inside the strip's own stacking context), with the
+          rail's rounded right corners — so as the strip collapses it looks
+          like a card rolling in beneath the rail, like the feed does, and
+          fills the rail's corner cut-outs. LayoutProvider no longer moves
+          its left; it hides it once fully under (raw = 1). The old 1px
+          edge line is gone (the feed cards have none either). */}
+      <div ref={secondaryStripRef} style={{ position:'absolute', left:0, right:0, top:0, bottom:0, zIndex:-1, background:'var(--theme-dark2)', borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS, transition:'background 0.8s', overflow:'hidden' }}>
+        {/* The landing clock's twin (gabriel, 2026-09-30: the clock should
+            stay visible until it goes under the WHITE rail). The real clock
+            (FeedIntro) is covered by this zone as it scrolls left; this copy
+            is drawn in the same spot, clipped to this zone, so the clock
+            reads as riding over the green and tucking under the rail. Its
+            `right` and opacity are written every frame by Feed()'s
+            landing-clock loop, alongside the real clock's. */}
+        {onFeed && <div id="lnv-strip-clock" aria-hidden="true" style={{ position:'absolute', top:28, right:0, textAlign:'right', opacity:0, pointerEvents:'none' }}><Clock /></div>}
+      </div>
 
       {/* F-bars logomark — the animated equalizer-to-F graphic. ROUND 22
           (2026-08-22): moved OUT of zone 2 to be a direct child of the

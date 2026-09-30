@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
 import Clock from './Clock'
-import { RAIL_WIDTH, STRIP_OPEN_WIDTH } from './Strip'
+import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -105,7 +105,7 @@ const DESIGN_BASE = {
   monoFf: "'IBM Plex Mono',monospace", // was VT323 for stamp/track-meta — see index.css import
 
   // ── media column ─────────────────────────────────────────────────────
-  padY: 32, bandPadX: 32, // padY was 120; 2026-09-26 the card itself is trimmed by FLOAT_INSET_Y top/bottom instead (FloatSlot), so content still starts 120px down
+  padY: 90, bandPadX: 32, // padY 90 = the old 58px gap + 32px padding: 2026-09-30 cards fill the screen height (FLOAT_INSET_Y 0) with content left exactly where it was (90px down). Was 120 before 2026-09-26, then 32 with a 58px gap.
   artSize: 390, artRadius: 40, // artSize: 390 per gabriel 2026-09-26 — one size for single AND album cards (was 330 earlier the same day, 396 = 344*1.15 on 2026-08-29); artRadius: KEEP AT 40 per gabriel
   artOffsetY: 0, artOffsetX: 0, artMbBottom: -21, artMtTop: 40, // artMbBottom: -21 per gabriel 2026-08-29 (art top flush with rail artist-name top, not container bottom — see round 9 note below)
   artShadowY: 0, artShadowB: 0, artShadowA: 0,
@@ -303,26 +303,31 @@ const U = 100
 // between them, over the feed surface (FEED_SURFACE). Replaces full-height
 // cards joined by two-tone seams (FeedGap).
 const FLOAT_GAP = 28   // was 56; halved per gabriel 2026-09-26
-const FLOAT_RADIUS = 14
+// One corner radius for everything that floats: cards, the intro panel,
+// the nav strip (Strip.jsx), the compose card. 40 since 2026-09-30 (was
+// 14) — gabriel wanted the strip rounder, then all the edges uniform.
+const FLOAT_RADIUS = STRIP_RADIUS
 // Cards are trimmed top and bottom by this much (the space shows the
 // underlay + shadow). With padY 32 inside the card, content sits where the
 // old 120px padding put it: 88 + 32 = 120.
 // 58 (was 88): every card got the album card's height, gabriel 2026-09-26 —
 // the album needs it so its 390px sleeve and the big number under the title
 // fit on a 900px-tall screen; all cards now share that height.
-// 58: cards clear the search bar (top 16 + 30 tall = 46, plus 12px), same
-// space at the bottom — gabriel 2026-09-26. Also exactly what the album
-// card needs for its 390px sleeve + big numeral on a 900px-tall screen.
-// (Briefly 14 = two dot steps taller, which ran cards under the search bar.)
+// 0 (gabriel, 2026-09-30): cards fill the screen top to bottom. The 58px
+// that used to sit outside each card (clearing the search bar) moved inside
+// as padding (DESIGN_BASE.padY 32 → 90), so nothing inside moved. History:
+// 88 → 58 (album fit) → 14 (briefly) → 58 (clear the search bar) → 0.
 const FEED_DOT = 22
-const FLOAT_INSET_Y = 58
-// The live-set card's width is derived from its video height; the video
-// keeps the size it had at the old 88px inset so card widths don't change.
-const LIVE_VIDEO_INSET_Y = 88
+const FLOAT_INSET_Y = 0
+// The live-set card's width is derived from its video height, sized from a
+// fixed 120px of padding + inset per side (as before) so its width is
+// unchanged: 90 (padY) + 30.
+const LIVE_VIDEO_INSET_Y = 30
 // Layered: a wide ambient halo (reads in the gaps either side — cards run
 // full height, so that's where the lift shows), a deeper offset drop, and a
 // tight contact edge.
-const FLOAT_SHADOW = '0 0 48px rgba(0,0,0,0.22), 0 30px 60px -12px rgba(0,0,0,0.38), 0 2px 6px rgba(0,0,0,0.12)'
+// Opacities halved 2026-09-30 (were 0.22 / 0.38 / 0.12), gabriel.
+const FLOAT_SHADOW = '0 0 48px rgba(0,0,0,0.11), 0 30px 60px -12px rgba(0,0,0,0.19), 0 2px 6px rgba(0,0,0,0.06)'
 // The feed surface under the floating cards. History (2026-09-26): white
 // with a dot grid, then a per-card contrasting underlay (parked), then white
 // cards over the palette colour with dots, now the plain palette colour.
@@ -1806,7 +1811,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   return (
     <div
       ref={el => registerPostRef?.(cardKey, el)}
-      style={{ flexShrink: 0, width: liveCardWidth() /* same width as live-set cards */, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `32px ${SPOTLIGHT_PAD}px` /* was 65px; trimmed floating card, see FLOAT_INSET_Y */, overflow: 'hidden', transition: 'background 0.8s' }}
+      style={{ flexShrink: 0, width: liveCardWidth() /* same width as live-set cards */, height: '100%', background: cardBg, display: 'flex', flexDirection: 'column', padding: `${DESIGN_BASE.padY}px ${SPOTLIGHT_PAD}px` /* same top/bottom as every card (was 65, then 32 inside a 58px gap) */, overflow: 'hidden', transition: 'background 0.8s' }}
     >
       {/* header — tag + mark, then the name at index scale with its count */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -2133,13 +2138,18 @@ function FeedIntro({ clockWrapRef, scrollCueRef }) {
       height: '100%',
       background: 'var(--theme-showcase)',
       borderRight: '1px solid var(--theme-border)',
+      // Right-hand corners rounded like the post cards (gabriel, 2026-09-30).
+      borderTopRightRadius: FLOAT_RADIUS,
+      borderBottomRightRadius: FLOAT_RADIUS,
       position: 'relative',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
       textAlign: 'center',
-      padding: 32,
+      // + STRIP_RADIUS on the left: that much of the intro sits under the strip
+      // (Layout.jsx), so the centred content stays where it was.
+      padding: `32px 32px 32px ${32 + STRIP_RADIUS}px`,
       boxSizing: 'border-box',
       transition: 'background 0.8s, border-color 0.8s',
     }}>
@@ -2293,7 +2303,8 @@ export default function Feed() {
     const feed = feedRef?.current
     if (!feed) return
     const first = search ? feed.children[1] : null
-    const target = first ? feed.scrollLeft + (first.getBoundingClientRect().left - feed.getBoundingClientRect().left) : 0
+    // - STRIP_RADIUS: the feed's left edge sits that far under the strip (Layout.jsx)
+    const target = first ? feed.scrollLeft + (first.getBoundingClientRect().left - feed.getBoundingClientRect().left) - STRIP_RADIUS : 0
     driveFeedScroll?.(Math.max(0, target))
   }, [search, searching, postsSignature, feedRef, driveFeedScroll])
 
@@ -2360,6 +2371,7 @@ export default function Feed() {
   useEffect(() => {
     let raf = null
     let opacityLocked = false
+    let twin = null // the clock's copy inside the strip's green zone (Strip.jsx #lnv-strip-clock)
     function loop() {
       const dbg = window.lnvDebugStrip
       const outerWidth = dbg?.outerWidth ?? STRIP_OPEN_WIDTH // before the first frame, assume the known resting width
@@ -2370,6 +2382,16 @@ export default function Feed() {
           const opacity = dbg?.fadeTextOpacity ?? 0
           clockWrapRef.current.style.opacity = `${opacity}`
           if (opacity >= 1) opacityLocked = true
+        }
+        // The twin sits in the strip's green zone, whose right edge is the
+        // strip's (outerWidth). On screen the real clock's right edge is at
+        // innerWidth - 56 - scrollX (FeedIntro's right minus gap + 56; the
+        // feed starts STRIP_RADIUS under the strip), so the twin's `right`
+        // within the zone is outerWidth - that. No layout reads.
+        if (!twin || !twin.isConnected) twin = document.getElementById('lnv-strip-clock')
+        if (twin) {
+          twin.style.right = `${outerWidth - (window.innerWidth - 56 - 1 /* FeedIntro's 1px borderRight */ - (dbg?.scrollX ?? 0))}px`
+          twin.style.opacity = clockWrapRef.current.style.opacity
         }
       }
       raf = requestAnimationFrame(loop)
