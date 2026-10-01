@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
 import Clock from './Clock'
+import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
-import { getUserId, isAdmin } from '../lib/auth'
+import { getUserId, isAdmin, authHeaders } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 
@@ -173,6 +174,11 @@ function designFor(idx, isLiveMix) {
 // loaded feed to be spotlight-eligible (below this the recent-adds list /
 // collage look sparse).
 const SPOTLIGHT_EVERY = 5
+
+// Feed lazy loading: posts per page, and how far from the end of what's
+// loaded the next page is fetched (60 / 10 → at post 50, 110, 170…).
+const FEED_PAGE = 60
+const FEED_LOAD_AHEAD = 10
 const SPOTLIGHT_MIN_POSTS = 3
 
 
@@ -391,10 +397,21 @@ function CoverArt({ post, style = {}, children }) {
     // palette's hue (Midday reads red, Evening purple) instead of punching a
     // fixed black square through the four light themes.
     <div style={{ background: 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))', position: 'relative', overflow: 'hidden', flexShrink: 0, ...style }}>
-      {src && !err && <img src={src} alt="" onError={() => setErr(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+      {src && !err && <img src={src} alt="" loading="lazy" decoding="async" onError={() => setErr(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
       {(!src || err) && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.1)', fontSize: 36 }}>◈</div>}
       {children}
     </div>
+  )
+}
+
+// The heading above a post's description: the poster's own post title when
+// the post has one (bigger, sentence case), otherwise the plain "Post title"
+// zone label in the style it's given (gabriel, 2026-10-01).
+function PostTitle({ post, labelStyle }) {
+  const t = (post.post_title || '').trim()
+  if (!t) return <div style={labelStyle}>Post title</div>
+  return (
+    <div style={{ ...labelStyle, fontFamily: DESIGN_BASE.bodyFf, fontSize: 17, fontWeight: 600, lineHeight: 1.25, letterSpacing: '-0.005em', textTransform: 'none', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>{t}</div>
   )
 }
 
@@ -424,8 +441,8 @@ function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
     try {
       const res = await fetch(`${API}/posts/${postId}/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, content }),
+        headers: authHeaders(),
+        body: JSON.stringify({ content }),
       })
       if (!res.ok) throw new Error(`${res.status}`)
       const saved = await res.json()
@@ -540,7 +557,7 @@ function usePostActions(post) {
     if (deleting || !window.confirm(`Delete post #${post.id} "${post.title}"? This can't be undone.`)) return
     setDeleting(true)
     try {
-      const r = await fetch(`${API}/posts/${post.id}?user_id=${encodeURIComponent(myUserId)}`, { method: 'DELETE' })
+      const r = await fetch(`${API}/posts/${post.id}`, { method: 'DELETE', headers: authHeaders() })
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.status) }
       queryClient.invalidateQueries({ queryKey: ['posts'] })
     } catch (err) {
@@ -951,7 +968,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
   // until scrolled to the end — see useScrollFit.
   BOX.desc = (
     <div key="desc" style={{ marginTop: (!isLiveMix && !d.plateBottom) ? d.descMtTop : d.descMt, marginLeft: mediaCenterOffset, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ ...zlabel, fontSize: d.postLabelSize, marginBottom: d.postLabelMb, flexShrink: 0 }}>Post title</div>
+      <PostTitle post={post} labelStyle={{ ...zlabel, fontSize: d.postLabelSize, marginBottom: d.postLabelMb, flexShrink: 0 }} />
       {note ? (
         <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
           style={{
@@ -1139,7 +1156,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
           <TrackPlayer key={embedSrc} src={embedSrc} title={post.title} autoplay />
         ) : (
           <>
-            {thumb && <img src={thumb} alt="" onError={() => vid && setThumb(`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`)}
+            {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" onError={() => vid && setThumb(`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`)}
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
             <span style={{ ...pill, position: 'absolute', left: 18, top: 18, background: 'var(--theme-showcase)', color: '#fff' }}>● live set</span>
             {embedSrc && (
@@ -1173,7 +1190,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       {/* post description — same label, size and in-card scroll as the
           regular post card */}
       <div style={{ marginTop: 22, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
-        <div style={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.postLabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.postLabelMb, flexShrink: 0 }}>Post title</div>
+        <PostTitle post={post} labelStyle={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.postLabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.postLabelMb, flexShrink: 0 }} />
         {note ? (
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
             style={{ fontSize: T.descSize, lineHeight: T.descLh, fontFamily: T.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: (note.length > 120 ? 3 : 1) * Math.round(T.descSize * T.descLh), flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
@@ -1313,12 +1330,16 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           {playingSrc ? (
             <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
           ) : (
+            // <img loading="lazy">, not a CSS background, so the sleeve only
+            // downloads once its card nears the screen (feed lazy loading).
             <div onClick={() => firstUrl && setActiveUrl(firstUrl)}
-              style={{ position: 'absolute', inset: 0, background: cover ? `#000 center/cover no-repeat url("${cover}")` : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }} />
+              style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+              {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+            </div>
           )}
         </div>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: d.postLabelMb, flexShrink: 0 }}>Post title</div>
+          <PostTitle post={post} labelStyle={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: d.postLabelMb, flexShrink: 0 }} />
           {note ? (
             <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
               style={{ fontSize: d.descSize, lineHeight: d.descLh, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: 0, flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
@@ -2072,25 +2093,38 @@ function shuffled(arr) {
   return a
 }
 
-function buildShelfItems(posts) {
+// The shelf is built once, then only ever EXTENDED as more posts load
+// (2026-10-01, feed lazy loading): cards already on the shelf keep their
+// place, spotlights and colours — a new page is appended, it doesn't
+// reshuffle what you've scrolled past. `prev` is the last result; pass null
+// to start over (new search, or new posts arriving at the front).
+// Returns { items, order, pick, count }.
+function buildShelfItems(posts, prev = null) {
   // Legacy DB-persisted spotlight posts (old triggerSpotlights model) are
   // filtered out entirely — not rendered as spotlights (that path is gone)
   // and not rendered as ordinary posts either (they carry no artists/
   // labels/genres and a synthetic title, so they'd look broken as a PostCard).
   const real = posts.filter(p => !p.is_spotlight)
-  const order = shuffled(buildSpotlightPool(real))
-
-  const items = []
-  let pick = 0
-  real.forEach((post, i) => {
-    items.push({ key: `p-${post.id}`, kind: 'post', post })
-    if ((i + 1) % SPOTLIGHT_EVERY === 0 && order.length > 0) {
-      const subject = order[pick % order.length]
-      pick++
-      items.push({ key: `spotlight-${i}-${subject.type}-${subject.name}`, kind: 'spotlight', subject })
+  const key = s => s.type + ':' + s.name
+  let st
+  if (!prev) st = { items: [], order: shuffled(buildSpotlightPool(real)), pick: 0, count: 0 }
+  else {
+    // Subjects that only qualify now (enough posts loaded) join the end of
+    // the rotation; the ones already in it keep their order.
+    const seen = new Set(prev.order.map(key))
+    const fresh = shuffled(buildSpotlightPool(real).filter(s => !seen.has(key(s))))
+    st = { ...prev, items: [...prev.items], order: [...prev.order, ...fresh] }
+  }
+  for (const post of real.slice(st.count)) {
+    const i = st.count++
+    st.items.push({ key: `p-${post.id}`, kind: 'post', post })
+    if ((i + 1) % SPOTLIGHT_EVERY === 0 && st.order.length > 0) {
+      const subject = st.order[st.pick % st.order.length]
+      st.pick++
+      st.items.push({ key: `spotlight-${i}-${subject.type}-${subject.name}`, kind: 'spotlight', subject })
     }
-  })
-  return items
+  }
+  return st
 }
 
 // ── Theme Picker ──────────────────────────────────────────────────────────────
@@ -2265,14 +2299,14 @@ export default function Feed() {
   // initialUrl prop + its mount effect). Nothing is posted until the user
   // reviews and hits post themselves.
   function openComposeWithUrl(url) { setComposeInitialUrl(url); setComposeOpen(true) }
-  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch]           = useState('')
   const shelfItems                    = useRef([])
+  const shelfState                    = useRef(null)
   const lastPostsSignature            = useRef(null)
   const clockWrapRef                  = useRef(null)
   const scrollCueRef                  = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, driveFeedScroll } = useLayout() || {}
+  const { feedRef, driveFeedScroll, composeBtnRef, scrollToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
 
   // Theme
   useEffect(() => { applyPalette(themeIdx === -1 ? getAutoIndex() : themeIdx) }, [themeIdx])
@@ -2281,34 +2315,76 @@ export default function Feed() {
     return () => clearInterval(t)
   }, [themeIdx])
 
-  // Debounce search input → search (300ms)
+  // Search box (SearchBox.jsx) picks: a post scrolls the feed to it. A post
+  // that isn't in the loaded feed (older than the latest 60) is fetched by
+  // filtering the feed on its number — the backend puts that post first —
+  // and scrolled to once it lands (pendingJump).
+  const pendingJump = useRef(null)
+  function jumpToPost(id) {
+    if (postRefs?.current?.has(id)) { scrollToPost?.(id); return }
+    pendingJump.current = id
+    setSearch(String(id))
+  }
+  // The drawers jump through LayoutProvider's jumpToPost, which calls this.
   useEffect(() => {
-    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchInput])
-
-  // Data
-  const { data: raw, isFetching: searching } = useQuery({
-    queryKey: ['posts', search ? 'SEARCH' : 'LATEST', search],
-    queryFn: async () => {
-      const url = search
-        ? `${API}/posts?limit=60&search=${encodeURIComponent(search)}`
-        : `${API}/posts?limit=60`
-      const res = await fetch(url)
-      if (!res.ok) return { posts: [], total: 0 }
-      const d = await res.json()
-      // /api/posts returns {posts,total,page,limit}; tolerate a bare array too.
-      return Array.isArray(d) ? { posts: d, total: d.length } : { posts: d.posts || [], total: d.total ?? (d.posts || []).length }
-    },
-    refetchInterval: search ? false : 30000,
+    if (!jumpHandlerRef) return
+    jumpHandlerRef.current = jumpToPost
+    return () => { jumpHandlerRef.current = null }
   })
-  const posts = raw?.posts || []
+
+  // Data — lazy loaded (2026-10-01): FEED_PAGE posts at a time; reaching
+  // the post FEED_LOAD_AHEAD from the end of what's loaded (post 50 of 60)
+  // fetches the next FEED_PAGE (see the IntersectionObserver below). The
+  // latest feed pages by cursor (`before` = last post id) so new posts
+  // can't shift the pages; search pages by number (ranked results).
+  const { data: raw, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
+    queryKey: ['posts', search ? 'SEARCH' : 'LATEST', search],
+    initialPageParam: null,
+    queryFn: async ({ pageParam }) => {
+      const qs = new URLSearchParams({ limit: String(FEED_PAGE) })
+      if (search) { qs.set('search', search); if (pageParam) qs.set('page', String(pageParam)) }
+      else if (pageParam) qs.set('before', String(pageParam))
+      const res = await fetch(`${API}/posts?${qs}`)
+      if (!res.ok) return { posts: [], hasMore: false }
+      const d = await res.json()
+      // /api/posts returns {posts,total,page,limit,hasMore}; tolerate a bare array too.
+      return Array.isArray(d) ? { posts: d, hasMore: false } : { posts: d.posts || [], hasMore: !!d.hasMore }
+    },
+    getNextPageParam: (last, all) => !last.hasMore ? undefined : search ? all.length + 1 : last.posts[last.posts.length - 1]?.id,
+    // The 30 s check for new posts only runs while just the first page is
+    // loaded — refetching would re-download every page scrolled through.
+    refetchInterval: q => (search || (q.state.data?.pages?.length || 0) > 1) ? false : 30000,
+  })
+  // The search box's spinner and jump logic mean "loading a new search", not
+  // "loading the next page".
+  const searching = isFetching && !isFetchingNextPage
+  const posts = useMemo(() => {
+    const seen = new Set()
+    return (raw?.pages || []).flatMap(p => p.posts).filter(p => !seen.has(p.id) && seen.add(p.id))
+  }, [raw])
 
   const postsSignature = posts.map(p => p.id).join(',')
   if (postsSignature !== lastPostsSignature.current) {
-    shelfItems.current = buildShelfItems(posts)
+    // More posts on the end of the same list → extend; anything else (new
+    // search, new posts at the front) → rebuild.
+    const prev = lastPostsSignature.current
+    const appended = prev && shelfState.current && postsSignature.startsWith(prev + ',')
+    shelfState.current = buildShelfItems(posts, appended ? shelfState.current : null)
+    shelfItems.current = shelfState.current.items
     lastPostsSignature.current = postsSignature
   }
+
+  // Next page once the post FEED_LOAD_AHEAD from the end of the loaded
+  // posts comes on screen.
+  const loadTriggerId = hasNextPage && !isFetchingNextPage ? posts[Math.max(0, posts.length - FEED_LOAD_AHEAD)]?.id : null
+  useEffect(() => {
+    const root = feedRef?.current
+    const el = loadTriggerId != null ? postRefs?.current?.get(loadTriggerId) : null
+    if (!root || !el) return
+    const io = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) fetchNextPage() }, { root, threshold: 0 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [loadTriggerId, feedRef, postRefs, fetchNextPage])
 
   // 2026-09-25: when the SEARCH changes (never on the 30 s background
   // refresh), move the shelf once that search's results have landed — to the
@@ -2329,6 +2405,15 @@ export default function Feed() {
     const target = first ? feed.scrollLeft + (first.getBoundingClientRect().left - feed.getBoundingClientRect().left) - STRIP_RADIUS : 0
     driveFeedScroll?.(Math.max(0, target))
   }, [search, searching, postsSignature, feedRef, driveFeedScroll])
+
+  // Finish a jump to a post that had to be fetched first (jumpToPost).
+  useEffect(() => {
+    const id = pendingJump.current
+    if (searching || id == null || !postRefs?.current?.has(id)) return
+    pendingJump.current = null
+    const t = setTimeout(() => scrollToPost?.(id), 250)
+    return () => clearTimeout(t)
+  }, [searching, postsSignature, postRefs, scrollToPost])
 
   // Scroll drag
   useEffect(() => {
@@ -2558,19 +2643,15 @@ export default function Feed() {
         })()}
       </div>
 
-      {/* Search */}
-      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, display: 'flex', alignItems: 'center', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '6px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
-        <span style={{ color: 'var(--theme-text-ter)', fontSize: 13, marginRight: 6 }}>{searching ? '◐' : '⌕'}</span>
-        <input
-          value={searchInput}
-          onChange={e => setSearchInput(e.target.value)}
-          placeholder="search artists, genres, labels, tracks…"
-          style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 12, width: 220 }}
-        />
-        {searchInput && (
-          <button onClick={() => setSearchInput('')} style={{ background: 'none', border: 'none', color: 'var(--theme-text-ter)', cursor: 'pointer', fontSize: 13, padding: 0, marginLeft: 4 }}>×</button>
-        )}
-      </div>
+      {/* Search — dropdown of post numbers, posts, artists/labels/genres */}
+      <SearchBox
+        onJump={jumpToPost}
+        onOpenDrawer={(kind, name) => openD3?.(kind, { filter: name })}
+        onShowAll={q => { pendingJump.current = null; setSearch(q) }}
+        onClear={() => { pendingJump.current = null; setSearch('') }}
+        filtering={!!search}
+        busy={searching}
+      />
 
       {/* Theme button */}
       <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 100 }}>
@@ -2582,10 +2663,13 @@ export default function Feed() {
         </div>
       </div>
 
-      {/* Compose button */}
-      <div style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 100 }}>
-        <button onClick={() => setComposeOpen(true)}
-          style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
+      {/* Compose button — 48px (36 → 72 → 48, gabriel 2026-10-01), and only on
+          the main feed: hidden over the intro, shown once the strip has
+          fully collapsed (LayoutProvider sets data-show; .lnv-compose-btn
+          in index.css fades it). */}
+      <div ref={composeBtnRef} className="lnv-compose-btn" style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 100 }}>
+        <button onClick={() => setComposeOpen(true)} aria-label="New post"
+          style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
       </div>
 
       {editingPost && (

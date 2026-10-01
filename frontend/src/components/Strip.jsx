@@ -15,8 +15,10 @@ const TABS = [
   { id: 'genres',      label: 'genres',    panel: true },
   { id: 'labels',      label: 'labels',    panel: true },
   null,
-  { id: 'readme',      label: 'readme' },
-  { id: 'about',       label: 'about' },
+  // 2026-10-01: readme → live sets (its content moved into About), and
+  // About opens as a drawer like the rest instead of replacing the feed.
+  { id: 'live',        label: 'live sets', panel: true },
+  { id: 'about',       label: 'about',     panel: true },
 ];
 
 // ── ROUND 17 (2026-08-21) — merged strip ────────────────────────────────
@@ -102,8 +104,8 @@ export default function Strip({ activeView }) {
   }
   const user = getUser();
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     window.location.href = '/';
   }
 
@@ -261,7 +263,7 @@ export default function Strip({ activeView }) {
           return (
             <button key={tab.id} data-tab={tab.id}
               onClick={() => handleTabClick(tab)}
-              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:'VT323, monospace', fontSize:'13px', letterSpacing:'2px', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 11px', width:'34px', textAlign:'center', whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
+              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
             >{tab.label}</button>
@@ -274,14 +276,14 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
-        {/* Identity — username only, no password (see lib/auth.js). Click
-            when logged in to log out; when logged out, links to /login. */}
+        {/* Identity — your initial when signed in (click to sign out);
+            otherwise a link to /login (see lib/auth.js). */}
         {user ? (
           <button onClick={handleLogout} title={`${user} — click to log out`}
             style={{ color:'var(--theme-text-pri)', fontSize:'13px', fontWeight:700, fontFamily:'Barlow, sans-serif', background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}
           >{user.charAt(0).toUpperCase()}</button>
         ) : (
-          <a href="/login" title="Choose a username"
+          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}

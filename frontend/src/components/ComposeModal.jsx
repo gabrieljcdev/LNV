@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getUser, getUserId, pickUsername } from '../lib/auth'
+import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -40,6 +40,14 @@ const PLATFORMS = [
  { id: 'boilerroom', label: 'BOILER ROOM', color: '#111', textColor: '#fff', icon: '●', re: /boilerroom\.tv/i },
  { id: 'discogs', label: 'DISCOGS', color: '#333', textColor: '#fff', icon: '◈', re: /discogs\.com/i },
 ]
+
+// A track link as short readable text: host without www, then the path
+// and query (the card's tracklist shows these so it's obvious which tracks
+// have links, and which link each one is).
+function shortLink(url) {
+ try { const u = new URL(url); return u.host.replace(/^www\./, '') + (u.pathname === '/' ? '' : u.pathname) + u.search }
+ catch { return url }
+}
 
 function detectPlatform(url) {
  if (!url) return null
@@ -90,18 +98,12 @@ function withId(book, name) {
 // editPost: a full post (GET /posts shape). Opens the same form pre-filled,
 // and saving PATCHes that post instead of creating a new one.
 export default function ComposeModal({ onClose, onPosted, initialUrl = '', editPost = null }) {
- // No admin fallback: composing requires a real (password-less) username —
- // Feed.jsx only opens this modal when one is set, but guard here too in
- // case something else ever mounts it directly.
- // Held in state so picking a name in the bar (phase 'name') re-renders.
- const [me, setMe] = useState(() => ({ user: getUser(), userId: getUserId() }))
- const { user, userId } = me
- // 'name' → pick a username, 'link' → the paste bar, 'form' → the full form.
+ // Posting needs a signed-in account (2026-10-01). Not signed in → the bar
+ // shows phase 'name': a prompt that goes to /login.
+ const user = getUser(), userId = getUserId()
+ // 'name' → sign in first, 'link' → the paste bar, 'form' → the full form.
  // The bar hands over to the form on its own once a fetch lands (showForm).
  const [phase, setPhase] = useState(() => (editPost ? 'form' : !user || !userId ? 'name' : 'link'))
- const [nameInput, setNameInput] = useState('')
- const [nameBusy, setNameBusy] = useState(false)
- const [nameError, setNameError] = useState('')
  const [coverEdit, setCoverEdit] = useState(false)
  const [openTrack, setOpenTrack] = useState(null) // track row whose link field is open
  // "post anyway" on the already-posted notice re-runs the fetch past the check
@@ -117,6 +119,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [genres, setGenres] = useState(editPost?.genres || [])
  const [tracks, setTracks] = useState(() => (editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
  const [comment, setComment] = useState(editPost?.notes || '')
+ // The poster's own headline, shown above the description on the card.
+ const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
  const [coverArt, setCoverArt] = useState(editPost?.cover_image || '')
  const [postType, setPostType] = useState(editPost?.post_type || 'album')
  const [streamUrl, setStreamUrl] = useState(editPost?.stream_url || '')
@@ -393,7 +397,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (!title.trim()) return
  setPosting(true); setFetchError('')
  try {
- const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, username: user, discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim() }) })
+ const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim() }) })
  if (!postRes.ok) { const e = await postRes.json().catch(() => ({})); throw new Error(e.error || `${editPost ? 'SAVE' : 'POST'} failed: ${postRes.status}`) }
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId || editPost?.id
@@ -404,14 +408,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
 
  const hasFetched = !!title
 
- async function submitName() {
- const val = nameInput.trim().replace(/^@/, '')
- if (!val || nameBusy) return
- setNameBusy(true); setNameError('')
- try { const u = await pickUsername(val); setMe({ user: u, userId: getUserId() }); setPhase('link') }
- catch { setNameError('COULD NOT REACH THE SERVER — TRY AGAIN') }
- finally { setNameBusy(false) }
- }
+ function goSignIn() { window.location.href = '/login' }
 
  function postAnyway() { skipDupe.current = true; setPhase('form'); handleFetch() }
 
@@ -425,24 +422,26 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  // lands; if a link gives nothing back, "fill it in yourself" opens it empty.
  if (phase !== 'form' && !(phase === 'link' && hasFetched)) {
  const naming = phase === 'name'
- const val = naming ? nameInput : inputUrl
- const busy = naming ? nameBusy : fetching
- const submit = naming ? submitName : handleFetch
- const status = naming ? nameError : (fetchError || (fetching ? (fetchStatus || 'FETCHING…') : fetchStatus))
- const isError = naming ? !!nameError : !!fetchError
+ const val = naming ? 'sign in' : inputUrl
+ const busy = naming ? false : fetching
+ const submit = naming ? goSignIn : handleFetch
+ const status = naming ? '' : (fetchError || (fetching ? (fetchStatus || 'FETCHING…') : fetchStatus))
+ const isError = naming ? false : !!fetchError
  const cameBackEmpty = !naming && !fetching && !duplicate && (!!fetchError || !!fetchStatus)
  return (
  <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={scrim}>
  <div style={{ position: 'absolute', left: '50%', top: '34%', width: BAR_W, maxWidth: 'calc(100vw - 32px)', transform: 'translate(-50%, -50%)' }}>
  <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 64, padding: '0 12px 0 24px', borderRadius: 99, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', boxShadow: `${FLOAT_SHADOW}, 0 2px 8px rgba(0,0,0,0.2)` }}>
  <span style={{ fontFamily: 'Barlow, sans-serif', fontWeight: 300, fontSize: 26, lineHeight: 1, color: 'var(--theme-text-ter)', width: 18, textAlign: 'center' }}>{naming ? '@' : '+'}</span>
- <input
+ {naming ? (
+ <button autoFocus onClick={goSignIn} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 18 }}>Sign in or create an account to post</button>
+ ) : <input
  key={phase} autoFocus value={val} disabled={busy} spellCheck={false} autoComplete="off"
- onChange={e => (naming ? (setNameInput(e.target.value), setNameError('')) : setInputUrl(e.target.value))}
+ onChange={e => setInputUrl(e.target.value)}
  onKeyDown={e => e.key === 'Enter' && submit()}
- placeholder={naming ? 'pick a username' : 'paste anything, from any platform'}
+ placeholder="paste anything, from any platform"
  style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 18 }}
- />
+ />}
  {!naming && activePlatform && <span style={{ flexShrink: 0, background: activePlatform.color, color: activePlatform.textColor, borderRadius: 3, padding: '4px 7px', fontFamily: 'Barlow, sans-serif', fontSize: 9, fontWeight: 600, letterSpacing: '0.16em' }}>{activePlatform.label}</span>}
  <button onClick={submit} disabled={!val.trim() || busy} style={{ flexShrink: 0, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', fontSize: 18, cursor: 'pointer', opacity: !val.trim() || busy ? 0.35 : 1, transition: 'background 0.8s' }}>{busy ? '◐' : '→'}</button>
  </div>
@@ -452,7 +451,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  : status
  ? <span style={{ color: isError ? '#ff8a65' : 'rgba(255,255,255,0.75)' }}>{status}</span>
  : naming
- ? <span style={{ color: 'rgba(255,255,255,0.55)' }}>No password — your posts are signed with this name.</span>
+ ? <span style={{ color: 'rgba(255,255,255,0.55)' }}>Posts are signed with your account.</span>
  : <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', maxWidth: 480, fontSize: 10, letterSpacing: '0.08em' }}>{PLATFORMS.map(p => <span key={p.id} style={{ color: activePlatform?.id === p.id ? '#fff' : 'rgba(255,255,255,0.45)' }}>{p.label}</span>)}</span>}
  <span style={{ display: 'flex', gap: 16, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }}>
  {duplicate && <button onClick={postAnyway} style={{ ...quietBtn, color: '#fff' }}>post anyway</button>}
@@ -575,6 +574,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  <input className="lnvc-f" value={t.title} onChange={e => updateTrack(i, { title: e.target.value })} placeholder="Track title" style={{ fontFamily: 'Barlow, sans-serif', fontSize: 13, color: 'var(--theme-text-sec)' }} />
  <button onClick={() => setOpenTrack(o => (o === i ? null : i))} title={t.stream_url ? 'Playable — edit link' : 'No link — add one'} style={{ width: 8, height: 8, padding: 0, borderRadius: '50%', border: 'none', cursor: 'pointer', alignSelf: 'center', background: t.stream_url ? (tp?.color || '#4caf50') : 'var(--theme-border)' }} />
  </div>
+ {openTrack !== i && t.stream_url && (
+ <button onClick={() => setOpenTrack(i)} title={`${t.stream_url}
+Click to edit`}
+ style={{ display: 'flex', gap: 6, alignItems: 'baseline', width: 'calc(100% - 38px)', marginLeft: 38, marginTop: 2, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0 }}>
+ <span style={{ ...mono, fontSize: 9, flexShrink: 0, color: tp?.color || 'var(--theme-text-ter)' }}>{tp?.label || 'LINK'}</span>
+ <span style={{ ...mono, fontSize: 10, textTransform: 'none', letterSpacing: 0, color: 'var(--theme-text-ter)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{shortLink(t.stream_url)}</span>
+ </button>
+ )}
  {openTrack === i && <input className="lnvc-f" autoFocus value={t.stream_url} onChange={e => updateTrack(i, { stream_url: e.target.value })} onKeyDown={e => e.key === 'Enter' && setOpenTrack(null)} placeholder="paste a link to this track" style={{ ...mono, fontSize: 10, textTransform: 'none', width: 'calc(100% - 38px)', marginLeft: 38, marginTop: 4, color: 'var(--theme-text-sec)' }} />}
  </div>
  )
@@ -583,6 +590,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => { setTracks(prev => [...prev, { position: '', title: '', stream_url: '' }]); setOpenTrack(null) }}>+ track</button>
  </>
  )}
+
+ <div style={zlabel}><span>Post title</span><span>optional</span></div>
+ <input value={postTitle} onChange={e => setPostTitle(e.target.value)} maxLength={120} placeholder={isLiveMix ? 'Sum up the set in a line…' : 'Sum up the record in a line…'}
+ style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', borderRadius: 10, padding: '10px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, fontWeight: 600 }} />
 
  <div style={zlabel}><span>Description</span><span>optional</span></div>
  <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={isLiveMix ? 'Lineup, venue, date, set notes…' : 'What makes this record special…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 13, lineHeight: 1.5 }} />

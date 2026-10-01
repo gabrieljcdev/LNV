@@ -133,6 +133,9 @@ export function LayoutProvider({ children }) {
  const railWordmarkRef = useRef(null); // FADE text wordmark — flush bottom-left of the rail (zone 1), see Strip.jsx
  const fBarsRef = useRef(null); // F-bars logomark graphic — zone 2, near zone 1's edge (round 20), see Strip.jsx
  const navTabsRef = useRef(null);
+ // Feed's compose (+) button — shown only once the strip has fully
+ // collapsed, i.e. you're on the main feed (gabriel, 2026-10-01).
+ const composeBtnRef = useRef(null);
  const postRefs = useRef(new Map());
 
  function openD3(content, props = {}) { setD3Content(content); setD3Props(props); setD3Width(null); }
@@ -164,12 +167,23 @@ export function LayoutProvider({ children }) {
    // Highlight once the damped scroll (DAMPING=15, settles in ~150-200ms
    // per scroll-distance step, capped well under a second here) has landed.
    setTimeout(() => {
-     postEl.style.transition = 'box-shadow 0.15s';
-     postEl.style.boxShadow = '0 0 0 3px #e85d04';
-     setTimeout(() => { postEl.style.boxShadow = ''; }, 600);
+     // Inset: cards sit in a rounded, overflow:hidden frame (Feed's
+     // FloatSlot), which clipped the old outer ring to nothing.
+     postEl.style.transition = 'box-shadow 0.2s';
+     postEl.style.boxShadow = 'inset 0 0 0 4px var(--theme-accent)';
+     setTimeout(() => { postEl.style.boxShadow = ''; }, 900);
    }, 500);
    // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [driveFeedScroll]);
+
+ // Jump the feed to a post from anywhere (search box, drawers). Feed
+ // registers its own handler in jumpHandlerRef — it can fetch a post that
+ // isn't loaded yet; until it has, this falls back to scrollToPost.
+ const jumpHandlerRef = useRef(null);
+ const jumpToPost = useCallback((postId) => {
+   closeD3();
+   (jumpHandlerRef.current || scrollToPost)(postId);
+ }, [scrollToPost]);
 
  // ── ROUND 17 (2026-08-21) — merged strip, single collapse curve ────────
  // Rounds 9-16 tried to make TWO separately-animated elements (the icon
@@ -226,6 +240,7 @@ export function LayoutProvider({ children }) {
    // its right edge (the outer box's) moves. Hidden once it's fully under, so
    // no anti-aliased sliver shows round the shared rounded corners.
    if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = raw >= 1 ? 'hidden' : '';
+   if (composeBtnRef.current) composeBtnRef.current.dataset.show = raw >= 1 ? '1' : '';
    // Nav tabs (#lnv-tabs — the rail's own icon/directory buttons) start
    // invisible at rest (raw=0) and fade in over the LAST 20% of the
    // collapse, landing fully visible right as the rail finishes narrowing
@@ -428,10 +443,10 @@ export function LayoutProvider({ children }) {
 
  return (
    <LayoutContext.Provider value={{
-     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef,
+     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, composeBtnRef,
      d3Content, d3Props, d3Width, setD3Width, openD3, closeD3,
      currentTrack, setCurrentTrack,
-     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll,
+     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll, jumpToPost, jumpHandlerRef,
    }}>
      {children}
    </LayoutContext.Provider>

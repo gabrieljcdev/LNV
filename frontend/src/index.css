@@ -147,3 +147,9 @@ html, body, #root {
 #lnv-landing {
   overscroll-behavior: contain;
 }
+
+/* Feed compose (+) button: hidden over the intro, fades in on the main feed
+   (LayoutProvider sets data-show="1" once the strip has fully collapsed). */
+.lnv-compose-btn { opacity: 0; visibility: hidden; transform: scale(0.85); transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s; }
+.lnv-compose-btn[data-show="1"] { opacity: 1; visibility: visible; transform: none; transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .lnv-compose-btn, .lnv-compose-btn[data-show="1"] { transition: none; transform: none; } }

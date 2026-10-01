@@ -187,6 +187,9 @@ const migrations = [
     units INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (provider, day)
   )`,
+  // The poster's own headline for a post (shown above its description on
+  // the feed cards) — separate from `title`, the record's title.
+  'ALTER TABLE posts ADD COLUMN post_title TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

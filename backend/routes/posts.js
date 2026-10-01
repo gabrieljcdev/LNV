@@ -2,6 +2,8 @@ import express from 'express';
 import db from '../db/database.js';
 import { enrichPostTracks } from '../services/youtubeService.js';
 import { matchMissingDiscogs } from '../services/discogsMatcher.js';
+import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
+import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -94,25 +96,14 @@ router.get('/', (req, res, next) => {
     let postIds;
     if (discogs_id) { postIds = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').all(Number(discogs_id)).map(r => r.id); }
     else if (search) {
-      // One canonical search implementation — matches title, artists,
-      // labels, genres, and track titles. Feed's search bar and any other
-      // caller should both go through this param rather than reimplementing
-      // the query.
-      const q = '%' + search + '%';
-      postIds = db.prepare(`
-        SELECT DISTINCT p.id FROM posts p
-        LEFT JOIN post_artists pa ON pa.post_id = p.id
-        LEFT JOIN post_labels  pl ON pl.post_id = p.id
-        LEFT JOIN post_genres  pg ON pg.post_id = p.id
-        LEFT JOIN post_tracks  pt ON pt.post_id = p.id
-        WHERE LOWER(p.title) LIKE LOWER(?)
-           OR LOWER(pa.artist_name) LIKE LOWER(?)
-           OR LOWER(pl.label_name) LIKE LOWER(?)
-           OR LOWER(pg.genre) LIKE LOWER(?)
-           OR LOWER(pt.title) LIKE LOWER(?)
-           OR LOWER(p.channel) LIKE LOWER(?)
-        ORDER BY p.id DESC LIMIT ? OFFSET ?
-      `).all(q, q, q, q, q, q, Number(limit), offset).map(r => r.id);
+      // Ranked full-text search (services/searchService.js) — the one search
+      // implementation for the feed and the search box's dropdown. A post
+      // number ("54", "#54") puts that post first.
+      postIds = searchPostIds(search, { limit, offset });
+      const num = parsePostNumber(search);
+      if (num != null && Number(page) === 1 && db.prepare('SELECT 1 FROM posts WHERE id = ? AND is_spotlight = 0').get(num)) {
+        postIds = [num, ...postIds.filter(id => id !== num)];
+      }
     }
     else if (artist) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_artists WHERE LOWER(artist_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+artist+'%', Number(limit), offset).map(r => r.post_id); }
     else if (label) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_labels WHERE LOWER(label_name) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+label+'%', Number(limit), offset).map(r => r.post_id); }
@@ -120,11 +111,49 @@ router.get('/', (req, res, next) => {
     else if (catno) { postIds = db.prepare('SELECT DISTINCT post_id FROM post_labels WHERE LOWER(catalogue_number) LIKE LOWER(?) ORDER BY post_id DESC LIMIT ? OFFSET ?').all('%'+catno+'%', Number(limit), offset).map(r => r.post_id); }
     else if (year) { postIds = db.prepare('SELECT id FROM posts WHERE year = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(Number(year), Number(limit), offset).map(r => r.id); }
     else if (user_id) { postIds = db.prepare('SELECT id FROM posts WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(Number(user_id), Number(limit), offset).map(r => r.id); }
-    else { postIds = db.prepare('SELECT id FROM posts ORDER BY created_at DESC LIMIT ? OFFSET ?').all(Number(limit), offset).map(r => r.id); }
+    else {
+      // The feed (2026-10-01): newest first, paged by cursor — `before` is
+      // the last post id the feed already has — so posts added while
+      // someone's scrolling can't shift the pages (no duplicates or gaps).
+      const before = Number(req.query.before) || null;
+      postIds = before
+        ? db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 AND id < ? ORDER BY id DESC LIMIT ?').all(before, Number(limit)).map(r => r.id)
+        : db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 ORDER BY id DESC LIMIT ? OFFSET ?').all(Number(limit), offset).map(r => r.id);
+    }
     const posts = postIds.map(id => getFullPost(id)).filter(Boolean);
-    const total = db.prepare('SELECT COUNT(*) as count FROM posts').get().count;
-    res.json({ posts, total, page: Number(page), limit: Number(limit) });
+    const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE is_spotlight = 0').get().count;
+    // A full page means there may be more; the feed asks for the next one.
+    res.json({ posts, total, page: Number(page), limit: Number(limit), hasMore: postIds.length === Number(limit) });
   } catch (err) { next(err); }
+});
+
+// The search box's dropdown: a post-number jump, ranked posts, and
+// matching artists / labels / genres. Must sit above GET /:id.
+// Every post as a compact summary, for the browse drawers (artists, labels,
+// genres, live sets) — they group and filter on the client. Newest first.
+router.get('/browse', (req, res, next) => {
+  try {
+    const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at
+      FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all();
+    const by = (sql) => { const m = new Map(); for (const r of db.prepare(sql).all()) { if (!m.has(r.post_id)) m.set(r.post_id, []); m.get(r.post_id).push(r); } return m; };
+    const artists = by('SELECT post_id, artist_name FROM post_artists ORDER BY id');
+    const labels = by('SELECT post_id, label_name, catalogue_number FROM post_labels ORDER BY id');
+    const genres = by('SELECT post_id, genre FROM post_genres ORDER BY id');
+    const tracks = new Map(db.prepare('SELECT post_id, COUNT(*) c FROM post_tracks GROUP BY post_id').all().map(r => [r.post_id, r.c]));
+    res.json(posts.map(p => ({
+      id: p.id, title: p.title, post_title: p.post_title, year: p.year,
+      cover: p.thumb_image || p.cover_image || null, post_type: p.post_type,
+      channel: p.channel, platform: p.platform, stream_url: p.stream_url, created_at: p.created_at,
+      artists: (artists.get(p.id) || []).map(r => r.artist_name),
+      labels: (labels.get(p.id) || []).map(r => ({ name: r.label_name, catno: r.catalogue_number })),
+      genres: (genres.get(p.id) || []).map(r => r.genre),
+      track_count: tracks.get(p.id) || 0,
+    })));
+  } catch (err) { next(err); }
+});
+
+router.get('/suggest', (req, res, next) => {
+  try { res.json(suggest(req.query.q)); } catch (err) { next(err); }
 });
 
 router.get('/:id', (req, res, next) => {
@@ -135,25 +164,28 @@ router.get('/:id', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/', (req, res, next) => {
+// Signed in only (2026-10-01); the post belongs to whoever is signed in —
+// a user_id in the body is ignored.
+router.post('/', requireAuth, (req, res, next) => {
   try {
+    const user_id = req.user.id;
     const {
-      user_id = 1, discogs_id, discogs_type = 'release',
+      discogs_id, discogs_type = 'release',
       title, year, country, cover_image, thumb_image, notes, discogs_url,
-      stream_url, embed_url, platform, post_type = 'album', channel,
+      stream_url, embed_url, platform, post_type = 'album', channel, post_title,
       artists = [], labels = [], genres = [], tracks = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const resolvedDiscogsId = discogs_id || (discogs_url ? discogs_url.match(/release\/(\d+)/)?.[1] : null);
     const result = db.prepare(`
-      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type, channel)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type, channel, post_title)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       user_id, resolvedDiscogsId ? Number(resolvedDiscogsId) : null,
       discogs_type, title, year || null, country || null,
       cover_image || null, thumb_image || null, notes || null, discogs_url || null,
       stream_url || null, embed_url || null, platform || null, post_type || 'album',
-      channel || null
+      channel || null, (post_title || '').trim() || null
     );
     if (!result.lastInsertRowid) return res.status(409).json({ error: 'A post with this Discogs release already exists' });
     const postId = result.lastInsertRowid;
@@ -184,19 +216,14 @@ router.post('/', (req, res, next) => {
 // password-less (see Login.jsx), so this stops accidents and casual
 // tampering from the UI, not a determined caller — same trust model as
 // posting itself.
-function canModify(post, userId) {
-  if (userId == null || userId === '') return false;
-  if (Number(userId) === post.user_id) return true;
-  return db.prepare('SELECT username FROM users WHERE id = ?').get(Number(userId))?.username === 'lnv_admin';
-}
 
-router.patch('/:id', (req, res, next) => {
+router.patch('/:id', requireAuth, (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (!canModify(post, req.body.user_id)) return res.status(403).json({ error: 'Only the person who posted this can edit it' });
-    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type', 'channel', 'discogs_id', 'discogs_url'];
+    if (!canModify(post, req.user)) return res.status(403).json({ error: 'Only the person who posted this can edit it' });
+    const allowed = ['cover_image', 'thumb_image', 'notes', 'title', 'year', 'stream_url', 'embed_url', 'platform', 'post_type', 'channel', 'discogs_id', 'discogs_url', 'post_title'];
     const updates = []; const values = [];
     for (const field of allowed) { if (req.body[field] !== undefined) { updates.push(field + ' = ?'); values.push(req.body[field] === '' ? null : req.body[field]); } }
     const { artists, labels, genres, tracks } = req.body;
@@ -232,12 +259,12 @@ router.patch('/:id', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.delete('/:id', (req, res, next) => {
+router.delete('/:id', requireAuth, (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (!canModify(post, req.query.user_id ?? req.body?.user_id)) return res.status(403).json({ error: 'Only the person who posted this can delete it' });
+    if (!canModify(post, req.user)) return res.status(403).json({ error: 'Only the person who posted this can delete it' });
     // foreign_keys isn't enabled on this connection, so the schema's ON
     // DELETE CASCADEs never fire — remove the child rows explicitly or they
     // stay behind as orphans.
@@ -258,9 +285,10 @@ router.get('/:id/comments', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/:id/comments', (req, res, next) => {
+router.post('/:id/comments', requireAuth, (req, res, next) => {
   try {
-    const { user_id = 1, content } = req.body;
+    const user_id = req.user.id;
+    const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'Content is required' });
     const result = db.prepare('INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)').run(Number(req.params.id), user_id, content);
     const comment = db.prepare('SELECT c.*, u.username, u.display_name FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?').get(result.lastInsertRowid);
@@ -268,12 +296,12 @@ router.post('/:id/comments', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/:id/enrich-youtube', async (req, res, next) => {
+router.post('/:id/enrich-youtube', requireAuth, async (req, res, next) => {
   try { const tracks = await enrichPostTracks(Number(req.params.id)); res.json({ tracks }); }
   catch (err) { next(err); }
 });
 
-router.post('/backfill-streams', (req, res) => {
+router.post('/backfill-streams', requireAuth, requireAdmin, (req, res) => {
   const { posts: updates } = req.body;
   if (!updates?.length) return res.status(400).json({ error: 'No updates' });
   try {
