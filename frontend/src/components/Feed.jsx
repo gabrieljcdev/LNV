@@ -64,7 +64,7 @@ const ROTATION = 2
 // not part of this codebase, so they're unaffected either way.
 const DESIGN_BASE = {
   mediaSide: 'right',
-  cardW: 800, cardH: 820, cardRadius: 0, infoW: 280,
+  cardW: 800, cardH: 820, cardRadius: 0, infoW: 312, // 312 (was 280) 2026-10-01: +32 for the rail's new outer padding, so the rail text keeps its width
   railBorder: 1,
 
   // ── plate ──────────────────────────────────────────────────────────────
@@ -88,7 +88,10 @@ const DESIGN_BASE = {
   zlabelSize: 9, zlabelLs: 0.2, zlabelMb: 8,
 
   // ── description (media column) ──────────────────────────────────────
-  descSize: 13, descLh: 1.5, descMt: 14, descMtTop: 0,
+  descSize: 13, descLh: 1.5, descMt: 14, descMtTop: 28, // descMtTop 28 (was 0) 2026-10-01: room between the caption and the description
+  // The description's label ("Post title", was "Post description" —
+  // gabriel, 2026-10-01): its own size, larger than the other zone labels.
+  postLabelSize: 12, postLabelMb: 10,
 
   // ── byline (rail footer — replies count + handle + stamp, one row) ────
   bylineMt: 14, handleSize: 11.5, handleWeight: 600,
@@ -948,7 +951,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
   // until scrolled to the end — see useScrollFit.
   BOX.desc = (
     <div key="desc" style={{ marginTop: (!isLiveMix && !d.plateBottom) ? d.descMtTop : d.descMt, marginLeft: mediaCenterOffset, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ ...zlabel, flexShrink: 0 }}>Post description</div>
+      <div style={{ ...zlabel, fontSize: d.postLabelSize, marginBottom: d.postLabelMb, flexShrink: 0 }}>Post title</div>
       {note ? (
         <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
           style={{
@@ -1012,7 +1015,9 @@ function PostCard({ post, cardBg, d, onEdit }) {
         // Live sets centre the whole (spacer-less) block; albums anchor to
         // the plate group's edge, same as the media column below.
         justifyContent: isLiveMix ? 'center' : 'flex-start',
-        padding: d.mediaSide === 'left' ? `${d.padY}px 0 ${d.padY}px 26px` : `${d.padY}px 26px ${d.padY}px 0`,
+        // Outer side = bandPadX, the same side padding as the album card
+        // (gabriel, 2026-10-01: the rail text sat on the card's edge).
+        padding: d.mediaSide === 'left' ? `${d.padY}px ${d.bandPadX}px ${d.padY}px 26px` : `${d.padY}px 26px ${d.padY}px ${d.bandPadX}px`,
         [d.mediaSide === 'left' ? 'borderLeft' : 'borderRight']: `${d.railBorder}px solid ${divider}`,
       }}>
         {railChildren}
@@ -1168,7 +1173,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       {/* post description — same label, size and in-card scroll as the
           regular post card */}
       <div style={{ marginTop: 22, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
-        <div style={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.zlabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.zlabelMb, flexShrink: 0 }}>Post description</div>
+        <div style={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.postLabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.postLabelMb, flexShrink: 0 }}>Post title</div>
         {note ? (
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
             style={{ fontSize: T.descSize, lineHeight: T.descLh, fontFamily: T.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: (note.length > 120 ? 3 : 1) * Math.round(T.descSize * T.descLh), flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
@@ -1264,7 +1269,14 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   // fit the text block + byline under it inside the 120px padding.
   // Room reserved below the sleeve: badges + artist/title + metaline + the
   // big numeral (~290px) + byline — the numeral moved under the title.
-  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + 330}px))`
+  // artMtTop: the sleeve starts as far down as the single card's art
+  // (gabriel, 2026-10-01), so that space comes out of the same budget.
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + d.artMtTop + 330}px))`
+  // Both rows share one column split — sleeve / title block on the left,
+  // description / tracklist on the right — with the divider centred in
+  // the gap between them.
+  const ALBUM_COL_GAP = 24
+  const albumCols = `${d.artSize}px minmax(0, 1fr)`
   const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, textDecoration: 'none' }
   const half = Math.ceil(tracks.length / 2)
   const indexed = tracks.map((t, i) => ({ t, i }))
@@ -1289,9 +1301,14 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
       ref={el => { registerPostRef?.(post.id, el); cardRef.current = el }}
       style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${d.padY}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}
     >
+      {/* Divider between the left column (sleeve, title block) and the
+          right (description, tracklist), top to bottom edge like the single
+          card's rail line (gabriel, 2026-10-01). */}
+      <div aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: d.bandPadX + d.artSize + ALBUM_COL_GAP / 2, width: 1, background: 'var(--lv-line)' }} />
+
       {/* top row: sleeve (the player takes its place) | post description,
           the same height as the sleeve and scrolling inside it */}
-      <div style={{ display: 'flex', gap: 24, height: stageH, flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: albumCols, gap: ALBUM_COL_GAP, height: stageH, flexShrink: 0, marginTop: d.artMtTop }}>
         <div style={{ position: 'relative', height: '100%', aspectRatio: '1 / 1', flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' /* same corners as post-card art */ }}>
           {playingSrc ? (
             <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
@@ -1301,7 +1318,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           )}
         </div>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.zlabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: d.zlabelMb, flexShrink: 0 }}>Post description</div>
+          <div style={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: d.postLabelMb, flexShrink: 0 }}>Post title</div>
           {note ? (
             <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
               style={{ fontSize: d.descSize, lineHeight: d.descLh, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: 0, flex: '0 1 auto', overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
@@ -1312,25 +1329,30 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
       </div>
 
       {/* bottom row: badges, artist/title, metaline and the big post number
-          under them ("lower orientation" numeral) | tracklist */}
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 24, marginTop: 24 }}>
-        <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flexShrink: 0 }}>
+          under them ("lower orientation" numeral) | tracklist. The badges
+          get a grid row of their own so the tracklist starts level with the
+          artist name, not the badges (gabriel, 2026-10-01). */}
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: albumCols, gridTemplateRows: 'auto minmax(0, 1fr)', columnGap: ALBUM_COL_GAP, marginTop: 24 }}>
+          <div style={{ gridColumn: 1, gridRow: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{post.post_type || 'album'}</span>
             {playingPlatform && <a href={playingHref || undefined} target="_blank" rel="noopener noreferrer" style={{ ...badge, background: PLATFORM_COLORS[playingPlatform] || '#444', color: playingPlatform === 'beatport' ? '#000' : '#fff' }}>{playingPlatform}</a>}
             <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
             {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
           </div>
+        <div style={{ gridColumn: 1, gridRow: 2, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>{[label, catNo, post.year].filter(Boolean).join(' · ')}</div>
           <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: 12, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
             {String(post.id).padStart(2, '0')}
           </div>
+          {/* Line under the big number — the single card's solid rule under
+              its plate, same height, colour and spacing (gabriel, 2026-10-01). */}
+          <div style={{ height: 1, background: 'var(--lv-line)', margin: `${d.ruleSolidMy}px 0`, flexShrink: 0 }} />
         </div>
 
         <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
-          style={{ minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 18, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
+          style={{ gridColumn: 2, gridRow: 2, marginTop: d.artistMt /* same as the artist name's */, minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 18, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
           {trackCol(indexed.slice(0, half))}
           {trackCol(indexed.slice(half))}
         </div>

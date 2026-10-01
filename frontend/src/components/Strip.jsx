@@ -179,7 +179,7 @@ export default function Strip({ activeView }) {
           fills the rail's corner cut-outs. LayoutProvider no longer moves
           its left; it hides it once fully under (raw = 1). The old 1px
           edge line is gone (the feed cards have none either). */}
-      <div ref={secondaryStripRef} style={{ position:'absolute', left:0, right:0, top:0, bottom:0, zIndex:-1, background:'var(--theme-dark2)', borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS, transition:'background 0.8s', overflow:'hidden' }}>
+      <div ref={secondaryStripRef} style={{ position:'absolute', left:0, right:0, top:0, bottom:0, zIndex:-1, background:'var(--theme-channel, var(--theme-dark2))', borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS, transition:'background 0.8s', overflow:'hidden' }}>
         {/* The landing clock's twin (gabriel, 2026-09-30: the clock should
             stay visible until it goes under the WHITE rail). The real clock
             (FeedIntro) is covered by this zone as it scrolls left; this copy

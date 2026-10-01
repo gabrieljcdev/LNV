@@ -2,12 +2,15 @@
 // 8 palettes cycling through 24 hours, 3 hours each.
 // Contrast accent on showcase cards during daylight (06:00–21:00).
 // Tonal only during night (21:00–06:00).
+// `channel` (optional): the strip's second zone, where the F logo sits —
+// dark2 unless a palette sets its own. Morning keeps the muted olive its
+// load cover shows (gabriel, 2026-10-01).
 
 export const PALETTES = [
   { name:'Deep Night',   slot:'00:00', isDark:true,  bg:'#08090B', sidebar:'#08090B', dark1:'#08090B', dark2:'#17191D', dark3:'#2B2F36', light1:'#6B7380', light2:'#F2F4F7', showcase:'#2B2F36', accent:'#6B7380' },
   { name:'Pre-dawn',     slot:'03:00', isDark:true,  bg:'#0A0D14', sidebar:'#0C0F18', dark1:'#0A0D14', dark2:'#141C2A', dark3:'#1A2230', light1:'#1E2535', light2:'#1E2535', showcase:'#1E2535', accent:'#404C70' },
   { name:'First Light',  slot:'06:00', isDark:false, bg:'#DCE8F0', sidebar:'#EDF4F8', dark1:'#12304A', dark2:'#1E4060', dark3:'#BACED8', light1:'#EAF2F8', light2:'#EDF4F8', showcase:'#1A4A6B', accent:'#1A4A6B' },
-  { name:'Morning',      slot:'09:00', isDark:false, bg:'#E4E0D6', sidebar:'#F0EDE4', dark1:'#1C2E1E', dark2:'#2C4A2E', dark3:'#B8C4B0', light1:'#EAE6DC', light2:'#F0EDE4', showcase:'#2C4A2E', accent:'#2C4A2E' },
+  { name:'Morning',      slot:'09:00', isDark:false, bg:'#E4E0D6', sidebar:'#F0EDE4', dark1:'#1C2E1E', dark2:'#2C4A2E', dark3:'#B8C4B0', light1:'#EAE6DC', light2:'#F0EDE4', showcase:'#2C4A2E', accent:'#2C4A2E', channel:'#B8C4B0' },
   { name:'Midday',       slot:'12:00', isDark:false, bg:'#FFEA61', sidebar:'#FFEA61', dark1:'#8B1A1A', dark2:'#C0392B', dark3:'#E05020', light1:'#FF8C00', light2:'#FFC300', showcase:'#8B1A1A', accent:'#8B1A1A' },
   { name:'Afternoon',    slot:'15:00', isDark:false, bg:'#E8E2D8', sidebar:'#F5F0E8', dark1:'#1A1612', dark2:'#2E2820', dark3:'#D4CEC4', light1:'#EDE8DF', light2:'#F5F0E8', showcase:'#C4391A', accent:'#C4391A' },
   { name:'Evening',      slot:'18:00', isDark:true,  bg:'#2A1A4E', sidebar:'#3C2967', dark1:'#2A1A4E', dark2:'#C3005D', dark3:'#FD9367', light1:'#FDCD63', light2:'#FDCD63', showcase:'#782D65', accent:'#C3005D' },
@@ -34,6 +37,7 @@ export function applyPalette(idx) {
   r.setProperty('--theme-dark1',    p.dark1);
   r.setProperty('--theme-dark2',    p.dark2);
   r.setProperty('--theme-dark3',    p.dark3);
+  r.setProperty('--theme-channel',  p.channel || p.dark2);
   r.setProperty('--theme-light1',   p.light1);
   r.setProperty('--theme-light2',   p.light2);
   r.setProperty('--theme-showcase', p.showcase);
