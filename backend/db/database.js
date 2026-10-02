@@ -193,6 +193,58 @@ const migrations = [
   // A track's own player (2026-10-02): Bandcamp tracks can't be embedded
   // from their page URL — the player needs the track id.
   'ALTER TABLE post_tracks ADD COLUMN embed_url TEXT',
+  // Channel crawler (2026-10-02): every upload of a spotlighted YouTube
+  // channel, collected 50 per request (1 quota unit) in the background.
+  // next_page = where the backfill resumes; backfill_done once the oldest
+  // upload is in; refreshed_at = last check for new uploads.
+  `CREATE TABLE IF NOT EXISTS yt_channels (
+    channel_id TEXT PRIMARY KEY,
+    uploads_id TEXT NOT NULL,
+    title TEXT,
+    thumb TEXT,
+    total INTEGER,
+    next_page TEXT,
+    backfill_done INTEGER NOT NULL DEFAULT 0,
+    refreshed_at TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS yt_channel_videos (
+    video_id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    title TEXT,
+    published_at TEXT,
+    thumb TEXT
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_yt_channel_videos ON yt_channel_videos(channel_id, published_at)',
+  // Catalogue crawler (2026-10-02): a label's / artist's whole Discogs
+  // release list, collected page by page for the spotlight (discogsService
+  // getCataloguePage). One row per release or master; roles merged.
+  `CREATE TABLE IF NOT EXISTS discogs_catalogue (
+    kind TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    item_type TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    title TEXT,
+    year INTEGER,
+    role TEXT,
+    thumb TEXT,
+    artist TEXT,
+    label TEXT,
+    format TEXT,
+    catno TEXT,
+    main_release INTEGER,
+    PRIMARY KEY (kind, entity_id, item_type, item_id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_discogs_catalogue_year ON discogs_catalogue(kind, entity_id, year)',
+  `CREATE TABLE IF NOT EXISTS discogs_catalogue_crawl (
+    kind TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    total INTEGER,
+    pages INTEGER,
+    next_page INTEGER NOT NULL DEFAULT 1,
+    done INTEGER NOT NULL DEFAULT 0,
+    crawled_at TEXT,
+    PRIMARY KEY (kind, entity_id)
+  )`,
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

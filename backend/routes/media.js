@@ -1,6 +1,6 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl } from '../services/discogsService.js';
+import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl, catalogueCandidates } from '../services/discogsService.js';
 import { getChannelUploads, extractVideoId } from '../services/youtubeService.js';
 
 const router = express.Router();
@@ -368,6 +368,31 @@ function toLookupRelease(release, result = {}) {
   };
 }
 
+// The crawled catalogues' releases whose title agrees with `title` both ways
+// and whose artist agrees (or, with no artist, whose label does); the full
+// release (cached) must then pass isPlausibleMatch like any search hit.
+async function localCatalogueMatch(artist, title, labels = []) {
+  try {
+    const want = cleanForSearch(title).toLowerCase();
+    const rows = catalogueCandidates(want)
+      .filter(r => namesAgree(title, r.title, 1) && namesAgree(r.title, title, 0.67))
+      .filter(r => !artist || !r.artist || namesAgree(artist, r.artist) || /^various/i.test(r.artist))
+      // exact titles first
+      .sort((a, b) => Number(squash(b.title) === squash(title)) - Number(squash(a.title) === squash(title)));
+    const seen = new Set();
+    for (const r of rows) {
+      if (seen.has(r.releaseId) || seen.size >= 3) continue;
+      seen.add(r.releaseId);
+      const raw = await discogsRelease(r.releaseId);
+      const rel = raw && toLookupRelease(raw);
+      if (!rel) continue;
+      const ok = artist ? isPlausibleMatch(rel, artist, title) : labels.some(l => namesAgree(l, rel.label)) && isPlausibleMatch(rel, '', title);
+      if (ok) return { ...rel, all_releases: null };
+    }
+  } catch { /* fall through to search */ }
+  return null;
+}
+
 /**
  * Attempt a Discogs reverse-lookup for a non-live result.
  * Returns partial release data (plus up to 4 alternates) or null.
@@ -382,6 +407,10 @@ function toLookupRelease(release, result = {}) {
  */
 export async function tryDiscogsLookup(artist, title, { labels = [] } = {}) {
   if (!title || (!artist && !labels.length)) return null;
+  // DB first (2026-10-02): releases the catalogue crawler already collected
+  // answer without a search call. Same plausibility rules as a search hit.
+  const local = await localCatalogueMatch(artist, title, labels);
+  if (local) return local;
   try {
     // Search results (up to 20), not just the first
     // "Flight.Dam" -> "Flight Dam": Discogs search treats the glued pair as one word.
@@ -567,6 +596,9 @@ async function resolveYouTube(url) {
       postType = detectPostType({ platform: 'youtube', duration, title: rawTitle, tags, description, tracks: discogsData.tracks, catNo: discogsData.catNo });
     }
   }
+  // A set always knows its channel: the uploader, when the title didn't name
+  // one ("Surgeon - Live at …"). Channel spotlights group sets by it.
+  if (postType === 'livemix' && !channel) channel = channelTitle.replace(/ - Topic$/, '') || null;
   if (postType === 'livemix' && genres.length <= 1 && artists.length > 0) {
     const dResult = await discogsSearch(artists[0].name);
     if (dResult?.genre?.length) genres = [...new Set([...genres, ...dResult.genre])];
@@ -2077,7 +2109,7 @@ router.get('/resolve', async (req, res) => {
   }
 });
 
-// GET /api/media/channel-uploads?videoUrl=<any video from the channel>&limit=24
+// GET /api/media/channel-uploads?videoUrl=<any video from the channel>&offset=0&limit=100&q=
 //
 // The channel spotlight's catalogue source. Artists and labels resolve their
 // back catalogue through Discogs (/api/discogs/artist|label/:id/releases);
@@ -2091,12 +2123,13 @@ router.get('/resolve', async (req, res) => {
 // cost 100 quota units and still be a guess. Any post from the channel gives
 // an exact answer for 3.
 router.get('/channel-uploads', async (req, res) => {
-  const { videoUrl, limit } = req.query;
+  // offset/limit page through the crawled uploads; q filters by title.
+  const { videoUrl, offset, limit, q } = req.query;
   if (!videoUrl) return res.status(400).json({ error: 'videoUrl query param required' });
   const videoId = extractVideoId(videoUrl);
   if (!videoId) return res.status(400).json({ error: 'Not a YouTube URL', videoUrl });
   try {
-    res.json(await getChannelUploads(videoId, limit));
+    res.json(await getChannelUploads(videoId, { offset, limit, q }));
   } catch (err) {
     console.error('[media/channel-uploads]', err.message);
     res.status(502).json({ error: err.message });

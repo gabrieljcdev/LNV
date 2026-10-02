@@ -14,6 +14,8 @@ import mediaRoutes from './routes/media.js';
 import authRoutes from './routes/auth.js';
 import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
+import { startCatalogueKeeper } from './services/discogsService.js';
+import { startChannelKeeper } from './services/youtubeService.js';
 
 dotenv.config();
 const app = express();
@@ -43,4 +45,7 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
   startDiscogsMatcher();
+  // Fill the Discogs catalogues and YouTube channels in quiet moments.
+  startCatalogueKeeper();
+  startChannelKeeper();
 });

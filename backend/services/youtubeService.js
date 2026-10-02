@@ -177,60 +177,174 @@ export function extractVideoId(url) {
   return (url || '').match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] || null;
 }
 
-/**
- * Uploads for the channel that published `videoId`.
- * Returns { channel: { id, title, thumb }, releases: [...], pagination: { items } }.
- */
-export async function getChannelUploads(videoId, limit = 24) {
-  const max = Math.min(Math.max(Number(limit) || 24, 1), 50); // playlistItems caps at 50
-  const cacheKey = `channel-uploads:${videoId}:${max}`;
-  const cached = getChannelCached(cacheKey);
-  if (cached) return cached;
+// ─── Channel crawler ──────────────────────────────────────────────────────────
+// gabriel, 2026-10-02: HÖR has 10,194 uploads and the spotlight showed the
+// newest 24. Every upload of a spotlighted channel is now collected into
+// yt_channel_videos: the uploads playlist, 50 per request at 1 quota unit
+// each (HÖR ≈ 204 units, once), in the background and under the daily cap
+// (spendQuota) — a crawl cut off by the cap resumes from next_page next time
+// the channel is asked for. Once the backfill is done, a refresh every 12h
+// reads from the newest end until it meets a video it already has.
 
-  // 1 unit — the video tells us which channel it belongs to, exactly.
+const CRAWL_GAP_MS = 150;
+const REFRESH_EVERY_MS = 12 * 60 * 60 * 1000;
+const crawling = new Set();
+
+const channelRow = id => db.prepare('SELECT * FROM yt_channels WHERE channel_id = ?').get(id);
+const videoCount = id => db.prepare('SELECT COUNT(*) c FROM yt_channel_videos WHERE channel_id = ?').get(id).c;
+
+// The channel a video belongs to: already crawled -> free; else 2 units.
+async function ensureChannel(videoId) {
+  const known = db.prepare('SELECT channel_id FROM yt_channel_videos WHERE video_id = ?').get(videoId);
+  if (known) { const row = channelRow(known.channel_id); if (row) return row; }
+
+  if (!spendQuota(2)) throw new Error('Daily YouTube quota reached — try again tomorrow');
   const vid = await ytApi('videos', { part: 'snippet', id: videoId });
-  const snippet = vid.items?.[0]?.snippet;
-  if (!snippet) throw new Error(`Video ${videoId} not found`);
-  const channelId = snippet.channelId;
-
-  // 1 unit — every channel has an auto-maintained "uploads" playlist.
-  const ch = await ytApi('channels', { part: 'contentDetails,snippet', id: channelId });
-  const chItem = ch.items?.[0];
-  const uploadsId = chItem?.contentDetails?.relatedPlaylists?.uploads;
+  const channelId = vid.items?.[0]?.snippet?.channelId;
+  if (!channelId) throw new Error(`Video ${videoId} not found`);
+  const existing = channelRow(channelId);
+  if (existing) return existing;
+  const ch = await ytApi('channels', { part: 'contentDetails,snippet,statistics', id: channelId });
+  const item = ch.items?.[0];
+  const uploadsId = item?.contentDetails?.relatedPlaylists?.uploads;
   if (!uploadsId) throw new Error(`No uploads playlist for channel ${channelId}`);
+  db.prepare('INSERT OR IGNORE INTO yt_channels (channel_id, uploads_id, title, thumb, total) VALUES (?, ?, ?, ?, ?)')
+    .run(channelId, uploadsId, item.snippet?.title || '', item.snippet?.thumbnails?.default?.url || null, Number(item.statistics?.videoCount) || null);
+  return channelRow(channelId);
+}
 
-  // 1 unit — newest first, which is what playlistItems returns for uploads.
-  const pl = await ytApi('playlistItems', { part: 'snippet,contentDetails', playlistId: uploadsId, maxResults: String(max) });
+// One page of the uploads playlist into yt_channel_videos.
+// -> { added, known, nextPageToken } or null when out of quota.
+// The background crawl stops at this share of the daily cap, so the
+// expensive track searches (100 units each) always keep their budget.
+const CRAWL_QUOTA_SHARE = 0.6;
 
-  const releases = (pl.items || []).map(it => {
+async function crawlPage(row, pageToken, { background = true } = {}) {
+  if (background && quotaUsed() >= dailyCap() * CRAWL_QUOTA_SHARE) return null;
+  if (!spendQuota(1)) return null;
+  const params = { part: 'snippet,contentDetails', playlistId: row.uploads_id, maxResults: '50' };
+  if (pageToken) params.pageToken = pageToken;
+  const pl = await ytApi('playlistItems', params);
+  const ins = db.prepare('INSERT OR IGNORE INTO yt_channel_videos (video_id, channel_id, title, published_at, thumb) VALUES (?, ?, ?, ?, ?)');
+  let added = 0, known = 0;
+  for (const it of pl.items || []) {
     const s = it.snippet || {};
-    const publishedAt = it.contentDetails?.videoPublishedAt || s.publishedAt || '';
-    return {
-      // `id` is the VIDEO id (a string), not a Discogs numeric id — the
-      // frontend keys and on-site matching both treat it as opaque.
-      id: it.contentDetails?.videoId || s.resourceId?.videoId || null,
-      title: s.title || '',
-      year: publishedAt ? Number(publishedAt.substring(0, 4)) : null,
-      thumb: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || null,
-      url: (it.contentDetails?.videoId || s.resourceId?.videoId)
-        ? `https://www.youtube.com/watch?v=${it.contentDetails?.videoId || s.resourceId?.videoId}`
-        : null,
-    };
-  }).filter(r => r.id);
+    const id = it.contentDetails?.videoId || s.resourceId?.videoId;
+    if (!id) continue;
+    // Deleted/private uploads stay in the playlist with a placeholder title.
+    if (/^(Deleted|Private) video$/i.test(s.title || '')) continue;
+    const r = ins.run(id, row.channel_id, s.title || '', it.contentDetails?.videoPublishedAt || s.publishedAt || null,
+      s.thumbnails?.medium?.url || s.thumbnails?.default?.url || null);
+    if (r.changes) added++; else known++;
+  }
+  if (pl.pageInfo?.totalResults) db.prepare('UPDATE yt_channels SET total = ? WHERE channel_id = ?').run(pl.pageInfo.totalResults, row.channel_id);
+  return { added, known, nextPageToken: pl.nextPageToken || null };
+}
 
-  const out = {
-    channel: {
-      id: channelId,
-      title: chItem?.snippet?.title || snippet.channelTitle || '',
-      thumb: chItem?.snippet?.thumbnails?.default?.url || null,
-    },
-    releases,
-    // Total uploads on the channel, not just the page we fetched — matches
-    // what the Discogs endpoints report in pagination.items.
-    pagination: { items: pl.pageInfo?.totalResults ?? releases.length, perPage: max },
+const markBackfill = (channelId, token) => {
+  db.prepare('UPDATE yt_channels SET next_page = ?, backfill_done = ? WHERE channel_id = ?').run(token, token ? 0 : 1, channelId);
+  if (!token) db.prepare("UPDATE yt_channels SET refreshed_at = datetime('now') WHERE channel_id = ?").run(channelId);
+};
+
+// Background: new uploads first (refresh), then the rest of the backfill.
+async function crawlChannel(channelId) {
+  if (crawling.has(channelId)) return;
+  crawling.add(channelId);
+  try {
+    let row = channelRow(channelId);
+    const stale = !row.refreshed_at || Date.now() - new Date(`${row.refreshed_at}Z`).getTime() > REFRESH_EVERY_MS;
+    if (row.backfill_done && stale) {
+      let token = null;
+      for (;;) {
+        const page = await crawlPage(row, token);
+        if (!page) return;
+        // Met uploads we already have: everything newer is in.
+        if (page.known > 0 || !page.nextPageToken) break;
+        token = page.nextPageToken;
+        await new Promise(r => setTimeout(r, CRAWL_GAP_MS));
+      }
+      db.prepare("UPDATE yt_channels SET refreshed_at = datetime('now') WHERE channel_id = ?").run(channelId);
+    }
+    row = channelRow(channelId);
+    while (!row.backfill_done) {
+      const page = await crawlPage(row, row.next_page);
+      if (!page) return; // daily cap — resumes from next_page next time
+      markBackfill(channelId, page.nextPageToken);
+      row = channelRow(channelId);
+      await new Promise(r => setTimeout(r, CRAWL_GAP_MS));
+    }
+  } catch (err) {
+    console.error('[channel crawl]', channelId, err.message);
+  } finally {
+    crawling.delete(channelId);
+  }
+}
+
+/**
+ * Keeps channel crawls going without being asked: at startup and hourly,
+ * every channel already known resumes its backfill / gets its 12-hourly
+ * refresh, and every YouTube live set posted whose channel isn't known yet
+ * is looked up (2 units) and crawled. All under the crawl's quota share.
+ */
+export function startChannelKeeper() {
+  const sweep = async () => {
+    try {
+      for (const { channel_id } of db.prepare('SELECT channel_id FROM yt_channels').all()) await crawlChannel(channel_id);
+      const sets = db.prepare("SELECT stream_url FROM posts WHERE post_type = 'livemix' AND stream_url LIKE '%youtu%'").all();
+      for (const { stream_url } of sets) {
+        const vid = extractVideoId(stream_url);
+        if (!vid || db.prepare('SELECT 1 FROM yt_channel_videos WHERE video_id = ?').get(vid)) continue;
+        if (quotaUsed() >= dailyCap() * CRAWL_QUOTA_SHARE) break;
+        const row = await ensureChannel(vid).catch(() => null);
+        if (row) await crawlChannel(row.channel_id);
+      }
+    } catch (err) {
+      console.error('[channel keeper]', err.message);
+    }
   };
-  setChannelCache(cacheKey, out);
-  return out;
+  setTimeout(sweep, 20000);
+  setInterval(sweep, 60 * 60 * 1000);
+}
+
+/**
+ * A page of a channel's uploads from the crawl, newest first, optionally
+ * filtered by title. Starts (or resumes) the crawl in the background; the
+ * very first call for a channel waits for its first 50 so the card isn't
+ * empty. Same shape as the Discogs catalogue endpoints, plus `crawl`.
+ */
+export async function getChannelUploads(videoId, { offset = 0, limit = 100, q = '' } = {}) {
+  const row = await ensureChannel(videoId);
+  if (videoCount(row.channel_id) === 0 && !row.backfill_done && !crawling.has(row.channel_id)) {
+    // Someone is looking at this card: the first page isn't held to the crawl's quota share.
+    const page = await crawlPage(row, null, { background: false });
+    if (page) markBackfill(row.channel_id, page.nextPageToken);
+  }
+  crawlChannel(row.channel_id); // not awaited
+
+  const lim = Math.min(Math.max(Number(limit) || 100, 1), 200);
+  const off = Math.max(Number(offset) || 0, 0);
+  const term = String(q || '').trim().toLowerCase();
+  // instr() rather than LIKE: no wildcard escaping to get wrong.
+  const where = term ? 'channel_id = ? AND instr(lower(title), ?) > 0' : 'channel_id = ?';
+  const args = term ? [row.channel_id, term] : [row.channel_id];
+  const matched = db.prepare(`SELECT COUNT(*) c FROM yt_channel_videos WHERE ${where}`).get(...args).c;
+  const rows = db.prepare(`SELECT * FROM yt_channel_videos WHERE ${where} ORDER BY published_at DESC LIMIT ? OFFSET ?`).all(...args, lim, off);
+  const fresh = channelRow(row.channel_id);
+  const have = videoCount(row.channel_id);
+
+  return {
+    channel: { id: fresh.channel_id, title: fresh.title, thumb: fresh.thumb },
+    releases: rows.map(v => ({
+      // `id` is the VIDEO id (a string) — the frontend treats it as opaque.
+      id: v.video_id,
+      title: v.title,
+      year: v.published_at ? Number(v.published_at.slice(0, 4)) : null,
+      thumb: v.thumb,
+      url: `https://www.youtube.com/watch?v=${v.video_id}`,
+    })),
+    pagination: { items: fresh.total || have, offset: off, limit: lim, matched },
+    crawl: { have, total: fresh.total || have, done: !!fresh.backfill_done, running: crawling.has(row.channel_id) },
+  };
 }
 
 // ─── Track search (YouTube Data API search.list) ──────────────────────────────
@@ -292,6 +406,23 @@ export async function searchTrackVideo(artist, trackTitle, { label = '' } = {}) 
     if (age < (row.youtube_url ? SEARCH_HIT_TTL : SEARCH_MISS_TTL)) {
       return { youtube_url: row.youtube_url, youtube_title: row.youtube_title, cached: true };
     }
+  }
+
+  // DB first (2026-10-02): uploads the channel crawler already collected.
+  // Scored like a real search result (the channel title stands in for
+  // snippet.channelTitle); a hit costs no quota at all.
+  const local = db.prepare(`SELECT v.video_id, v.title, c.title channel FROM yt_channel_videos v
+                            JOIN yt_channels c ON c.channel_id = v.channel_id
+                            WHERE instr(lower(v.title), ?) > 0 LIMIT 50`).all(title.toLowerCase());
+  let localBest = null, localScore = -Infinity;
+  for (const v of local) {
+    const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a);
+    if (sc > localScore) { localScore = sc; localBest = v; }
+  }
+  if (localBest && localScore >= (a ? 65 : 30)) {
+    const url = `https://www.youtube.com/watch?v=${localBest.video_id}`;
+    setCache(cacheKey, url, localBest.title);
+    return { youtube_url: url, youtube_title: localBest.title, cached: false, local: true };
   }
 
   if (!spendQuota(SEARCH_COST)) return { youtube_url: null, youtube_title: null, capped: true };

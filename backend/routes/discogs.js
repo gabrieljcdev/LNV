@@ -1,5 +1,5 @@
 import express from 'express';
-import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, getArtistReleases, getLabelReleases, resolveDiscogsUrl, getCovers, getReleaseInfo } from '../services/discogsService.js';
+import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDiscogsUrl, getCovers, getReleaseInfo, getCataloguePage } from '../services/discogsService.js';
 import { searchTrackVideo } from '../services/youtubeService.js';
 import db from '../db/database.js';
 
@@ -30,7 +30,7 @@ router.get('/covers', (req, res) => {
 // without them (masters; ids are their main release). Same slow background
 // queue as /covers — poll until pending is 0.
 router.get('/release-info', (req, res) => {
-  const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 60);
+  const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 300);
   res.json(getReleaseInfo(ids));
 });
 
@@ -93,25 +93,20 @@ router.get('/label/:id', async (req, res, next) => {
 // when they have no prior LNV posts. Summary only — no tracklist/videos;
 // the frontend fetches a specific release's full detail via
 // GET /discogs/release/:id, lazily, only once the user clicks one.
-router.get('/artist/:id/releases', async (req, res, next) => {
-  try {
-    const page = Number(req.query.page) || 1;
-    const releases = await getArtistReleases(Number(req.params.id), page);
-    res.json(releases);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get('/label/:id/releases', async (req, res, next) => {
-  try {
-    const page = Number(req.query.page) || 1;
-    const releases = await getLabelReleases(Number(req.params.id), page);
-    res.json(releases);
-  } catch (err) {
-    next(err);
-  }
-});
+// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=
+// The WHOLE catalogue, crawled in the background (getCataloguePage) and
+// served from the DB in pages, newest year first; q filters title / artist
+// / catno. `crawl` says how much has been collected so far.
+for (const kind of ['artist', 'label']) {
+  router.get(`/${kind}/:id/releases`, async (req, res, next) => {
+    try {
+      const { offset, limit, q } = req.query;
+      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q }));
+    } catch (err) {
+      next(err);
+    }
+  });
+}
 
 // GET /api/discogs/youtube/search?artist=&title=&label=
 // One track -> best YouTube video. Used by ComposeModal for tracklist rows

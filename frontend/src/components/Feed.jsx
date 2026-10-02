@@ -1654,19 +1654,45 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const rowRefs = useRef(new Map())
   const rowKeyOf = r => `${r.type || 'release'}:${r.id}`
 
-  const { data: catalogue } = useQuery({
-    queryKey: ['spotlight-catalogue', type, catalogueKey],
-    queryFn: async () => {
+  // The WHOLE catalogue (2026-10-02), crawled by the backend — a label's or
+  // artist's Discogs releases (getCataloguePage), a channel's YouTube
+  // uploads (getChannelUploads) — 100 at a time as the list scrolls,
+  // narrowed by the search box, and re-asked every 6s while the crawl is
+  // still collecting.
+  const [catalogueQuery, setCatalogueQuery] = useState('')
+  const [catalogueFilter, setCatalogueFilter] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setCatalogueFilter(catalogueQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [catalogueQuery])
+  const cataloguePages = useInfiniteQuery({
+    queryKey: ['spotlight-catalogue', type, catalogueKey, catalogueFilter],
+    queryFn: async ({ pageParam }) => {
+      const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q: catalogueFilter })
       const url = type === 'channel'
-        ? `${API}/media/channel-uploads?videoUrl=${encodeURIComponent(channelVideoUrl)}&limit=24`
-        : `${API}/discogs/${type}/${catalogueKey}/releases`
+        ? `${API}/media/channel-uploads?videoUrl=${encodeURIComponent(channelVideoUrl)}&${qs}`
+        : `${API}/discogs/${type}/${catalogueKey}/releases?${qs}`
       const res = await fetch(url)
-      if (!res.ok) return null
-      return res.json()
+      return res.ok ? res.json() : null
+    },
+    initialPageParam: 0,
+    getNextPageParam: last => {
+      if (!last) return undefined
+      const next = last.pagination.offset + last.releases.length
+      return next < last.pagination.matched ? next : undefined
     },
     enabled: hasCatalogue,
     staleTime: Infinity,
+    refetchInterval: q => (q.state.data?.pages?.[0]?.crawl?.done === false ? 6000 : false),
   })
+  const catalogueFirst = cataloguePages.data?.pages?.[0]
+  const catalogueCrawl = catalogueFirst?.crawl || null
+  // One `catalogue` shape for all three types from here on.
+  const catalogue = cataloguePages.data === undefined
+    ? undefined
+    : catalogueFirst
+      ? { channel: catalogueFirst.channel, releases: cataloguePages.data.pages.flatMap(p => p?.releases || []), pagination: catalogueFirst.pagination }
+      : null
 
   // Catalogue entries already posted to LNV sort to the top, ahead of
   // everything not yet uploaded. For artists/labels that's a Discogs release
@@ -1947,6 +1973,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
   const count = hasCatalogue && catalogue ? (catalogue.pagination?.items ?? rows.length) : rows.length
   const STRIP_H = 240
+  // What a catalogue entry is called, and when the list gets a search box.
+  const itemWord = type === 'channel' ? 'uploads' : 'releases'
+  const bigCatalogue = hasCatalogue && (catalogue?.pagination?.items || 0) > 100
   // type tag · title (+ the record's artist) · role pill (artists only) · label/artist
   const hasRoles = rows.some(r => r.group)
   const COLS = hasRoles ? '54px minmax(0, 1.5fr) 84px minmax(0, 1fr)' : '54px minmax(0, 1.5fr) minmax(0, 1fr)'
@@ -1988,7 +2017,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       </div>
       <div style={{ flexShrink: 0, marginTop: T.metalineMt, fontFamily: T.monoFf, fontSize: T.metalineSize, lineHeight: T.metalineLh, letterSpacing: `${T.metalineLs}em`, textTransform: 'uppercase', color: textSec }}>
         {hasCatalogue
-          ? (catalogue === undefined ? `${postsLine} · pulling the ${catalogueSource} catalogue…` : `${postsLine} · ${count} on ${catalogueSource}`)
+          ? (catalogue === undefined ? `${postsLine} · pulling the ${catalogueSource} catalogue…`
+            : catalogueCrawl && !catalogueCrawl.done ? `${postsLine} · collecting ${itemWord}: ${catalogueCrawl.have.toLocaleString('en-GB')} of ${catalogueCrawl.total.toLocaleString('en-GB')}`
+            : `${postsLine} · ${count.toLocaleString('en-GB')} on ${catalogueSource}`)
           : postsLine}
       </div>
 
@@ -2020,11 +2051,33 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       </div>
 
       {/* index — grouped by year (mockup E, 2026-10-02) */}
-      {/* 10px of room each side so the rows' rounded hover isn't clipped. */}
-      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, margin: '18px -10px 0', padding: '0 10px', overflowY: 'auto', overflowX: 'hidden', ...INNER_SCROLL_STYLE }}>
+      {/* Catalogue search — a channel or label can run to thousands of
+          entries (HÖR: 10,000+ uploads). Drawer-style pill box; filters the
+          crawled titles (plus artist and catno for Discogs). */}
+      {bigCatalogue && (
+        <label style={{ flexShrink: 0, marginTop: 18, display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${divider}`, borderRadius: 99, padding: '6px 14px' }}>
+          <span aria-hidden="true" style={{ ...monoText, color: textTer }}>⌕</span>
+          <input id={`catalogue-search-${String(cardKey).replace(/[^\w-]+/g, '-')}`} value={catalogueQuery} onChange={e => setCatalogueQuery(e.target.value)}
+            placeholder={`Search ${count.toLocaleString('en-GB')} ${itemWord}`} aria-label={`Search this ${type}'s ${itemWord}`}
+            style={{ border: 0, outline: 0, background: 'none', flex: 1, minWidth: 0, fontFamily: T.bodyFf, fontSize: T.trackSize, color: textPri }} />
+          {catalogueFilter && catalogue && (
+            <span style={{ ...monoText, color: textTer, flexShrink: 0 }}>{catalogue.pagination.matched.toLocaleString('en-GB')} found</span>
+          )}
+        </label>
+      )}
+      {/* 10px of room each side so the rows' rounded hover isn't clipped.
+          The next 100 entries load as the list nears the bottom. */}
+      <div ref={listRef} data-inner-scroll=""
+        onScroll={hasCatalogue ? e => {
+          const el = e.currentTarget
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 400 && cataloguePages.hasNextPage && !cataloguePages.isFetchingNextPage) cataloguePages.fetchNextPage()
+        } : undefined}
+        style={{ flex: 1, minHeight: 0, margin: `${bigCatalogue ? 12 : 18}px -10px 0`, padding: '0 10px', overflowY: 'auto', overflowX: 'hidden', ...INNER_SCROLL_STYLE }}>
         {rows.length === 0 && (
           <div style={{ padding: '24px 0', textAlign: 'center', ...msgText }}>
-            {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : `nothing found on ${catalogueSource}`}
+            {hasCatalogue && catalogue === undefined ? 'fetching catalogue…'
+              : catalogueFilter ? `no ${itemWord} match “${catalogueFilter}”${catalogueCrawl && !catalogueCrawl.done ? ' yet — still collecting' : ''}`
+              : `nothing found on ${catalogueSource}`}
           </div>
         )}
         {rows.map((r, idx) => {
@@ -2114,6 +2167,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
             </div>
           )
         })}
+        {hasCatalogue && cataloguePages.hasNextPage && (
+          <div style={{ padding: '14px 0', textAlign: 'center', ...msgText }}>{cataloguePages.isFetchingNextPage ? 'loading more…' : 'scroll for more'}</div>
+        )}
       </div>
 
       {/* cta row — unchanged behaviour: "+ add to feed" for an open
@@ -2196,10 +2252,20 @@ function buildSpotlightPool(posts) {
       if (discogsArtistId) pool.push({ type: 'artist', name, posts: ps, unknown: true, discogsArtistId })
     }
   }
-  for (const [name, ps] of byLabel)   if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'label',   name, posts: ps })
-  for (const [name, ps] of byChannel) if (ps.length >= SPOTLIGHT_MIN_POSTS) pool.push({ type: 'channel', name, posts: ps })
-  // TEMP (2026-08-26) — see PLACEHOLDER_CHANNEL_POSTS' comment above.
-  pool.push({ type: 'channel', name: PLACEHOLDER_CHANNEL_NAME, posts: PLACEHOLDER_CHANNEL_POSTS, isPlaceholder: true })
+  // Labels and channels crawl their catalogue the same way (gabriel,
+  // 2026-10-02): one post is enough when there's a catalogue to fill the
+  // card from — a label's Discogs id (its Discogs releases) or a channel's
+  // YouTube set (its channel uploads). Without one they still need
+  // SPOTLIGHT_MIN_POSTS posts of their own.
+  for (const [name, ps] of byLabel) {
+    if (ps.length >= SPOTLIGHT_MIN_POSTS || subjectDiscogsId({ type: 'label', name, posts: ps })) pool.push({ type: 'label', name, posts: ps })
+  }
+  for (const [name, ps] of byChannel) {
+    if (ps.length >= SPOTLIGHT_MIN_POSTS || subjectChannelVideoUrl({ type: 'channel', name, posts: ps })) pool.push({ type: 'channel', name, posts: ps })
+  }
+  // TEMP (2026-08-26) — see PLACEHOLDER_CHANNEL_POSTS' comment above. Only
+  // when there's no real channel to show.
+  if (!pool.some(s => s.type === 'channel')) pool.push({ type: 'channel', name: PLACEHOLDER_CHANNEL_NAME, posts: PLACEHOLDER_CHANNEL_POSTS, isPlaceholder: true })
   return pool
 }
 
