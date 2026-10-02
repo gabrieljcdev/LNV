@@ -1361,9 +1361,31 @@ async function resolveBandcamp(url) {
     ? `https://bandcamp.com/EmbeddedPlayer/${itemType === 'a' ? 'album' : 'track'}=${itemId}/size=large/bgcol=ffffff/linkcol=0687f5/minimal=true/transparent=true/`
     : null;
 
-  const titles = [...html.matchAll(/class="track-title">([^<]*)</g)].map(m => decodeHtml(m[1]).trim());
-  const times = [...html.matchAll(/<span class="time secondaryText">\s*([^<]*?)\s*<\/span>/g)].map(m => m[1]);
-  const bcTracks = titles.map((t, i) => ({ title: t, duration: times[i] || '', position: String(i + 1) }));
+  // Each track's own page + player (2026-10-02): the page's data-tralbum
+  // JSON lists every track with its id and /track/ link, so a tracklist row
+  // can swap the player to that track. Tracks Bandcamp won't stream
+  // (unreleased pre-order tracks: no file) get neither.
+  let tralbum = null;
+  try { tralbum = JSON.parse(decodeHtml(html.match(/data-tralbum="([^"]*)"/)?.[1] || '')); } catch { /* older page shape */ }
+  const origin = new URL(url).origin;
+  const bcPlayer = (kind, id) => `https://bandcamp.com/EmbeddedPlayer/${kind}=${id}/size=large/bgcol=ffffff/linkcol=0687f5/minimal=true/transparent=true/`;
+  let bcTracks;
+  if (tralbum?.trackinfo?.length) {
+    bcTracks = tralbum.trackinfo.map((t, i) => {
+      const playable = !!t.file && !!t.track_id;
+      return {
+        position: String(t.track_num || i + 1),
+        title: t.title || '',
+        duration: t.duration ? secondsToClock(Math.round(t.duration)) : '',
+        stream_url: playable ? (t.title_link ? origin + t.title_link : url) : '',
+        embed_url: playable ? bcPlayer('track', t.track_id) : '',
+      };
+    });
+  } else {
+    const titles = [...html.matchAll(/class="track-title">([^<]*)</g)].map(m => decodeHtml(m[1]).trim());
+    const times = [...html.matchAll(/<span class="time secondaryText">\s*([^<]*?)\s*<\/span>/g)].map(m => m[1]);
+    bcTracks = titles.map((t, i) => ({ title: t, duration: times[i] || '', position: String(i + 1) }));
+  }
   const year = html.match(/released [A-Za-z]+ \d{1,2}, (\d{4})/)?.[1] || null;
   const tags = [...html.matchAll(/class="tag"[^>]*>\s*([^<]+?)\s*</g)].map(m => decodeHtml(m[1]));
   // A track page names its album: "from <a ...><span class="fromAlbum">Album</span>"
@@ -1383,6 +1405,31 @@ async function resolveBandcamp(url) {
       catNo: parsed.catNo,
       uploader: account,
     });
+  }
+
+  // A Discogs tracklist wins (positions, credits), but keeps Bandcamp's
+  // per-track players: matched by title, word for word both ways.
+  if (discogsData?.tracks?.length && bcTracks.some(t => t.embed_url)) {
+    // Exact title first ("Different Nicky" must not take "Different Nicky
+    // (Alternative Version)"'s player), then loose; each Bandcamp track once.
+    const used = new Set();
+    const pick = t => {
+      const free = bcTracks.filter(b => b.embed_url && !used.has(b));
+      const bc = free.find(b => squash(b.title) === squash(t.title))
+        || free.find(b => namesAgree(t.title, b.title, 1) && namesAgree(b.title, t.title, 1));
+      if (bc) used.add(bc);
+      return bc;
+    };
+    const exactFirst = [...discogsData.tracks].sort((a, b) =>
+      Number(!bcTracks.some(x => squash(x.title) === squash(a.title))) - Number(!bcTracks.some(x => squash(x.title) === squash(b.title))));
+    const picked = new Map(exactFirst.map(t => [t, pick(t)]));
+    discogsData = {
+      ...discogsData,
+      tracks: discogsData.tracks.map(t => {
+        const bc = picked.get(t);
+        return bc ? { ...t, stream_url: bc.stream_url, embed_url: bc.embed_url } : t;
+      }),
+    };
   }
 
   const tagGenres = genresFromKeywords(tags.join(' '));

@@ -8,6 +8,7 @@ import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
+import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -250,6 +251,8 @@ function TrackPlayer({ src, onEnded, title, autoplay = false }) {
   const finalSrc = isYT
     ? `${src}${src.includes('?') ? '&' : '?'}enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}${autoplay ? '&autoplay=1' : ''}`
     : src
+  // A player started by a click (autoplay) stops every other one on the page.
+  useEffect(() => { if (autoplay) claimPlayback(ref.current) }, [finalSrc, autoplay])
   useEffect(() => {
     if (!isYT) return
     let cancelled = false
@@ -272,7 +275,8 @@ function TrackPlayer({ src, onEnded, title, autoplay = false }) {
 function toEmbedSrc(streamUrl) {
   if (!streamUrl) return null
   const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
-  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0&modestbranding=1&color=white`
+  // enablejsapi: lets playerGuard pause it when another player starts.
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0&modestbranding=1&color=white&enablejsapi=1`
   if (/soundcloud\.com/i.test(streamUrl)) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(streamUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true`
   if (/mixcloud\.com/i.test(streamUrl)) return `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(streamUrl.replace('https://www.mixcloud.com',''))}`
   return null
@@ -661,13 +665,18 @@ function PostCard({ post, cardBg, d, onEdit }) {
   // Bandcamp's player can't be built from the page URL (it needs the album/
   // track id), so it's the embed_url the resolver saved with the post. The
   // size=large/minimal=true player is the square artwork with a play button.
-  const bcEmbed = /bandcamp\.com/i.test(streamUrl) && /bandcamp\.com\/EmbeddedPlayer/i.test(post.embed_url || '')
-    ? post.embed_url : null
+  // A clicked Bandcamp track carries its own player (track id); otherwise
+  // it's the post's album/track player.
+  const activeTrack = activeTrackUrl ? tracks.find(t => (t.stream_url || t.youtube_url) === activeTrackUrl) : null
+  const bcEmbed = /bandcamp\.com\/EmbeddedPlayer/i.test(activeTrack?.embed_url || '')
+    ? activeTrack.embed_url
+    : /bandcamp\.com/i.test(streamUrl) && /bandcamp\.com\/EmbeddedPlayer/i.test(post.embed_url || '')
+      ? post.embed_url : null
 
   const embedSrc = bcEmbed
     ? bcEmbed
     : ytId
-    ? `https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1&color=white`
+    ? `https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1&color=white&enablejsapi=1`
     : scUrl
     // visual=true: the artwork fills the player, so in the square art frame
     // it stands in for the cover. Live sets keep the compact bar in the well.
@@ -1280,7 +1289,11 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   const listFit = useScrollFit(listRef, [tracks.length])
 
   const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
-  const playingSrc = activeUrl ? toEmbedSrc(activeUrl) : null
+  // The active track's own player (Bandcamp tracks carry one); the post's
+  // own Bandcamp link plays its album player.
+  const playingSrc = !activeUrl ? null
+    : trackEmbedSrc(tracks.find(t => urlOf(t) === activeUrl), toEmbedSrc)
+      || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
   function playNext() {
     const urls = tracks.map(urlOf)
     const i = urls.indexOf(activeUrl)
@@ -1855,7 +1868,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === (trackReleaseId || openRow.id)) : null
   const openTracks = !openRow ? []
     : openRow.kind === 'post'
-      ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '' }))
+      ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
       : openRow.kind === 'release'
         ? (selectedFull?.tracklist || []).map(t => {
             const tt = normT(t.title)
@@ -1869,7 +1882,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // Returns 'played' | 'none' | 'capped' | 'busy' so playNextFrom can chain.
   async function playTrack(t, i) {
     const trackKey = `${openKey}#${i}`
-    if (t.url) { setPlaying(p => (p?.key === trackKey ? null : { key: trackKey, url: t.url })); return 'played' }
+    if (t.url) { setPlaying(p => (p?.key === trackKey ? null : { key: trackKey, url: t.url, embed: t.embed })); return 'played' }
     if (searching === trackKey) return 'busy'
     setSearching(trackKey)
     try {
@@ -2085,9 +2098,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                             <span style={{ ...monoText, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
                           </div>
                           {/* The player opens right under the track that was clicked. */}
-                          {isPlaying && toEmbedSrc(playing.url) && (
+                          {isPlaying && (playing.embed || toEmbedSrc(playing.url)) && (
                             <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px', borderRadius: DESIGN_BASE.artRadius, overflow: 'hidden' }}>
-                              <TrackPlayer key={playing.url} src={toEmbedSrc(playing.url)} title={t.title}
+                              <TrackPlayer key={playing.url} src={playing.embed || toEmbedSrc(playing.url)} title={t.title}
                                 autoplay onEnded={() => playNextFrom(i)} />
                             </div>
                           )}
@@ -2414,6 +2427,8 @@ function FeedIntro({ clockWrapRef, scrollCueRef }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function Feed() {
+  // One player at a time across every card (lib/playerGuard).
+  useEffect(() => installPlayerGuard(), [])
   const [themeIdx, setThemeIdx]       = useState(-1)
   const [pickerOpen, setPickerOpen]   = useState(false)
   const [composeOpen, setComposeOpen] = useState(false)

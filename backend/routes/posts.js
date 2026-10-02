@@ -195,8 +195,8 @@ router.post('/', requireAuth, (req, res, next) => {
     for (const l of labels) il.run(postId, l.name, l.catno || null, l.id || null);
     const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
     for (const g of genres) ig.run(postId, g);
-    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url) VALUES (?, ?, ?, ?, ?, ?)');
-    for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null);
+    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
     // triggerSpotlights(postId); — disabled 2026-08-24: spotlights are now
     // computed client-side per feed load (Feed.jsx buildSpotlightPool),
     // every SPOTLIGHT_EVERYth post, randomized and not repeated within a
@@ -251,8 +251,8 @@ router.patch('/:id', requireAuth, (req, res, next) => {
       }
       if (Array.isArray(tracks)) {
         db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
-        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url) VALUES (?, ?, ?, ?, ?, ?)');
-        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
       }
     })();
     res.json(getFullPost(id));

@@ -190,6 +190,9 @@ const migrations = [
   // The poster's own headline for a post (shown above its description on
   // the feed cards) — separate from `title`, the record's title.
   'ALTER TABLE posts ADD COLUMN post_title TEXT',
+  // A track's own player (2026-10-02): Bandcamp tracks can't be embedded
+  // from their page URL — the player needs the track id.
+  'ALTER TABLE post_tracks ADD COLUMN embed_url TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }
