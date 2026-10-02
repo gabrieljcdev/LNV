@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { LayoutContext } from './LayoutContext';
 import { applyPalette, getAutoIndex } from '../services/themeService';
-import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH } from '../components/Strip';
+import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from '../components/Strip';
 
 // Horizontal feed px moved per vertical wheel/trackpad px that #scroll-outer
 // receives. #scroll-outer's scrollTop is the SINGLE source of truth for feed
@@ -133,6 +133,9 @@ export function LayoutProvider({ children }) {
  const railWordmarkRef = useRef(null); // FADE text wordmark — flush bottom-left of the rail (zone 1), see Strip.jsx
  const fBarsRef = useRef(null); // F-bars logomark graphic — zone 2, near zone 1's edge (round 20), see Strip.jsx
  const navTabsRef = useRef(null);
+ // Feed's compose (+) button — shown only once the strip has fully
+ // collapsed, i.e. you're on the main feed (gabriel, 2026-10-01).
+ const composeBtnRef = useRef(null);
  const postRefs = useRef(new Map());
 
  function openD3(content, props = {}) { setD3Content(content); setD3Props(props); setD3Width(null); }
@@ -158,17 +161,29 @@ export function LayoutProvider({ children }) {
    const feedRect = feed.getBoundingClientRect();
    const postRect = postEl.getBoundingClientRect();
    const maxFeed = Math.max(0, feed.scrollWidth - feed.clientWidth);
-   const target = Math.max(0, Math.min(feed.scrollLeft + (postRect.left - feedRect.left), maxFeed));
+   // - STRIP_RADIUS: the feed's left edge sits that far under the strip (Layout.jsx)
+   const target = Math.max(0, Math.min(feed.scrollLeft + (postRect.left - feedRect.left) - STRIP_RADIUS, maxFeed));
    driveFeedScroll(target);
    // Highlight once the damped scroll (DAMPING=15, settles in ~150-200ms
    // per scroll-distance step, capped well under a second here) has landed.
    setTimeout(() => {
-     postEl.style.transition = 'box-shadow 0.15s';
-     postEl.style.boxShadow = '0 0 0 3px #e85d04';
-     setTimeout(() => { postEl.style.boxShadow = ''; }, 600);
+     // Inset: cards sit in a rounded, overflow:hidden frame (Feed's
+     // FloatSlot), which clipped the old outer ring to nothing.
+     postEl.style.transition = 'box-shadow 0.2s';
+     postEl.style.boxShadow = 'inset 0 0 0 4px var(--theme-accent)';
+     setTimeout(() => { postEl.style.boxShadow = ''; }, 900);
    }, 500);
    // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [driveFeedScroll]);
+
+ // Jump the feed to a post from anywhere (search box, drawers). Feed
+ // registers its own handler in jumpHandlerRef — it can fetch a post that
+ // isn't loaded yet; until it has, this falls back to scrollToPost.
+ const jumpHandlerRef = useRef(null);
+ const jumpToPost = useCallback((postId) => {
+   closeD3();
+   (jumpHandlerRef.current || scrollToPost)(postId);
+ }, [scrollToPost]);
 
  // ── ROUND 17 (2026-08-21) — merged strip, single collapse curve ────────
  // Rounds 9-16 tried to make TWO separately-animated elements (the icon
@@ -220,7 +235,12 @@ export function LayoutProvider({ children }) {
    if (stripRef.current) stripRef.current.style.width = `${outerWidth}px`;
    const railZoneWidth = RAIL_OPEN_WIDTH - (RAIL_OPEN_WIDTH - RAIL_WIDTH) * raw; // 320 → 108, same formula as the pre-round-17 rail
    if (railZoneRef.current) railZoneRef.current.style.width = `${railZoneWidth}px`;
-   if (secondaryStripRef.current) secondaryStripRef.current.style.left = `${railZoneWidth}px`; // zone 2 always starts exactly where zone 1 ends
+   // Zone 2 now runs UNDER zone 1 from left 0 (Strip.jsx, gabriel 2026-09-30)
+   // so it reads as a card sliding beneath the rail, like the feed does: only
+   // its right edge (the outer box's) moves. Hidden once it's fully under, so
+   // no anti-aliased sliver shows round the shared rounded corners.
+   if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = raw >= 1 ? 'hidden' : '';
+   if (composeBtnRef.current) composeBtnRef.current.dataset.show = raw >= 1 ? '1' : '';
    // Nav tabs (#lnv-tabs — the rail's own icon/directory buttons) start
    // invisible at rest (raw=0) and fade in over the LAST 20% of the
    // collapse, landing fully visible right as the rail finishes narrowing
@@ -268,7 +288,7 @@ export function LayoutProvider({ children }) {
  useEffect(() => {
    if (stripRef.current) stripRef.current.style.width = `${STRIP_OPEN_WIDTH}px`;
    if (railZoneRef.current) railZoneRef.current.style.width = `${RAIL_OPEN_WIDTH}px`;
-   if (secondaryStripRef.current) secondaryStripRef.current.style.left = `${RAIL_OPEN_WIDTH}px`;
+   if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = '';
    if (navTabsRef.current) navTabsRef.current.style.opacity = '0'; // hidden at rest, before the first handleFeedScroll frame runs
    if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = '0'; // FADE text - fixed position (Strip.jsx), only opacity animates
    if (fBarsRef.current) {
@@ -333,6 +353,17 @@ export function LayoutProvider({ children }) {
      // scroll instead of doing nothing (preventDefault'd) while ALSO
      // driving the feed underneath, which is what happened before this.
      if (e.target.closest?.('#lnv-drawer, #lnv-drawer-backdrop')) return;
+     // 2026-09-25: boxes inside a card that scroll on their own (post
+     // description, long tracklists, the comment list) opt in with
+     // data-inner-scroll. They get the wheel while they can still move in
+     // that direction; at their top/bottom edge the wheel falls through to
+     // the feed as before, so the feed never feels "stuck" on a card.
+     const inner = e.target.closest?.('[data-inner-scroll]');
+     if (inner && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+       const canDown = inner.scrollTop + inner.clientHeight < inner.scrollHeight - 1;
+       const canUp = inner.scrollTop > 0;
+       if ((e.deltaY > 0 && canDown) || (e.deltaY < 0 && canUp)) return;
+     }
      e.preventDefault();
      if (!so) return;
      let dy = e.deltaY;
@@ -412,10 +443,10 @@ export function LayoutProvider({ children }) {
 
  return (
    <LayoutContext.Provider value={{
-     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef,
+     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, composeBtnRef,
      d3Content, d3Props, d3Width, setD3Width, openD3, closeD3,
      currentTrack, setCurrentTrack,
-     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll,
+     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll, jumpToPost, jumpHandlerRef,
    }}>
      {children}
    </LayoutContext.Provider>

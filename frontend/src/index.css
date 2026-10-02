@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=VT323&family=Barlow:wght@300;400;500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Barlow:wght@300;400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   /* ── Existing brand colours ── */
@@ -99,6 +99,19 @@ html, body, #root {
 }
 .blink { animation: blink 1s step-end infinite; }
 
+/* ── Spotlight sleeve strip — slow endless drift (Feed.jsx SpotlightCard) ──
+   The track holds the sleeves twice over; moving it -50% lands the second
+   copy exactly where the first started, so the loop has no seam. Each tile
+   carries its own right padding (not a flex gap) so both halves are exactly
+   equal width. Paused on hover from React (animationPlayState). */
+@keyframes lnv-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lnv-marquee-track { animation: none !important; }
+}
+
 /* ── FADE F-bars logomark — idle "live EQ" bounce (Strip.jsx #lnv-fbars) ──
    Ported from the verified ScrollReveal.dc.html canvas prototype. Each bar
    is an absolutely-positioned .bar-outer (rotation lives here, written per
@@ -134,3 +147,9 @@ html, body, #root {
 #lnv-landing {
   overscroll-behavior: contain;
 }
+
+/* Feed compose (+) button: hidden over the intro, fades in on the main feed
+   (LayoutProvider sets data-show="1" once the strip has fully collapsed). */
+.lnv-compose-btn { opacity: 0; visibility: hidden; transform: scale(0.85); transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s; }
+.lnv-compose-btn[data-show="1"] { opacity: 1; visibility: visible; transform: none; transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .lnv-compose-btn, .lnv-compose-btn[data-show="1"] { transition: none; transform: none; } }

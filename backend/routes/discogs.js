@@ -1,76 +1,39 @@
 import express from 'express';
-import { searchDiscogs, getRelease, getMaster } from '../services/discogsService.js';
+import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDiscogsUrl, getCovers, getReleaseInfo, getCataloguePage } from '../services/discogsService.js';
+import { searchTrackVideo } from '../services/youtubeService.js';
 import db from '../db/database.js';
 
 const router = express.Router();
 
-// Generate multiple search query variations in order of confidence
-function buildSearchQueries(artist, title, label, catno) {
-  const queries = [];
-
-  // Most specific first
-  queries.push(`${artist} ${title}`);
-  queries.push(`${artist} - ${title}`);
-  queries.push(`"${title}" ${artist}`);
-
-  // With label — label channels often have official uploads
-  if (label) {
-    queries.push(`${artist} ${title} ${label}`);
-  }
-
-  // With catalogue number — very specific, finds the exact pressing
-  if (catno) {
-    queries.push(`${title} ${catno}`);
-  }
-
-  // Broader fallbacks
-  queries.push(`${title} ${artist} official`);
-  queries.push(`${title} ${artist} audio`);
-
-  return queries;
-}
-
-// Score a YouTube result based on how well it matches
-function scoreResult(item, artist, title) {
-  const videoTitle = (item.snippet?.title || '').toLowerCase();
-  const channelTitle = (item.snippet?.channelTitle || '').toLowerCase();
-  const artistLower = artist.toLowerCase();
-  const titleLower = title.toLowerCase();
-
-  let score = 0;
-
-  // Positive signals
-  if (videoTitle.includes(titleLower))  score += 4;  // title match is most important
-  if (videoTitle.includes(artistLower)) score += 3;  // artist name present
-  if (channelTitle.includes(artistLower)) score += 2; // official artist channel
-  if (videoTitle.includes('official'))  score += 1;
-  if (videoTitle.includes('audio'))     score += 1;
-
-  // Negative signals — penalise bad matches
-  if (videoTitle.includes('full album'))  score -= 5;
-  if (videoTitle.includes('mix'))         score -= 3;
-  if (videoTitle.includes('cover'))       score -= 4;
-  if (videoTitle.includes('remix') && !titleLower.includes('remix')) score -= 3;
-  if (videoTitle.includes('live') && !titleLower.includes('live'))   score -= 2;
-  if (videoTitle.includes('tribute'))    score -= 5;
-  if (videoTitle.includes('karaoke'))    score -= 10;
-
-  return score;
-}
-
-// Validate a YouTube video still exists using oEmbed
-async function validateYouTubeVideo(videoId) {
+// GET /api/discogs/resolve-url?url=<any discogs.com link> -> { releaseId, via }
+// Shop listings and master pages resolve to their release — see
+// resolveDiscogsUrl. 422 with a readable message when it can't.
+router.get('/resolve-url', async (req, res) => {
   try {
-    const res = await fetch(
-      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-    );
-    return res.ok;
-  } catch {
-    return false;
+    res.json(await resolveDiscogsUrl(req.query.url));
+  } catch (err) {
+    res.status(422).json({ error: err.message });
   }
-}
+});
 
-// GET /api/discogs/search?q=pink+floyd&type=release&page=1
+// GET /api/discogs/covers?keys=release:123,master:456 -> { covers: {key: url|null}, pending }
+// Full-size sleeves for spotlight strips: cached ones now, missing ones
+// queued and fetched slowly in the background (see getCovers). Poll until
+// pending is 0.
+router.get('/covers', (req, res) => {
+  const keys = String(req.query.keys || '').split(',').filter(Boolean).slice(0, 60);
+  res.json(getCovers(keys));
+});
+
+// GET /api/discogs/release-info?ids=123,456 -> { info: {id: {format, label, catno}}, pending }
+// The spotlight list's type tag + label for catalogue entries that come
+// without them (masters; ids are their main release). Same slow background
+// queue as /covers — poll until pending is 0.
+router.get('/release-info', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 300);
+  res.json(getReleaseInfo(ids));
+});
+
 router.get('/search', async (req, res, next) => {
   try {
     const { q, type = 'release', page = 1 } = req.query;
@@ -102,78 +65,91 @@ router.get('/master/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/discogs/artist/:id — artist photo for spotlight cards (Feed.jsx).
+// Most artists have no photo on Discogs; imageUrl comes back null in that
+// case and the frontend falls back to its own mark rather than erroring.
+router.get('/artist/:id', async (req, res, next) => {
+  try {
+    const artist = await getArtist(Number(req.params.id));
+    res.json(artist);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/discogs/label/:id — label logo for spotlight cards (Feed.jsx).
+router.get('/label/:id', async (req, res, next) => {
+  try {
+    const label = await getLabel(Number(req.params.id));
+    res.json(label);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/discogs/artist/:id/releases?page=1 — artist discography, added
+// 2026-08-25 for the spotlight "unknown artist" backfill (Feed.jsx): fills
+// a brand-new artist's "Recent adds" list with their real Discogs releases
+// when they have no prior LNV posts. Summary only — no tracklist/videos;
+// the frontend fetches a specific release's full detail via
+// GET /discogs/release/:id, lazily, only once the user clicks one.
+// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=
+// The WHOLE catalogue, crawled in the background (getCataloguePage) and
+// served from the DB in pages, newest year first; q filters title / artist
+// / catno. `crawl` says how much has been collected so far.
+for (const kind of ['artist', 'label']) {
+  router.get(`/${kind}/:id/releases`, async (req, res, next) => {
+    try {
+      const { offset, limit, q } = req.query;
+      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q }));
+    } catch (err) {
+      next(err);
+    }
+  });
+}
+
+// GET /api/discogs/youtube/search?artist=&title=&label=
+// One track -> best YouTube video. Used by ComposeModal for tracklist rows
+// Discogs' videos[] didn't cover. Quota-capped and cached — see
+// searchTrackVideo in youtubeService. `capped: true` means today's search
+// budget is spent; the client stops asking until tomorrow.
+// Optional release_id + position: the result (found OR not found) is saved to
+// release_track_links, so that track never needs searching again — see
+// GET /release/:id/track-links. Capped results are not saved (nothing was
+// actually searched).
 router.get('/youtube/search', async (req, res, next) => {
   try {
-    const { artist, title, catno, label } = req.query;
-    if (!artist || !title) return res.status(400).json({ error: 'artist and title required' });
-
-    // Check cache first — including cached misses
-    const cacheKey = `${artist.toLowerCase()}|||${title.toLowerCase()}`;
-    const cached = db.prepare(
-      'SELECT * FROM youtube_cache WHERE query = ?'
-    ).get(cacheKey);
-
-    if (cached) {
-      const age = Date.now() - new Date(cached.fetched_at).getTime();
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      if (age < sevenDays) {
-        return res.json({ youtube_url: cached.youtube_url || null });
-      }
+    const { artist = '', title, label = '', release_id, position } = req.query;
+    if (!title) return res.status(400).json({ error: 'title required' });
+    const result = await searchTrackVideo(artist, title, { label });
+    if (release_id && position && !result.capped) {
+      db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
+                  VALUES (?, ?, ?, ?, ?, 'youtube-search', datetime('now'))
+                  ON CONFLICT(release_id, position) DO UPDATE SET
+                    title = excluded.title, youtube_url = excluded.youtube_url,
+                    youtube_title = excluded.youtube_title, source = excluded.source, fetched_at = excluded.fetched_at`)
+        .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null);
     }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
-    const apiKey = process.env.YOUTUBE_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'No YouTube API key configured' });
-
-    // Generate multiple search query variations
-    const queries = buildSearchQueries(artist, title, label, catno);
-    
-    let bestResult = null;
-    let bestScore = -1;
-
-    for (const query of queries) {
-      try {
-        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=3&key=${apiKey}`;
-        const ytRes = await fetch(url);
-        const data = await ytRes.json();
-        // If quota exceeded, bail out of all queries immediately
-        if (data.error?.errors?.[0]?.reason === 'quotaExceeded') break;
-        if (!ytRes.ok) continue;
-        if (!data.items || data.items.length === 0) continue;
-
-        // Score each result and keep the best
-        for (const item of data.items) {
-          const score = scoreResult(item, artist, title);
-          if (score > bestScore) {
-            bestScore = score;
-            bestResult = item;
-          }
-        }
-
-        // If we found a high confidence result stop searching
-        if (bestScore >= 8) break;
-
-      } catch {
-        continue;
-      }
-    }
-
-    // Validate the best result still exists on YouTube
-    let youtube_url = null;
-    if (bestResult && bestScore >= 0) {
-      const videoId = bestResult.id.videoId;
-      const isValid = await validateYouTubeVideo(videoId);
-      if (isValid) {
-        youtube_url = `https://www.youtube.com/watch?v=${videoId}`;
-      }
-    }
-
-    // Cache the result (including misses — youtube_url will be null)
-    db.prepare(
-      'INSERT OR REPLACE INTO youtube_cache (query, youtube_url) VALUES (?, ?)'
-    ).run(cacheKey, youtube_url);
-
-    res.json({ youtube_url });
-
+// GET /api/discogs/release/:id/track-links -> { links: { [position]: { url, title } } }
+// Every YouTube link already found for this release's tracks. url null =
+// searched and nothing found; those are dropped after 14 days so they get
+// another try.
+router.get('/release/:id/track-links', (req, res, next) => {
+  try {
+    const rows = db.prepare(`
+      SELECT position, youtube_url, youtube_title FROM release_track_links
+      WHERE release_id = ?
+        AND (youtube_url IS NOT NULL OR fetched_at > datetime('now', '-14 days'))
+    `).all(Number(req.params.id));
+    const links = {};
+    for (const r of rows) links[r.position] = { url: r.youtube_url, title: r.youtube_title };
+    res.json({ links });
   } catch (err) {
     next(err);
   }

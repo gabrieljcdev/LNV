@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SECONDARY_STRIP_WIDTH } from './Strip'; // round 17: moved from SecondaryStrip.jsx (deprecated) to Strip.jsx (merged strip)
+import { SECONDARY_STRIP_WIDTH, STRIP_RADIUS } from './Strip'; // round 17: moved from SecondaryStrip.jsx (deprecated) to Strip.jsx (merged strip)
 
 // One-time load reveal, modeled on avantt.displaay.net's own preloader
 // (reverse-engineered from their production JS bundle — see
@@ -28,6 +28,19 @@ const DURATION_MS = 1800; // the one duration constant recovered from avantt's
                            // was recoverable from their minified source.
 const RAIL_W = 320; // must match Strip.jsx's initial (pre-scroll) width
 
+// 2026-09-30 (gabriel): the rail has rounded right corners (STRIP_RADIUS), so
+// the cover starts STRIP_RADIUS further left, UNDER them, and is masked to
+// show there only in the rail's two corner cut-outs — the corners take the
+// cover's own colour (no dark sliver from the strip's green zone behind),
+// in every palette. Its own right corners are rounded too, matching the
+// strip's green zone it hands over to.
+const R = STRIP_RADIUS;
+const COVER_MASK = {
+  image: `linear-gradient(to right, transparent ${R}px, #000 ${R}px), radial-gradient(circle ${R}px at 0 ${R}px, transparent ${R}px, #000 ${R + 0.5}px), radial-gradient(circle ${R}px at 0 0, transparent ${R}px, #000 ${R + 0.5}px)`,
+  size: `100% 100%, ${R}px ${R}px, ${R}px ${R}px`,
+  position: 'left top, left top, left bottom',
+};
+
 function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -49,7 +62,7 @@ export default function Preloader({ onDone }) {
       if (coverRef.current) {
         const full = Math.max(0, window.innerWidth - RAIL_W);
         const rest = Math.max(0, full - SECONDARY_STRIP_WIDTH);
-        coverRef.current.style.width = `${full - rest * eased}px`;
+        coverRef.current.style.width = `${full - rest * eased + R}px`; // + R: the part under the rail's corners
       }
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
@@ -76,9 +89,15 @@ export default function Preloader({ onDone }) {
         style={{
           position: 'fixed',
           top: 0,
-          left: RAIL_W,
+          left: RAIL_W - R,
           bottom: 0,
           background: 'var(--theme-dark3)',
+          borderTopRightRadius: R,
+          borderBottomRightRadius: R,
+          maskImage: COVER_MASK.image, WebkitMaskImage: COVER_MASK.image,
+          maskSize: COVER_MASK.size, WebkitMaskSize: COVER_MASK.size,
+          maskPosition: COVER_MASK.position, WebkitMaskPosition: COVER_MASK.position,
+          maskRepeat: 'no-repeat', WebkitMaskRepeat: 'no-repeat',
           zIndex: 999,
           opacity: fading ? 0 : 1,
           transition: fading ? 'opacity 0.2s ease' : 'none',
