@@ -62,8 +62,8 @@ export async function searchDiscogsBarcode(barcode) {
 
 // Bump when normaliseRelease gains a field, so cached releases stored in the
 // older shape are refetched once instead of being served without it.
-// 2 = per-track artists (2026-09-25). 3 = remixers (2026-10-02).
-const RELEASE_SHAPE_VERSION = 3;
+// 2 = per-track artists (2026-09-25). 3 = remixers, 4 = formats (2026-10-02).
+const RELEASE_SHAPE_VERSION = 4;
 
 // Remix/edit credits. A remix is often posted under the REMIXER's name
 // ("Total M" on SoundCloud), while Discogs credits it to the original artist
@@ -143,7 +143,8 @@ export async function getLabel(labelId) {
 // table/TTL as everything else here — an artist's back catalogue doesn't
 // change day to day.
 export async function getArtistReleases(artistId, page = 1) {
-  const key = `artist-releases:v2:${artistId}:${page}`;
+  // v3 (2026-10-02): masters carry mainRelease, for getReleaseInfo.
+  const key = `artist-releases:v3:${artistId}:${page}`;
   const cached = getCached(key);
   if (cached) return cached;
 
@@ -211,7 +212,7 @@ function normaliseArtistReleases(data) {
         const k = `${r.type}:${r.id}`;
         const prev = m.get(k);
         if (prev) { if (r.role && !prev.role?.split(', ').includes(r.role)) prev.role = prev.role ? `${prev.role}, ${r.role}` : r.role; }
-        else m.set(k, { id: r.id, type: r.type, title: r.title, year: r.year || null, role: r.role || null, thumb: r.thumb || null, artist: r.artist || null, label: r.label || null, format: r.format || null });
+        else m.set(k, { id: r.id, type: r.type, title: r.title, year: r.year || null, role: r.role || null, thumb: r.thumb || null, artist: r.artist || null, label: r.label || null, format: r.format || null, mainRelease: r.main_release || null });
         return m;
       }, new Map()).values()],
   };
@@ -253,6 +254,8 @@ function normaliseRelease(data) {
     styles: data.styles || [],
     artists: (data.artists || []).map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') })),
     labels: (data.labels || []).map(l => ({ id: l.id, name: l.name, catno: l.catno })),
+    // "2xVinyl, LP, Album" — the spotlight list's type tag (LP/EP/Single…).
+    formats: (data.formats || []).map(f => [f.qty > 1 ? `${f.qty}x${f.name}` : f.name, ...(f.descriptions || [])].join(', ')),
     // Per-track artists only exist on compilations ("Various" releases),
     // where they're the only record of who made each track.
     tracklist: (data.tracklist || []).map(t => ({
@@ -362,7 +365,7 @@ async function drainCovers() {
     while (coverQueue.length) {
       const key = coverQueue.shift();
       coverQueued.delete(key);
-      if (cachedCover(key) !== undefined) continue;
+      if (cachedCover(key) !== undefined && (key.startsWith('master:') || getCached(key)?._v >= RELEASE_SHAPE_VERSION)) continue;
       const [kind, id] = key.split(':');
       try {
         if (kind === 'master') await getMaster(Number(id));
@@ -373,6 +376,34 @@ async function drainCovers() {
   } finally {
     coverWorking = false;
   }
+}
+
+// Format / label / catno for releases a catalogue list has no detail for —
+// an artist's MASTER entries (Discogs lists them bare; their main release
+// has the detail). Same cache + slow queue as the covers above, so it costs
+// one release fetch per master, ever. ids = release ids (a master's
+// mainRelease). -> { info: { [id]: { format, label, catno } }, pending }
+export function getReleaseInfo(ids = []) {
+  const info = {};
+  let pending = 0;
+  for (const id of ids) {
+    if (!/^\d+$/.test(String(id))) continue;
+    const key = `release:${id}`;
+    const hit = getCached(key);
+    if (hit && hit._v >= RELEASE_SHAPE_VERSION) {
+      const l = hit.labels?.[0];
+      info[id] = {
+        format: (hit.formats || []).join(' + '),
+        label: [...new Set((hit.labels || []).map(x => x.name))].join(', '),
+        catno: l?.catno && !/^none$/i.test(l.catno) ? l.catno : '',
+      };
+      continue;
+    }
+    pending++;
+    if (!coverQueued.has(key)) { coverQueued.add(key); coverQueue.push(key); }
+  }
+  if (pending) drainCovers();
+  return { info, pending };
 }
 
 export function getCovers(keys = []) {

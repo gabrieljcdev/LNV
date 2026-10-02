@@ -1527,6 +1527,45 @@ function ytIdOf(url) {
 // the root div's `padding: 65px ${SPOTLIGHT_PAD}px`), not just the media.
 const SPOTLIGHT_PAD = 60
 
+// ── Spotlight list: type tags + role pills (gabriel, 2026-10-02, mockup E) ──
+// The index used to number its rows, and an artist's MASTER entries (no
+// label on Discogs' list) filled the label column with the artist's role —
+// "Remix, Appearance". Rows are now grouped by year, each with a type tag
+// from the Discogs format and, on artist spotlights, a role pill.
+
+// Discogs format string ("2xVinyl, LP, Album") -> one short type tag.
+function releaseTag(format = '', title = '') {
+  if (/CD-ROM/i.test(format) || /\bOST\b|soundtrack/i.test(title)) return 'OST'
+  if (/Comp/i.test(format)) return 'Comp'
+  if (/Mixed|Mixtape/i.test(format)) return 'Mix'
+  if (/Album|\bLP\b/i.test(format)) return 'LP'
+  if (/\bEP\b/i.test(format)) return 'EP'
+  if (/Single/i.test(format)) return 'Single'
+  const vinyl = format.match(/(12|10|7)"/)
+  if (vinyl) return vinyl[0]
+  const files = Number(format.match(/(\d+)xFile/)?.[1])
+  if (files) return files <= 3 ? 'Single' : files <= 7 ? 'EP' : 'LP'
+  return format.split(/[,+]/)[0].trim() || '—'
+}
+
+// Discogs artist role -> which part of the catalogue it is. A shared role
+// ("Remix, Appearance") goes by its first part.
+const ROLE_PILL = { main: 'Own', remix: 'Remix', prod: 'Producer', guest: 'Guest' }
+function roleGroup(role = '') {
+  const first = role.split(',')[0].trim()
+  if (!first || first === 'Main') return 'main'
+  if (/Remix/i.test(first)) return 'remix'
+  if (/Producer/i.test(first)) return 'prod'
+  return 'guest'
+}
+
+// "Not On Label (X Self-released)" -> "Self-released"; drops Discogs'
+// "(2)" suffixes and repeated names ("A&G Productions, A&G Productions").
+function cleanLabelName(label = '') {
+  if (/^Not On Label/i.test(label)) return 'Self-released'
+  return [...new Set(label.split(',').map(s => s.replace(/\s*\(\d+\)$/, '').trim()).filter(Boolean))].slice(0, 2).join(', ')
+}
+
 // 2026-08-26: the TEMP placeholder discography arrays that used to sit here
 // (PLACEHOLDER_ON_SITE / PLACEHOLDER_NOT_YET, added 2026-08-25 because every
 // post_artists.discogs_artist_id and post_labels.discogs_label_id in the DB
@@ -1735,30 +1774,59 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   //   cta     — unchanged (+ add to feed / view all)
   // Rows come from the catalogue when there is one, otherwise from this
   // subject's own LNV posts, so every spotlight gets the same anatomy.
-  const rows = hasCatalogue
-    ? catalogueItems.map(r => ({
-        key: rowKeyOf(r),
-        kind: type === 'channel' ? 'video' : 'release',
-        id: r.id,
-        title: r.title || '',
-        sub: type === 'label' ? (r.artist || '') : (r.label || r.role || ''),
-        catno: r.catno || '',
-        year: r.year || '',
-        thumb: r.thumb || '',
-        onSite: isOnSite(r),
-      }))
+  // Masters come without format/label: ask for their main release's (slow
+  // background queue on the backend, like the covers — poll until done).
+  const infoIds = hasCatalogue && type === 'artist'
+    ? catalogueItems.filter(r => r.type === 'master' && r.mainRelease).map(r => r.mainRelease)
+    : []
+  const { data: releaseInfo } = useQuery({
+    queryKey: ['spotlight-release-info', infoIds.join(',')],
+    queryFn: async () => {
+      const res = await fetch(`${API}/discogs/release-info?ids=${infoIds.join(',')}`)
+      return res.ok ? res.json() : { info: {}, pending: 0 }
+    },
+    enabled: infoIds.length > 0,
+    staleTime: Infinity,
+    refetchInterval: q => (q.state.data?.pending > 0 ? 5000 : false),
+  })
+
+  // One row shape for every source. `artist` is the record's own artist when
+  // it isn't the subject (a remix / guest spot / a label's release).
+  const POST_TAG = { album: 'LP', single: 'Single', livemix: 'Live' }
+  const rows = (hasCatalogue
+    ? catalogueItems.map(r => {
+        const info = r.type === 'master' ? releaseInfo?.info?.[r.mainRelease] : null
+        const group = type === 'artist' ? roleGroup(r.role || '') : null
+        return {
+          key: rowKeyOf(r),
+          kind: type === 'channel' ? 'video' : 'release',
+          id: r.id,
+          title: r.title || '',
+          tag: type === 'channel' ? 'Video' : releaseTag(r.format || info?.format || '', r.title),
+          group,
+          artist: type === 'label' || (type === 'artist' && group !== 'main') ? (r.artist || '') : '',
+          label: type === 'artist' ? cleanLabelName(r.label || info?.label || '') : '',
+          year: r.year || '',
+          thumb: r.thumb || '',
+          onSite: isOnSite(r),
+        }
+      })
     : posts.map(p => ({
         key: `post:${p.id}`,
         kind: 'post',
         id: p.id,
         title: p.title || '',
-        sub: type === 'label' ? artistName(p) : labelName(p),
-        catno: p.labels?.[0]?.catalogue_number || '',
+        tag: POST_TAG[p.post_type] || 'Single',
+        group: null,
+        artist: type === 'label' ? artistName(p) : '',
+        label: type === 'label' ? '' : labelName(p),
         year: p.year || '',
         thumb: coverSrc(p),
         onSite: true,
         post: p,
-      }))
+      })))
+    // Newest year first; undated entries last.
+    .sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0))
   const openRow = rows.find(r => r.key === openKey) || null
   const stripItems = rows.filter(r => r.thumb).slice(0, 40)
 
@@ -1806,7 +1874,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     setSearching(trackKey)
     try {
       const artist = (t.artists || []).map(a => a.name).join(' ')
-        || (type === 'artist' ? name : type === 'label' ? openRow?.sub : '') || ''
+        || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''
       const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '' })
       if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
@@ -1866,7 +1934,22 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
   const count = hasCatalogue && catalogue ? (catalogue.pagination?.items ?? rows.length) : rows.length
   const STRIP_H = 240
-  const COLS = '30px minmax(0, 1.7fr) minmax(0, 1fr) 84px 38px 14px'
+  // type tag · title (+ the record's artist) · role pill (artists only) · label/artist
+  const hasRoles = rows.some(r => r.group)
+  const COLS = hasRoles ? '54px minmax(0, 1.5fr) 84px minmax(0, 1fr)' : '54px minmax(0, 1.5fr) minmax(0, 1fr)'
+  const ROW_PAD = 9
+  // "2005" heading summary: "1 own · 2 remix · 3 guest" (artists), else a count.
+  const yearSummary = list => {
+    if (!hasRoles) return `${list.length} ${type === 'channel' ? 'upload' : 'release'}${list.length !== 1 ? 's' : ''}`
+    return [['main', 'own'], ['remix', 'remix'], ['prod', 'producer'], ['guest', 'guest']]
+      .map(([k, w]) => [list.filter(r => r.group === k).length, w]).filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(' · ')
+  }
+  const pillStyle = (group, open) => {
+    const base = { justifySelf: 'start', fontFamily: T.labelFf, fontWeight: 600, fontSize: T.zlabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', borderRadius: 99, padding: '2px 8px', whiteSpace: 'nowrap', border: '1px solid transparent' }
+    if (group === 'main') return { ...base, background: 'var(--theme-accent)', color: '#fff' }
+    const ink = open ? cardBg : group === 'guest' ? textTer : textPri
+    return { ...base, color: ink, borderColor: open ? cardBg : group === 'guest' ? divider : textSec, borderStyle: group === 'prod' ? 'dashed' : 'solid' }
+  }
   const rowText = { fontFamily: T.bodyFf, fontSize: T.trackSize, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
   const monoText = { ...rowText, fontFamily: T.monoFf, fontSize: T.tracknumSize, letterSpacing: `${T.stampLs}em`, fontVariantNumeric: 'tabular-nums' }
 
@@ -1923,13 +2006,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         )}
       </div>
 
-      {/* index */}
-      <div style={{ flexShrink: 0, marginTop: 18, display: 'grid', gridTemplateColumns: COLS, gap: 10, padding: '0 6px 6px', borderBottom: `1px solid ${textPri}` }}>
-        {['No', 'Title', type === 'label' ? 'Artist' : 'Label', 'Cat', 'Year', ''].map((h, i) => (
-          <span key={i} style={{ ...rowText, fontFamily: T.labelFf, fontWeight: 600, fontSize: T.zlabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: textTer }}>{h}</span>
-        ))}
-      </div>
-      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+      {/* index — grouped by year (mockup E, 2026-10-02) */}
+      {/* 10px of room each side so the rows' rounded hover isn't clipped. */}
+      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, margin: '18px -10px 0', padding: '0 10px', overflowY: 'auto', overflowX: 'hidden', ...INNER_SCROLL_STYLE }}>
         {rows.length === 0 && (
           <div style={{ padding: '24px 0', textAlign: 'center', ...msgText }}>
             {hasCatalogue && catalogue === undefined ? 'fetching catalogue…' : `nothing found on ${catalogueSource}`}
@@ -1937,23 +2016,32 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         )}
         {rows.map((r, idx) => {
           const open = r.key === openKey
+          const newYear = idx === 0 || rows[idx - 1].year !== r.year
+          const yearRows = newYear ? rows.filter(x => x.year === r.year) : null
           return (
             <div key={r.key} ref={el => { if (el) rowRefs.current.set(r.key, el); else rowRefs.current.delete(r.key) }}>
+              {/* Year heading, the way the artist drawer heads its letters. */}
+              {newYear && (
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, margin: idx === 0 ? '0 0 4px' : '16px 0 4px' }}>
+                  <span style={{ fontFamily: T.artistFf, fontWeight: 900, fontSize: 25, letterSpacing: '-0.01em', lineHeight: 1.1, color: textTer }}>{r.year || 'Undated'}</span>
+                  <span style={{ ...monoText, color: textTer, textTransform: 'uppercase' }}>{yearSummary(yearRows)}</span>
+                </div>
+              )}
               <div
                 onClick={() => toggleRow(r.key)}
-                style={{ display: 'grid', gridTemplateColumns: COLS, gap: 10, alignItems: 'center', padding: '6px 6px', borderBottom: `1px solid ${divider}`, cursor: 'pointer', background: open ? textPri : 'transparent', color: open ? cardBg : textPri, transition: 'background 0.15s, color 0.15s' }}
-                onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 10%, transparent)' }}
+                style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, alignItems: 'center', padding: `${ROW_PAD}px 10px`, margin: newYear ? '0 -10px' : `${ROW_PAD / 3}px -10px 0`, borderRadius: 12, cursor: 'pointer', background: open ? textPri : 'transparent', color: open ? cardBg : textPri, transition: 'background 0.15s, color 0.15s' }}
+                onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-text-pri) 9%, transparent)' }}
                 onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent' }}
               >
-                <span style={monoText}>{String(idx + 1).padStart(2, '0')}</span>
-                <span style={{ ...rowText, fontWeight: 500 }}>
-                  {r.onSite && hasCatalogue && <span title="on LNV" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 6, verticalAlign: 'middle' }} />}
+                {/* Type tag from the Discogs format (LP / EP / Single / 12" / Comp / Mix / OST). */}
+                <span style={{ ...monoText, fontSize: 10, textTransform: 'uppercase', textAlign: 'center', border: `1px solid ${open ? cardBg : textTer}`, borderRadius: 5, padding: '2px 0', width: 54 }}>{r.tag}</span>
+                <span style={{ ...rowText, fontWeight: 700 }}>
+                  {r.onSite && hasCatalogue && <span title="on LNV" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
                   {r.title}
+                  {r.artist && type === 'artist' && <span style={{ fontWeight: 400, fontStyle: 'italic', color: open ? cardBg : textSec }}> · {r.artist}</span>}
                 </span>
-                <span style={rowText}>{r.sub}</span>
-                <span style={monoText}>{r.catno}</span>
-                <span style={monoText}>{r.year}</span>
-                <span style={{ ...rowText, textAlign: 'right' }}>{open ? '▴' : '▾'}</span>
+                {hasRoles && <span style={pillStyle(r.group, open)}>{ROLE_PILL[r.group]}</span>}
+                <span style={{ ...rowText, color: open ? cardBg : textSec, fontStyle: type === 'label' ? 'italic' : 'normal' }}>{type === 'label' ? r.artist : r.label}</span>
               </div>
 
               {open && (

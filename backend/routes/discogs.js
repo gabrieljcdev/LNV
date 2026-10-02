@@ -1,5 +1,5 @@
 import express from 'express';
-import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, getArtistReleases, getLabelReleases, resolveDiscogsUrl, getCovers } from '../services/discogsService.js';
+import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, getArtistReleases, getLabelReleases, resolveDiscogsUrl, getCovers, getReleaseInfo } from '../services/discogsService.js';
 import { searchTrackVideo } from '../services/youtubeService.js';
 import db from '../db/database.js';
 
@@ -23,6 +23,15 @@ router.get('/resolve-url', async (req, res) => {
 router.get('/covers', (req, res) => {
   const keys = String(req.query.keys || '').split(',').filter(Boolean).slice(0, 60);
   res.json(getCovers(keys));
+});
+
+// GET /api/discogs/release-info?ids=123,456 -> { info: {id: {format, label, catno}}, pending }
+// The spotlight list's type tag + label for catalogue entries that come
+// without them (masters; ids are their main release). Same slow background
+// queue as /covers — poll until pending is 0.
+router.get('/release-info', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 60);
+  res.json(getReleaseInfo(ids));
 });
 
 router.get('/search', async (req, res, next) => {
