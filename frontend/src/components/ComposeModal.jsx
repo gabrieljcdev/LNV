@@ -315,7 +315,12 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Resolver returned ${res.status}`) }
  const data = await res.json()
  applyEnrichment(data)
- const src = data.source === 'discogs' ? ' → DISCOGS MATCH' : ''
+ // No Discogs release: say which catalogues the partial fill came from
+ // (backend resolveWithFallback — iTunes / Deezer / MusicBrainz, plus the
+ // Discogs artist and label ids).
+ const FILL_NAMES = { musicbrainz: 'MUSICBRAINZ', deezer: 'DEEZER', itunes: 'ITUNES', 'discogs-artist': 'DISCOGS ARTIST', 'discogs-label': 'DISCOGS LABEL' }
+ const fill = (data.fill_sources || []).map(s => FILL_NAMES[s]).filter(Boolean)
+ const src = data.source === 'discogs' ? ' → DISCOGS MATCH' : fill.length ? ` → PARTIAL FILL FROM ${fill.join(' + ')}` : ''
  if (data.warning) { setFetchStatus(`⚠ ${data.warning}`); return }
  const tCount = data.tracks?.length || 0
  const lCount = data.tracks?.filter(t => t.stream_url).length || 0

@@ -1084,6 +1084,10 @@ function PostCard({ post, cardBg, d, onEdit }) {
 // stays readable whatever palette/spectrum colour the card lands on.
 const LIVE_W = 1200     // widest the card gets (video 1088 wide + 2 × LIVE_PADX)
 const LIVE_PADX = 56    // same padding left and right
+// Gap above the big post number on the live-set and album cards — the
+// single card's numeralMargin top, so every number sits the same distance
+// under the text above it (gabriel, 2026-10-02).
+const NUMERAL_GAP = 4
 
 // Width of a live-set card as a CSS length: its video's 16:9 width plus
 // LIVE_PADX each side, where the video height is the full-size one or what
@@ -1190,11 +1194,11 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       </div>
 
       {/* post description (same label, size and in-card scroll as the
-          regular post card) | the big post number, right-aligned under the
-          badges and year — same size, weight and fade as on the single and
-          album cards (gabriel, 2026-10-02) */}
-      <div style={{ marginTop: 22, flex: '1 1 auto', minHeight: 0, display: 'flex', gap: 30, alignItems: 'flex-start' }}>
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, maxHeight: '100%', display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
+          regular post card), then the big post number under it — same size,
+          weight, fade and 4px gap as on the single and album cards — and its
+          line at the bottom of the column (gabriel, 2026-10-02: moved from
+          the right, under the badges and year, to this side). */}
+      <div style={{ marginTop: 22, flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
         <PostTitle post={post} labelStyle={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.postLabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.postLabelMb, flexShrink: 0 }} />
         {note ? (
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
@@ -1202,29 +1206,28 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         ) : (
           <p style={{ fontSize: T.descSize, fontFamily: T.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
         )}
-      </div>
-        <div style={{ flexShrink: 0, width: T.artSize, alignSelf: 'flex-end' }}>
-          <div aria-hidden="true" style={{ fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)', textAlign: 'right' }}>
-            {String(post.id).padStart(2, '0')}
-          </div>
-          {/* Line under the number, as on the single and album cards. */}
-          <div style={{ height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
+        <div aria-hidden="true" style={{ flexShrink: 0, margin: T.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)' }}>
+          {String(post.id).padStart(2, '0')}
         </div>
+        <div style={{ flex: '1 0 0px' }} />
+        {/* Line under the number, as on the single and album cards. */}
+        <div style={{ flexShrink: 0, width: T.artSize, height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
       </div>
 
-      {/* byline — kept quiet at the bottom */}
+      {/* byline — kept quiet at the bottom. edit/delete on the left, replies
+          on the right, clear of the number's line (gabriel, 2026-10-02). */}
       <div style={{ marginTop: 'auto', paddingTop: T.bylineMt, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, lineHeight: '15px' /* = the album byline's height, so the numbers sit level */, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
-        <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
-          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
-        </button>
-        <span style={{ color: 'var(--lv-sec)' }}>{post.user?.username || post.username}</span>
-        <span>{timeAgo(post.created_at)}</span>
         {canModify && (
-          <span style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
+          <span style={{ display: 'flex', gap: 10 }}>
             <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
             <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
           </span>
         )}
+        <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
+          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
+        </button>
+        <span style={{ color: 'var(--lv-sec)' }}>{post.user?.username || post.username}</span>
+        <span>{timeAgo(post.created_at)}</span>
       </div>
       {commentsOpen && (
         <div style={{ marginTop: 8, flexShrink: 0 }}>
@@ -1376,13 +1379,13 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>{[label, catNo, post.year].filter(Boolean).join(' · ')}</div>
-          {/* Pushes the number + its line to the bottom of the column, so
-              album and live-set numbers sit level at any screen height
-              (gabriel, 2026-10-02); 12px is the least gap under the metaline. */}
-          <div style={{ flex: '1 0 12px' }} />
-          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: 0, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
+          {/* The number sits right under the metaline (gabriel, 2026-10-02:
+              "higher"); the spacer below it keeps its line at the bottom of
+              the column, level with the live-set card's. */}
+          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
             {String(post.id).padStart(2, '0')}
           </div>
+          <div style={{ flex: '1 0 0px' }} />
           {/* Line under the big number — the single card's solid rule under
               its plate, same height, colour and spacing (gabriel, 2026-10-01). */}
           <div style={{ height: 1, background: 'var(--lv-line)', margin: `${d.ruleSolidMy}px 0`, flexShrink: 0 }} />

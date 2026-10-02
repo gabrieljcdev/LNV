@@ -1,6 +1,6 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { searchDiscogs, getRelease, resolveDiscogsUrl } from '../services/discogsService.js';
+import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl } from '../services/discogsService.js';
 import { getChannelUploads, extractVideoId } from '../services/youtubeService.js';
 
 const router = express.Router();
@@ -294,11 +294,13 @@ function parseTopicDescription(description = '') {
 
 // "Dj.Mc" / "DJ MC" -> "djmc"; tokens for partial credits
 // ("Rachel Kitchlew" vs Discogs' "Rachel Horton-Kitchlew").
-const squash = s => cleanForSearch(s || '').toLowerCase().replace(/\s*\(\d+\)$/, '').replace(/[^\p{L}\p{N}]+/gu, '');
+// Accents folded: SoundCloud says "Chateau Flight", Discogs "Château Flight".
+const fold = s => cleanForSearch(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const squash = s => fold(s).replace(/\s*\(\d+\)$/, '').replace(/[^\p{L}\p{N}]+/gu, '');
 // Words that say nothing about WHICH artist: "DJ" alone once matched "Dj.Mc"
 // to an unrelated DJ on a compilation.
 const GENERIC = new Set(['dj', 'mc', 'the', 'and', 'feat', 'ft', 'vs', 'featuring', 'presents', 'pres', 'with', 'von', 'van', 'der', 'de', 'la', 'le']);
-const tokens = s => cleanForSearch(s || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !GENERIC.has(w));
+const tokens = s => fold(s).split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !GENERIC.has(w));
 
 // minShare: fraction of a's distinctive words that must appear in b.
 // Artists use 0.5 (partial credits); titles use 1 ("Walk Ya Down" is not
@@ -318,16 +320,52 @@ function namesAgree(a, b, minShare = 0.5) {
  * An empty query artist only needs the title to agree.
  */
 function isPlausibleMatch(rel, artist, title) {
+  // A title that's only the artist's own name ("Mausio EP" by Mausio) says
+  // nothing on its own — every remix credit of theirs would match it — so it
+  // has to BE the release title (exactly — namesAgree's substring rule
+  // would let "Mausio" match "Let's Pretend (Mausio Remix)").
+  const titleWords = tokens(title), artistWords = new Set(tokens(artist));
+  const onlyArtist = !!artist && titleWords.length > 0 && titleWords.every(w => artistWords.has(w));
   const titleOk = !title
-    || namesAgree(title, rel.release_title, 1)
-    || (rel.tracks || []).some(t => namesAgree(title, t.title, 1));
+    || (onlyArtist
+      ? squash(title.replace(/\s+(?:EP|LP|E\.P\.?|Single)$/i, '')) === squash((rel.release_title || '').replace(/\s+(?:EP|LP|E\.P\.?|Single)$/i, ''))
+      : namesAgree(title, rel.release_title, 1) || (rel.tracks || []).some(t => namesAgree(title, t.title, 1)));
   if (!titleOk) return false;
   if (!artist) return true;
   const credits = [
     ...(rel.artists || []).map(a => a.name),
     ...(rel.tracks || []).flatMap(t => (t.artists || []).map(a => a.name)),
+    ...(rel.remixers || []),
   ];
   return credits.some(n => namesAgree(artist, n));
+}
+
+/**
+ * A fetched Discogs release (+ its search-result row) in the shape every
+ * reverse lookup returns.
+ */
+function toLookupRelease(release, result = {}) {
+  const relLabel = release.labels?.[0] || null;
+  return {
+    discogs_id: release.discogsId,
+    release_title: release.title,
+    // [{ id, name }] — ids are the whole point, see tryDiscogsLookup
+    artists: (release.artists || []).filter(a => a?.name),
+    artist: (release.artists || []).map(a => a.name).filter(Boolean).join(', '),
+    label: relLabel?.name || '',
+    label_id: relLabel?.id || null,
+    catNo: relLabel?.catno || '',
+    year: release.year ? String(release.year) : null,
+    genres: [...(release.genres || []), ...(release.styles || [])],
+    cover_image: release.coverImage || null,
+    thumb_image: release.thumbImage || null,
+    tracks: (release.tracklist || []).map(t => ({ title: t.title, duration: t.duration, position: t.position, artists: t.artists || [] })),
+    // Names only — used to accept a match, never saved as the post's artists.
+    remixers: [...(release.remixers || []), ...(release.tracklist || []).flatMap(t => t.remixers || [])].map(a => a.name),
+    videos: release.videos || [],
+    format: result.format || [],
+    country: result.country || '',
+  };
 }
 
 /**
@@ -338,12 +376,17 @@ function isPlausibleMatch(rel, artist, title) {
  * post_artists.discogs_artist_id / post_labels.discogs_label_id are what the
  * spotlight discography feature resolves against, and before 2026-08-26
  * nothing on the reverse-lookup path ever produced them.
+ *
+ * With no artist, `labels` is required and one of them must agree with the
+ * release's label — a bare title ("Vibration") matches far too much.
  */
-export async function tryDiscogsLookup(artist, title) {
-  if (!artist || !title) return null;
+export async function tryDiscogsLookup(artist, title, { labels = [] } = {}) {
+  if (!title || (!artist && !labels.length)) return null;
   try {
     // Search results (up to 20), not just the first
-    const searchData = await searchDiscogs(`${cleanForSearch(artist)} ${cleanForSearch(title)}`.trim(), 'release');
+    // "Flight.Dam" -> "Flight Dam": Discogs search treats the glued pair as one word.
+    const q = `${cleanForSearch(artist)} ${cleanForSearch(title)}`.replace(/(\p{L})\.(\p{L}{2})/gu, '$1 $2').trim();
+    const searchData = await searchDiscogs(q, 'release');
     const results = searchData?.results || [];
     if (!results.length) return null;
 
@@ -374,37 +417,19 @@ export async function tryDiscogsLookup(artist, title) {
     const uniqueResults = [...seen.values()].slice(0, 5);
     const fetched = await Promise.all(uniqueResults.map(r => discogsRelease(r.id)));
 
-    const releases = [];
-    for (let i = 0; i < uniqueResults.length; i++) {
-      const release = fetched[i];
-      if (!release) continue;
-      const result = uniqueResults[i];
-      const relLabel = release.labels?.[0] || null;
-      releases.push({
-        discogs_id: release.discogsId,
-        release_title: release.title,
-        // [{ id, name }] — ids are the whole point, see the note above
-        artists: (release.artists || []).filter(a => a?.name),
-        artist: (release.artists || []).map(a => a.name).filter(Boolean).join(', '),
-        label: relLabel?.name || '',
-        label_id: relLabel?.id || null,
-        catNo: relLabel?.catno || '',
-        year: release.year ? String(release.year) : null,
-        genres: [...(release.genres || []), ...(release.styles || [])],
-        cover_image: release.coverImage || null,
-        thumb_image: release.thumbImage || null,
-        tracks: (release.tracklist || []).map(t => ({ title: t.title, duration: t.duration, position: t.position, artists: t.artists || [] })),
-        videos: release.videos || [],
-        format: result.format || [],
-        country: result.country || '',
-      });
-    }
+    const releases = uniqueResults
+      .map((r, i) => fetched[i] && toLookupRelease(fetched[i], r))
+      .filter(Boolean);
 
     // Discogs full-text search always returns SOMETHING. Before 2026-09-25
     // its top hit was taken on trust, so "Dj.Mc - Walk Ya Down" (Bandcamp)
     // became a 33-track DJ Revolution mixtape. Keep only releases whose
     // artist AND title agree with what was pasted.
-    const plausible = releases.filter(r => isPlausibleMatch(r, artist, title));
+    // Title-only: the title often still holds the artist ("Chateau
+    // Flight.Dam House ep"), so check it against artist + release title.
+    const plausible = releases.filter(r => (artist
+      ? isPlausibleMatch(r, artist, title)
+      : namesAgree(title, `${r.artist} ${r.release_title}`, 1) && labels.some(l => namesAgree(l, r.label))));
     if (!plausible.length) return null;
 
     // Primary result = first one (best match from Discogs ranking)
@@ -500,7 +525,7 @@ async function resolveYouTube(url) {
   const topicMeta = isTopic ? parseTopicDescription(description) : null;
   const parsed = isTopic ? null : parseYouTubeTitle(rawTitle, channelTitle);
   let artist, artists, channel, title;
-  let searchArtist = null, searchTitle = null;
+  let search = null; // what findDiscogsRelease gets
 
   if (isTopic) {
     const channelArtist = channelTitle.replace(/ - Topic$/, '').trim();
@@ -510,26 +535,23 @@ async function resolveYouTube(url) {
       : [{ name: channelArtist }];
     artist = artists.map(a => a.name).join(', ');
     channel = null;
-    searchArtist = channelArtist;
-    // The release title finds the right Discogs release more reliably than
-    // the track title (an album track's title isn't a release title).
-    searchTitle = topicMeta?.release || rawTitle;
+    search = { artist: channelArtist, title: rawTitle, album: topicMeta?.release, labels: [topicMeta?.label] };
   } else if (parsed) {
     artists = parsed.artists;
     artist = artists.map(a => a.name).join(' B2B ');
     channel = parsed.channel;
     title = rawTitle;
+    search = { artist, title };
   } else {
-    const dashMatch = rawTitle.match(/^(.+?)\s+-\s+(.+)$/);
-    if (dashMatch) {
-      artist = dashMatch[1].trim();
-      title = dashMatch[2].trim();
-    } else {
-      artist = channelTitle;
-      title = rawTitle;
-    }
+    // Same cleanup as SoundCloud: premiere prefixes, "[CAT001]", "(Official
+    // Video)", label tags. No "Artist - Title" split -> the channel is shown
+    // as the artist, and searched as the uploader.
+    const rt = parseReleaseTitle(rawTitle);
+    artist = rt.artist || channelTitle;
+    title = rt.title || rawTitle;
     artists = splitArtists(artist);
     channel = null;
+    search = { artist: rt.artist, title, labels: [channelTitle, ...rt.hints], catNo: rt.catNo, uploader: channelTitle };
   }
 
   // Topic uploads are always released music, never a set — the description
@@ -538,8 +560,8 @@ async function resolveYouTube(url) {
 
   // ── Step 4: Discogs reverse lookup for non-live ───────────────────────────
   let discogsData = null;
-  if (postType !== 'livemix' && artist && title) {
-    discogsData = await tryDiscogsLookup(searchArtist || artist, searchTitle || title);
+  if (postType !== 'livemix' && search?.title) {
+    discogsData = await findDiscogsRelease(search);
     // Re-evaluate type now we know the real track count from Discogs
     if (discogsData?.tracks?.length) {
       postType = detectPostType({ platform: 'youtube', duration, title: rawTitle, tags, description, tracks: discogsData.tracks, catNo: discogsData.catNo });
@@ -553,6 +575,7 @@ async function resolveYouTube(url) {
   return {
     platform: 'youtube',
     detected_type: postType,
+    _search: search,
     stream_url: `https://www.youtube.com/watch?v=${videoId}`,
     embed_url: `https://www.youtube.com/embed/${videoId}`,
     // Release art when Discogs matched; the video thumbnail is a screenshot
@@ -573,124 +596,760 @@ async function resolveYouTube(url) {
     source: discogsData ? 'discogs' : 'platform',
   };
 }
-async function resolveSoundCloud(url) {
-  // SC oEmbed — try multiple endpoints as SC has changed these over time
-  let title = '', artist = '', cover = null, embedUrl = null, duration = 0;
+// ─── Shared: title parsing + the Discogs search every platform uses ──────────
+//
+// Built for SoundCloud on 2026-10-02 (0/17 Discogs hits -> 8/19), then given
+// to every platform: each resolver reads the richest source its platform has
+// (page data, public API) and hands findDiscogsRelease whatever it learned —
+// artist, title, the album it's on, label, catalogue number, barcode.
 
-  // Method 1: soundcloud.com/oembed (current)
-  const oembedEndpoints = [
-    `https://soundcloud.com/oembed?url=${encodeURIComponent(url)}&format=json`,
-    `https://soundcloud.com/oembed.json?url=${encodeURIComponent(url)}`,
-    `https://w.soundcloud.com/oembed?url=${encodeURIComponent(url)}&format=json`,
-  ];
+const UA = { 'User-Agent': 'LNV/0.1 (+https://github.com/gabrieljcdev/LNV)' };
+// Node's built-in fetch, not node-fetch: Beatport's Cloudflare answers
+// node-fetch with a 403 challenge page and the built-in client with the real
+// page, same honest User-Agent either way (checked 2026-10-02).
+const pageFetch = globalThis.fetch;
 
-  for (const endpoint of oembedEndpoints) {
-    try {
-      const oe = await fetch(endpoint);
-      if (!oe.ok) continue;
-      const data = await oe.json();
-      if (data.title) {
-        title  = data.title || '';
-        artist = data.author_name || '';
-        cover  = data.thumbnail_url || null;
-        // Extract embed URL from HTML snippet
-        const srcMatch = data.html?.match(/src="([^"]+)"/);
-        embedUrl = srcMatch ? srcMatch[1] : null;
-        break;
-      }
-    } catch { continue; }
+async function fetchHtml(url) {
+  try {
+    const res = await pageFetch(url, { headers: UA });
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
   }
-
-  // Method 2: If oEmbed failed, parse from URL slug
-  if (!title) {
-    const parts = url.replace('https://soundcloud.com/', '').split('/');
-    artist = parts[0]?.replace(/-/g, ' ') || '';
-    title  = parts[1]?.replace(/-/g, ' ') || parts[0]?.replace(/-/g, ' ') || '';
-  }
-
-  const artists = splitArtists(artist);
-  const postType = detectPostType({ platform: 'soundcloud', duration, title });
-
-  // Always try Discogs lookup — SC pages often list EPs/albums
-  // Use artist + title for the search, also try just artist name
-  let discogsData = null;
-  
-  // Clean the title for Discogs search — remove "- free download", remix suffixes etc
-  const cleanTitle = title
-    .replace(/[-–]s*(frees+download|free|preview|clip|snippet)$/i, '')
-    .replace(/(.*?(remix|edit|mix|version|remaster|bootleg).*?)/i, '')
-    .trim();
-
-  // For sets/playlists, extract EP/album name from URL
-  const isPlaylist = url.includes('/sets/');
-  const slugTitle = isPlaylist
-    ? url.split('/sets/')[1]?.split('?')[0]?.replace(/-/g, ' ')
-    : cleanTitle;
-
-  if (artist || slugTitle) {
-    discogsData = await tryDiscogsLookup(artist, slugTitle || cleanTitle);
-    // If no match, try just the title alone
-    if (!discogsData && slugTitle) {
-      discogsData = await tryDiscogsLookup('', slugTitle);
-    }
-  }
-
-  // Build tracklist: prefer Discogs (has positions/durations), fall back to SC
-  const tracks = discogsData?.tracks?.length ? discogsData.tracks : [];
-
-  // Build embed URL for SC widget if we have it
-  const finalEmbedUrl = embedUrl || (url ? 
-    `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=true`
-    : null);
-
-  return {
-    platform: 'soundcloud',
-    detected_type: postType,
-    stream_url: url,
-    embed_url: finalEmbedUrl,
-    cover_image: discogsData?.cover_image || cover,
-    year: discogsData?.year || null,
-    tracks,
-    artists: artists,
-    artist: discogsData ? (discogsData.artist || artist) : artist,
-    channel: null,
-    title: discogsData?.title || title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres?.length ? discogsData.genres : genresFromKeywords(title),
-    discogs_id: discogsData?.discogs_id || null,
-    all_releases: discogsData?.all_releases || null,
-    source: discogsData ? 'discogs' : 'platform',
-  };
 }
 
-// Bandcamp retired its oEmbed endpoint (404 for every URL, checked
-// 2026-09-25), which is why every Bandcamp paste failed. The album/track page
-// itself carries everything: og:title "Title, by Artist", og:type
-// album|song, og:image, the item id (bc-page-properties), the tracklist
-// (.track-title / .time), "released <date>" and the tag list.
+async function fetchJson(url) {
+  try {
+    const res = await pageFetch(url, { headers: UA });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 const decodeHtml = s => (s || '')
   .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'");
 
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// <meta property="og:title" content="…"> / <meta name="music:release_date" …>
+const metaTag = (html, prop) => decodeHtml(html?.match(new RegExp(`<meta (?:property|name)="${escapeRe(prop)}"\\s+content="([^"]*)"`))?.[1]);
+const metaTags = (html, prop) => [...(html || '').matchAll(new RegExp(`<meta (?:property|name)="${escapeRe(prop)}"\\s+content="([^"]*)"`, 'g'))].map(m => decodeHtml(m[1]));
+
+// Every <script type="application/ld+json"> object on a page, @graph flattened.
+function jsonLd(html) {
+  const out = [];
+  for (const m of (html || '').matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)) {
+    try {
+      const j = JSON.parse(m[1]);
+      out.push(...(j['@graph'] || (Array.isArray(j) ? j : [j])));
+    } catch { /* not JSON */ }
+  }
+  return out;
+}
+
+// "PRX026", "BONK003", "STEAK 003", "SYEP-032". Upper-case letters only, so
+// "Code 718" (an artist) isn't one; years ("ADE 2024") are excluded below.
+const CATNO_RE = /^([A-Z]{2,6}[A-Z0-9]{0,2})[\s-]?(\d{2,4}[A-Z]?)$/;
+const isCatNo = s => {
+  const m = (s || '').trim().match(CATNO_RE);
+  return !!m && !/^(19|20)\d\d$/.test(m[2]);
+};
+// Bracketed or separated bits that are never part of artist or title.
+const TITLE_NOISE = /^(?:free\s*(?:dl|download)|out\s+now|clips?|snippets?|preview|teaser|forthcoming|exclusive|premiere|full\s+(?:ep|album)|buy\s*=\s*free(?:\s*dl)?|#\d+.*)$/i;
+// Kept in titles: these name a real version of a track.
+const VERSION_RE = /\b(?:remix|edit|mix|version|dub|rework|vip|remaster(?:ed)?|bootleg|instrumental|re-?(?:wash|edit|work|fix|touch|lick|mix)|refix|flip|rub)\b/i;
+const FEAT_RE = /^(?:feat\.?|ft\.?|featuring)\s/i;
+const LABELISH_RE = /\b(?:records|recordings|music|audio|label|rec\.?)$/i;
+
+// Split on " - ", " – ", " // ", " | " but never inside brackets, so
+// "Equinox (Henrik Schwarz Remix - Dixon Edit)" stays one piece.
+function splitTopLevel(s) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if ('([{'.includes(ch)) depth++;
+    if (')]}'.includes(ch)) depth = Math.max(0, depth - 1);
+    const sep = depth === 0 && s.slice(i).match(/^\s+(?:-|–|—|\/\/|\|)\s+/);
+    if (sep) { out.push(cur); cur = ''; i += sep[0].length - 1; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map(x => x.trim()).filter(Boolean);
+}
+
+/**
+ * Free-form upload titles (SoundCloud, YouTube, Bandcamp):
+ * "552# PREMIERE: Kai Stein - Into The Ritual [Krachtvoer] by Tucca Premiere"
+ *   -> { artist: 'Kai Stein', title: 'Into The Ritual', catNo: '', hints: ['Krachtvoer'] }
+ * hints = bracketed words that weren't a catalogue number, a version or a
+ * feature credit — almost always the label, used to confirm a title-only /
+ * catno match.
+ */
+function parseReleaseTitle(raw, uploader = '') {
+  let t = (raw || '').trim();
+  if (uploader) t = t.replace(new RegExp(`\\s+by\\s+${escapeRe(uploader)}$`, 'i'), '');
+  // Everything up to "premiere" near the start is channel branding:
+  // "SYN Premiere: ", "[PREMIERE] | ", "*Premiere* ", "552# PREMIERE: ".
+  t = t.replace(/^.{0,30}?\bpremiere\b\s*[*\]]?\s*(?:[:|\-–]\s*)?/i, '');
+
+  let catNo = '';
+  const hints = [];
+  t = t.replace(/\s*[[(]([^\])]*)[\])]/g, (whole, inner) => {
+    const v = inner.trim();
+    if (isCatNo(v)) { catNo = catNo || v; return ''; }
+    if ((VERSION_RE.test(v) || FEAT_RE.test(v)) && !TITLE_NOISE.test(v)) return whole;
+    if (v && !TITLE_NOISE.test(v) && !/^(?:official|music|lyric|audio|video|visuali[sz]er|hd|hq|4k)\b/i.test(v)) hints.push(v.replace(/\s+EP$/i, ''));
+    return '';
+  });
+
+  const parts = splitTopLevel(t).filter(p => {
+    if (isCatNo(p)) { catNo = catNo || p; return false; }
+    if (TITLE_NOISE.test(p)) return false;
+    if (LABELISH_RE.test(p)) { hints.push(p); return false; }
+    return true;
+  });
+  const unquote = s => s.replace(/^["“'](.*)["”']$/, '$1').trim();
+
+  let artist = '', title = '';
+  if (parts.length >= 2) {
+    artist = parts[0];
+    title = parts.slice(1).join(' - ');
+  } else if (parts.length === 1) {
+    // ANNĒ "St. Strings"
+    const q = parts[0].match(/^(.+?)\s+["“](.+?)["”]$/);
+    if (q) { artist = q[1]; title = q[2]; } else title = parts[0];
+  }
+  return { artist: unquote(artist), title: unquote(title), catNo, hints };
+}
+
+/**
+ * Streaming-service track titles carry the version after a dash:
+ * "Feel It All Around - Total M Remix" -> "Feel It All Around (Total M Remix)"
+ * (Discogs' form); "Song - 2011 Remaster" -> "Song" (the original release).
+ */
+function normaliseVersionTitle(t = '') {
+  const m = t.trim().match(/^(.+?)\s+-\s+(.+)$/);
+  if (!m) return t.trim();
+  const [, base, suffix] = m;
+  if (/\bremaster(?:ed)?\b|\bmono\b|\bstereo\b|\bdeluxe\b|\banniversary\b/i.test(suffix)) return base.trim();
+  if (VERSION_RE.test(suffix) || /\blive\b|^(?:feat\.?|ft\.?|with)\s/i.test(suffix)) return `${base.trim()} (${suffix.trim()})`;
+  return t.trim();
+}
+
+// "Life Of Leisure - EP" / "Walk Ya Down - Single" -> the release name.
+const stripReleaseSuffix = s => (s || '').replace(/\s+-\s+(?:EP|Single|LP|Album)$/i, '').trim();
+
+/**
+ * Label names out of copyright lines:
+ * "℗ 2009 Kemado Records, Inc. D/B/A Mexican Summer" -> ['Mexican Summer', 'Kemado Records']
+ */
+function labelsFromCopyright(...lines) {
+  const out = [];
+  for (const raw of lines.flat()) {
+    if (!raw) continue;
+    const s = String(raw).replace(/^\s*(?:℗|©|\(p\)|\(c\))?\s*(?:\d{4}\s*)?/i, '').trim();
+    const parts = s.split(/\s+(?:d\/b\/a|under (?:exclusive )?licen[cs]e to|distributed by|marketed by|a division of)\s+/i);
+    for (const part of parts.reverse()) {
+      const name = part.replace(/,?\s*(?:inc|ltd|llc|limited|gmbh|b\.?v|s\.?a)\.?$/i, '').replace(/[,.]\s*$/, '').trim();
+      if (name.length > 1) out.push(name);
+    }
+  }
+  return [...new Set(out)];
+}
+
+const secondsToClock = s => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
+
+/**
+ * Discogs lookup by catalogue number. Discogs' free-text search matches
+ * catnos well, but they aren't unique across labels, so a hit must also
+ * agree on the artist or one of the label hints.
+ */
+async function tryCatNoLookup(catNo, artist, labels = []) {
+  try {
+    const data = await searchDiscogs(catNo, 'release');
+    const want = squash(catNo);
+    const results = (data?.results || []).filter(r => squash(r.catno) === want).slice(0, 5);
+    const fetched = await Promise.all(results.map(r => discogsRelease(r.id)));
+    for (let i = 0; i < results.length; i++) {
+      const rel = fetched[i] && toLookupRelease(fetched[i], results[i]);
+      if (!rel) continue;
+      const credits = [...rel.artists.map(a => a.name), ...rel.tracks.flatMap(t => t.artists.map(a => a.name)), ...rel.remixers];
+      // "BONK003" is MC Sharkey on Bonkers AND R 417 on BONKERS Society, so
+      // the label only stands in when there's no artist to check.
+      const ok = artist
+        ? credits.some(n => namesAgree(artist, n))
+        : labels.some(l => namesAgree(l, rel.label));
+      if (ok) return { ...rel, all_releases: null };
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/**
+ * Discogs lookup by UPC/EAN (Deezer, Beatport). Near-unique, so any
+ * agreement on artist or title will do — it's there to catch a mistyped or
+ * reused barcode, not to second-guess a real hit.
+ */
+async function tryBarcodeLookup(barcode, artist, title) {
+  try {
+    const data = await searchDiscogsBarcode(barcode);
+    const results = (data?.results || []).slice(0, 3);
+    const fetched = await Promise.all(results.map(r => discogsRelease(r.id)));
+    for (let i = 0; i < results.length; i++) {
+      const rel = fetched[i] && toLookupRelease(fetched[i], results[i]);
+      if (!rel) continue;
+      const credits = [...rel.artists.map(a => a.name), ...rel.tracks.flatMap(t => t.artists.map(a => a.name)), ...rel.remixers];
+      if ((artist && credits.some(n => namesAgree(artist, n))) || (title && namesAgree(title, rel.release_title))) {
+        return { ...rel, all_releases: null };
+      }
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/**
+ * The Discogs search every platform shares: most specific key first, stop
+ * at the first plausible match, at most 6 searches. Any field may be empty.
+ *   artist    who made it (NOT the uploading account)
+ *   title     the pasted track's or release's title
+ *   album     the release a pasted track is on, when known
+ *   labels    label names / hints — confirm title-only and catno matches
+ *   catNo     catalogue number
+ *   barcode   UPC/EAN
+ *   uploader  account name, tried as the artist when there's no artist
+ */
+async function findDiscogsRelease({ artist = '', title = '', album = '', labels = [], catNo = '', barcode = '', uploader = '' } = {}) {
+  labels = [...new Set(labels.filter(Boolean))];
+  const attempts = [];
+  const add = (key, run) => { if (!attempts.some(a => a.key === key)) attempts.push({ key, run }); };
+  const lookup = (a, t) => t && add(`${a}|${t}`.toLowerCase(), () => tryDiscogsLookup(a, t));
+
+  if (barcode) add('barcode', () => tryBarcodeLookup(barcode, artist, album || title));
+  // The album a track is on finds the right release more reliably than the
+  // track title (an album track's title isn't a release title).
+  if (artist) { lookup(artist, album); lookup(artist, title); }
+  if (catNo) add('catno', () => tryCatNoLookup(catNo, artist, labels));
+  // No artist anywhere: the uploader might be the artist's own account.
+  if (!artist && uploader) { lookup(uploader, album); lookup(uploader, title); }
+  // Title alone, but only accepted when a label agrees.
+  if (!artist && labels.length) {
+    for (const t of [album, title]) if (t) add(`title-only|${t}`.toLowerCase(), () => tryDiscogsLookup('', t, { labels }));
+  }
+
+  for (const a of attempts.slice(0, 6)) {
+    const hit = await a.run();
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// The fields every non-live resolver fills the same way once it has (or
+// hasn't) landed on a Discogs release.
+const discogsFields = (d, fallback = {}) => ({
+  cover_image: d?.cover_image || fallback.cover || null,
+  year: d?.year || fallback.year || null,
+  tracks: d?.tracks?.length ? d.tracks : (fallback.tracks || []),
+  label: d?.label || fallback.label || '',
+  catNo: d?.catNo || fallback.catNo || '',
+  genres: d?.genres?.length ? d.genres : (fallback.genres?.length ? fallback.genres : ['Electronic']),
+  discogs_id: d?.discogs_id || null,
+  videos: d?.videos || [],
+  all_releases: d?.all_releases || null,
+  source: d ? 'discogs' : 'platform',
+});
+
+// Type once the real tracklist is known.
+const typeFromTracks = (platform, title, d, fallbackType) => (d?.tracks?.length
+  ? detectPostType({ platform, title, tracks: d.tracks, catNo: d.catNo })
+  : fallbackType);
+
+// ─── When Discogs has no exact release ────────────────────────────────────────
+//
+// gabriel, 2026-10-02: a miss should still fill the post as deeply as
+// possible, double/triple-checked. resolveWithFallback() runs after any
+// resolver whose findDiscogsRelease() came back empty:
+//   1. cross-check — iTunes, Deezer and MusicBrainz in parallel; a candidate
+//      only counts when its title AND its artist (or, with no artist, its
+//      label / the uploader) agree with what was pasted;
+//   2. second Discogs pass with what they found: a MusicBrainz -> Discogs
+//      link, barcodes, a catalogue number, the real artist, the album;
+//   3. Discogs "neighbourhood" — still no release, but the artist and label
+//      exist on Discogs: attach their real ids (what spotlights and
+//      discographies resolve against) and take genre/style tags from their
+//      other records.
+// Partial data only fills fields the platform left empty, and the response
+// says where it came from (fill_sources).
+
+const FALLBACK_TIMEOUT_MS = 6000;
+
+// Small in-process memo: the same link is often pasted twice in a row
+// (fetch, edit, fetch again). Discogs calls have their own SQLite cache.
+const memo = new Map();
+async function memoised(key, fn, ttlMs = 6 * 3600e3) {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.t < ttlMs) return hit.v;
+  const v = await fn().catch(() => null);
+  memo.set(key, { t: Date.now(), v });
+  if (memo.size > 500) memo.delete(memo.keys().next().value);
+  return v;
+}
+
+const getJson = url => pageFetch(url, { headers: { ...UA, Accept: 'application/json' }, signal: AbortSignal.timeout(FALLBACK_TIMEOUT_MS) })
+  .then(r => (r.ok ? r.json() : null))
+  .catch(() => null);
+
+// MusicBrainz allows one request a second per client — queue them.
+let mbQueue = Promise.resolve();
+function mbJson(path) {
+  const run = mbQueue.then(() => getJson(`https://musicbrainz.org/ws/2/${path}${path.includes('?') ? '&' : '?'}fmt=json`));
+  mbQueue = run.then(() => new Promise(r => setTimeout(r, 1100)));
+  return run;
+}
+const luceneSafe = s => (s || '').replace(/["\\]/g, ' ').trim();
+
+/**
+ * Does a candidate from another catalogue describe the pasted thing? Title
+ * must agree both ways (so "Vibration" doesn't take "Moon Vibration"); then
+ * the artist — or, with no artist known, a label or the uploader.
+ */
+function candidateAgrees(c, s) {
+  const want = s.kind === 'album' ? (s.album || s.title) : s.title;
+  const got = s.kind === 'album' ? c.album : c.title;
+  if (!want || !got || !namesAgree(want, got, 1) || !namesAgree(got, want, 0.67)) return false;
+  if (s.artist) return namesAgree(s.artist, c.artist) || namesAgree(c.artist, s.artist);
+  return (s.labels || []).some(l => namesAgree(l, c.label)) || (!!s.uploader && namesAgree(s.uploader, c.artist));
+}
+
+async function itunesCandidate(s) {
+  const entity = s.kind === 'album' ? 'album' : 'song';
+  const term = `${s.artist || s.uploader || ''} ${s.kind === 'album' ? (s.album || s.title) : s.title}`.trim();
+  const d = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=${entity}&limit=10`);
+  const hit = (d?.results || [])
+    .map(r => ({ r, c: { artist: r.artistName, title: normaliseVersionTitle(r.trackName || ''), album: stripReleaseSuffix(r.collectionName), label: '' } }))
+    .find(({ c }) => candidateAgrees(c, s));
+  if (!hit) return null;
+  const { r } = hit;
+  const look = await getJson(`https://itunes.apple.com/lookup?id=${r.collectionId}&entity=song`);
+  const coll = (look?.results || []).find(x => x.wrapperType === 'collection') || r;
+  const songs = (look?.results || []).filter(x => x.wrapperType === 'track');
+  return {
+    source: 'itunes',
+    artist: r.artistName,
+    title: hit.c.title,
+    album: hit.c.album,
+    label: labelsFromCopyright(coll.copyright)[0] || '',
+    year: (coll.releaseDate || r.releaseDate || '').slice(0, 4),
+    cover: (coll.artworkUrl100 || r.artworkUrl100)?.replace('100x100', '600x600') || null,
+    genres: [coll.primaryGenreName || r.primaryGenreName].filter(Boolean),
+    tracks: songs.map(t => ({ position: String(t.trackNumber || ''), title: normaliseVersionTitle(t.trackName), duration: secondsToClock(Math.round((t.trackTimeMillis || 0) / 1000)), artists: [] })),
+  };
+}
+
+async function deezerCandidate(s) {
+  const albumMode = s.kind === 'album';
+  const q = `${s.artist || s.uploader || ''} ${albumMode ? (s.album || s.title) : s.title}`.trim();
+  const d = await getJson(`https://api.deezer.com/search${albumMode ? '/album' : ''}?q=${encodeURIComponent(q)}&limit=10`);
+  const hit = (d?.data || []).find(x => candidateAgrees({
+    artist: x.artist?.name, title: normaliseVersionTitle(x.title || ''), album: albumMode ? x.title : x.album?.title, label: '',
+  }, s));
+  if (!hit) return null;
+  const album = await getJson(`https://api.deezer.com/album/${albumMode ? hit.id : hit.album.id}`);
+  return {
+    source: 'deezer',
+    artist: hit.artist?.name || '',
+    title: albumMode ? '' : normaliseVersionTitle(hit.title),
+    album: album?.title || '',
+    label: album?.label || '',
+    barcode: album?.upc || '',
+    year: (album?.release_date || '').slice(0, 4),
+    cover: album?.cover_xl || null,
+    genres: (album?.genres?.data || []).map(g => g.name),
+    tracks: (album?.tracks?.data || []).map((t, i) => ({ position: String(i + 1), title: normaliseVersionTitle(t.title || ''), duration: secondsToClock(t.duration), artists: [] })),
+  };
+}
+
+async function musicbrainzCandidate(s) {
+  const credit = ac => (ac || []).map(c => `${c.name}${c.joinphrase || ''}`).join('').trim();
+  let releaseId = null, mbArtist = '', mbTitle = '';
+  const artistQ = s.artist ? ` AND artist:"${luceneSafe(s.artist)}"` : '';
+  if (s.kind === 'album') {
+    const d = await mbJson(`release/?query=${encodeURIComponent(`release:"${luceneSafe(s.album || s.title)}"${artistQ}`)}&limit=10`);
+    const hit = (d?.releases || []).find(r => candidateAgrees({
+      artist: credit(r['artist-credit']), album: r.title, label: r['label-info']?.[0]?.label?.name || '',
+    }, s));
+    if (!hit) return null;
+    releaseId = hit.id; mbArtist = credit(hit['artist-credit']);
+  } else {
+    const d = await mbJson(`recording/?query=${encodeURIComponent(`recording:"${luceneSafe(s.title)}"${artistQ}`)}&limit=10`);
+    const hit = (d?.recordings || []).find(r => candidateAgrees({ artist: credit(r['artist-credit']), title: r.title, label: '' }, s));
+    if (!hit) return null;
+    mbArtist = credit(hit['artist-credit']); mbTitle = hit.title;
+    // The release it's on: the named album if we know it, else the earliest
+    // official one.
+    const rels = [...(hit.releases || [])].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+    const pick = (s.album && rels.find(r => namesAgree(s.album, r.title)))
+      || rels.find(r => r.status === 'Official') || rels[0];
+    releaseId = pick?.id || null;
+  }
+  if (!releaseId) return { source: 'musicbrainz', artist: mbArtist, title: mbTitle };
+  const rel = await mbJson(`release/${releaseId}?inc=labels+url-rels+recordings+artist-credits+genres+release-groups`);
+  if (!rel) return { source: 'musicbrainz', artist: mbArtist, title: mbTitle };
+  const li = (rel['label-info'] || []).find(l => l.label?.name) || {};
+  return {
+    source: 'musicbrainz',
+    artist: mbArtist || credit(rel['artist-credit']),
+    title: mbTitle,
+    album: rel.title || '',
+    label: li.label?.name || '',
+    catNo: li['catalog-number'] && !/^\[none\]$/i.test(li['catalog-number']) ? li['catalog-number'] : '',
+    barcode: rel.barcode || '',
+    year: (rel.date || '').slice(0, 4),
+    cover: rel['cover-art-archive']?.front ? `https://coverartarchive.org/release/${releaseId}/front-500` : null,
+    genres: [...(rel.genres || []), ...(rel['release-group']?.genres || [])].map(g => g.name),
+    tracks: (rel.media || []).flatMap(m => m.tracks || []).map((t, i) => ({
+      position: t.number || String(i + 1), title: t.title, duration: secondsToClock(Math.round((t.length || 0) / 1000)),
+      artists: (t['artist-credit'] || []).map(c => ({ name: c.name })),
+    })),
+    discogsIds: (rel.relations || []).filter(r => r.type === 'discogs')
+      .map(r => r.url?.resource?.match(/discogs\.com\/release\/(\d+)/)?.[1]).filter(Boolean),
+  };
+}
+
+/** Steps 1: every agreeing candidate, merged field by field. */
+async function crossCheck(s) {
+  const key = `xc|${s.kind}|${s.artist}|${s.uploader}|${s.title}|${s.album}`.toLowerCase();
+  return memoised(key, async () => {
+    const found = (await Promise.all([musicbrainzCandidate(s), deezerCandidate(s), itunesCandidate(s)]))
+      .filter(Boolean);
+    if (!found.length) return null;
+    // Field priority: MusicBrainz is curated (catno, barcode, canonical
+    // credit), Deezer has the best covers and label strings, iTunes fills gaps.
+    const first = f => found.map(c => c[f]).find(v => (Array.isArray(v) ? v.length : v)) || (f === 'tracks' || f === 'genres' ? [] : '');
+    return {
+      sources: found.map(c => c.source),
+      artist: first('artist'),
+      album: first('album'),
+      label: first('label'),
+      labels: [...new Set(found.map(c => c.label).filter(Boolean))],
+      catNo: first('catNo'),
+      barcodes: [...new Set(found.map(c => c.barcode).filter(Boolean))],
+      year: found.map(c => c.year).filter(Boolean).sort()[0] || '',   // earliest
+      cover: found.find(c => c.source === 'deezer')?.cover || first('cover'),
+      genres: [...new Set(found.flatMap(c => c.genres || []))],
+      tracks: first('tracks'),
+      discogsIds: found.flatMap(c => c.discogsIds || []),
+    };
+  });
+}
+
+/** Step 2: a second Discogs pass with what the cross-check learned. */
+async function discogsFromCrossCheck(x, s) {
+  const artist = s.artist || x.artist;
+  const labels = [...(s.labels || []), ...x.labels];
+  for (const id of x.discogsIds.slice(0, 2)) {
+    const raw = await discogsRelease(id);
+    const rel = raw && toLookupRelease(raw);
+    // MusicBrainz' link is curated; the artist check catches a stale one.
+    if (rel && isPlausibleMatch(rel, artist, '')) return { ...rel, all_releases: null };
+  }
+  for (const b of x.barcodes.slice(0, 2)) {
+    const hit = await tryBarcodeLookup(b, artist, x.album || s.title);
+    if (hit) return hit;
+  }
+  if (x.catNo) {
+    const hit = await tryCatNoLookup(x.catNo, artist, labels);
+    if (hit) return hit;
+  }
+  // The real artist (an uploader-only paste) and/or the album a track is on.
+  if ((!s.artist && x.artist) || (x.album && !namesAgree(x.album, s.album || ''))) {
+    return findDiscogsRelease({ ...s, artist, album: s.album || x.album, labels, catNo: '', barcode: '', uploader: '' });
+  }
+  return null;
+}
+
+// Discogs names carry a disambiguation suffix: "Praxis (2)".
+const bareName = n => (n || '').replace(/\s*\(\d+\)$/, '');
+
+/**
+ * Step 3: no release, but the artist / label are on Discogs. Same-name
+ * entities ("Praxis", "Praxis (2)", …) are told apart by the other side:
+ * an artist whose releases include the label, a label whose releases
+ * include the artist. Ambiguity with nothing to tell them apart -> no id
+ * (a wrong id would wire the post to someone else's discography).
+ */
+async function discogsNeighbours({ artist, labels = [] }) {
+  labels = [...new Set(labels.filter(Boolean))];
+  const exact = async (name, type) => {
+    const d = await searchDiscogs(name, type).catch(() => null);
+    return (d?.results || []).filter(r => squash(bareName(r.title)) === squash(name)).slice(0, 3);
+  };
+  const out = { artist: null, label: null, genres: [] };
+
+  if (artist) {
+    const cands = await exact(artist, 'artist');
+    if (cands.length === 1 && !labels.length) out.artist = { id: cands[0].id, name: bareName(cands[0].title) };
+    else if (cands.length) {
+      for (const c of cands) {
+        const rel = await getArtistReleases(c.id).catch(() => null);
+        if ((rel?.releases || []).some(r => labels.some(l => namesAgree(l, r.label || '')))) {
+          out.artist = { id: c.id, name: bareName(c.title) };
+          break;
+        }
+      }
+      if (!out.artist && cands.length === 1) out.artist = { id: cands[0].id, name: bareName(cands[0].title) };
+    }
+  }
+
+  for (const label of labels.slice(0, 2)) {
+    const cands = await exact(label, 'label');
+    if (cands.length === 1) { out.label = { id: cands[0].id, name: bareName(cands[0].title) }; break; }
+    for (const c of cands) {
+      const rel = await getLabelReleases(c.id).catch(() => null);
+      if (artist && (rel?.releases || []).some(r => namesAgree(artist, r.artist || ''))) {
+        out.label = { id: c.id, name: bareName(c.title) };
+        break;
+      }
+    }
+    if (out.label) break;
+  }
+
+  // Genre/style tags off their other records (Discogs search rows carry
+  // genre[] and style[]). Most common first; styles after genres, the same
+  // order a Discogs release gives them.
+  const genreCount = new Map(), styleCount = new Map();
+  const tally = rows => rows.forEach(r => {
+    (r.genre || []).forEach(g => genreCount.set(g, (genreCount.get(g) || 0) + 1));
+    (r.style || []).forEach(g => styleCount.set(g, (styleCount.get(g) || 0) + 1));
+  });
+  if (out.artist) {
+    const d = await searchDiscogs(out.artist.name, 'release').catch(() => null);
+    // Exact name only: a loose match let "Jack Teagarden" tag Jack Fresia as Jazz.
+    tally((d?.results || []).filter(r => squash(bareName((r.title || '').split(' - ')[0])) === squash(out.artist.name)));
+  }
+  if (out.label) {
+    const d = await searchDiscogs(out.label.name, 'release').catch(() => null);
+    tally((d?.results || []).filter(r => (r.label || []).some(l => namesAgree(out.label.name, l))).slice(0, 20));
+  }
+  const top = m => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+  out.genres = [...top(genreCount).slice(0, 2), ...top(styleCount).slice(0, 4)];
+  return out;
+}
+
+const isDefaultGenres = g => !g?.length || (g.length === 1 && g[0] === 'Electronic');
+
+/**
+ * Runs after a resolver whose own Discogs search missed. Either upgrades the
+ * result to a full Discogs match (second pass) or fills its blanks.
+ * Mutates and returns `result`.
+ */
+async function resolveWithFallback(result) {
+  const s = result._search;
+  if (!s || result.discogs_id || result.detected_type === 'livemix' || !s.title) return result;
+  s.labels = [...new Set((s.labels || []).filter(Boolean))];
+  const sources = [];
+
+  const x = await crossCheck(s);
+  if (x) {
+    const d = await discogsFromCrossCheck(x, s);
+    if (d) {
+      Object.assign(result, discogsFields(d, {}), {
+        detected_type: s.kind === 'album' ? result.detected_type : typeFromTracks(result.platform, result.title, d, result.detected_type),
+        fill_sources: [...x.sources, 'discogs'],
+      });
+      if (s.kind === 'album' && d.release_title) result.title = d.release_title;
+      return result;
+    }
+    sources.push(...x.sources);
+    // Fill only what the platform left empty.
+    if (!s.artist && x.artist) {
+      result.artist = x.artist;
+      result.artists = splitArtists(x.artist);
+    }
+    // A ℗ line naming the artist is a self-release, not a label.
+    const xLabel = x.labels.find(l => !namesAgree(l, result.artist || x.artist || ''));
+    result.label ||= xLabel || '';
+    result.catNo ||= x.catNo;
+    result.year ||= x.year;
+    result.cover_image ||= x.cover;
+    if (!result.tracks?.length && x.tracks.length) result.tracks = x.tracks;
+    if (x.genres.length) result.genres = [...new Set([...(isDefaultGenres(result.genres) ? [] : result.genres), ...x.genres])];
+  }
+
+  const near = await discogsNeighbours({
+    artist: result.artist && result.artist !== s.uploader ? result.artist : (s.artist || x?.artist || ''),
+    labels: [result.label, ...(x?.labels || []), ...s.labels]
+      .filter(l => l && !namesAgree(l, result.artist || s.artist || x?.artist || '')),
+  });
+  if (near.artist) {
+    sources.push('discogs-artist');
+    // Attach the id to the matching credit (the shape posts.js saves).
+    result.artists = (result.artists?.length ? result.artists : splitArtists(near.artist.name))
+      .map(a => (namesAgree(a.name, near.artist.name) && namesAgree(near.artist.name, a.name) ? { ...a, id: near.artist.id } : a));
+  }
+  if (near.label) {
+    sources.push('discogs-label');
+    result.label ||= near.label.name;
+    if (namesAgree(result.label, near.label.name)) result.label_id = near.label.id;
+  }
+  if (near.genres.length) result.genres = [...new Set([...(isDefaultGenres(result.genres) ? [] : result.genres), ...near.genres])];
+  if (result.genres?.length > 8) result.genres = result.genres.slice(0, 8);
+
+  if (sources.length) result.fill_sources = [...new Set(sources)];
+  return result;
+}
+
+// ─── SoundCloud ───────────────────────────────────────────────────────────────
+//
+// oEmbed's author_name is the UPLOADER — usually a label or premiere channel,
+// not the artist — and its title is "[PREMIERE] | Nozlin - Vibration
+// [PRTL009] by POLISH TECHNO.LOGY". The track page itself carries the real
+// data in window.__sc_hydration: publisher_metadata { artist, album_title,
+// release_title, publisher }, label_name, release_date, duration, genre, and
+// a set's tracklist. Title parsing is the fallback.
+
+/** The page's hydration blob -> the 'sound' or 'playlist' object, or null. */
+async function fetchSoundCloudPage(url) {
+  const html = await fetchHtml(url);
+  const m = html?.match(/window\.__sc_hydration = (\[.*?\]);<\/script>/s);
+  if (!m) return null;
+  try {
+    const item = JSON.parse(m[1]).find(x => x.hydratable === 'sound' || x.hydratable === 'playlist');
+    return item ? { kind: item.hydratable, ...item.data } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveSoundCloud(url) {
+  let search = null; // for resolveWithFallback when Discogs misses
+  url = url.split('#')[0];
+  const isPlaylist = url.includes('/sets/');
+  // A track opened from a set carries ?in=label/sets/...; the track is what
+  // was pasted, so drop it (the embed and page lookups want the bare URL).
+  const pageUrl = url.split('?')[0];
+
+  const [oembed, page] = await Promise.all([
+    fetchJson(`https://soundcloud.com/oembed?url=${encodeURIComponent(pageUrl)}&format=json`),
+    fetchSoundCloudPage(pageUrl),
+  ]);
+
+  const uploader = page?.user?.username || oembed?.author_name || '';
+  const rawTitle = page?.title || oembed?.title || '';
+  const pm = page?.publisher_metadata || {};
+  const parsed = parseReleaseTitle(rawTitle, uploader);
+
+  // Last resort when both lookups failed: the URL slug.
+  if (!parsed.title) {
+    const slug = pageUrl.replace(/^https?:\/\/(?:m\.)?soundcloud\.com\//, '').split('/').pop() || '';
+    parsed.title = slug.replace(/-/g, ' ');
+  }
+  // Catalogue number glued into the slug: "nsr26-mausio-ep", "...-real010-clips".
+  if (!parsed.catNo) {
+    const slugCat = pageUrl.split('/').pop().split('-').find(w => /^[a-z]{2,6}\d{2,4}$/.test(w));
+    if (slugCat) parsed.catNo = slugCat.toUpperCase();
+  }
+
+  // The title's "Artist - Title" split beats publisher_metadata.artist, which
+  // label/premiere accounts often fill with their own name ("Techno Germany",
+  // "Tucca Premiere / Kai Stein").
+  const pmArtist = pm.artist && !namesAgree(pm.artist, uploader) ? pm.artist.trim() : '';
+  const artist = (parsed.artist || pmArtist || '').trim();
+  // "MechaLAB Hellmarch" with artist MechaLAB -> "Hellmarch".
+  if (artist && !parsed.artist && parsed.title.toLowerCase().startsWith(`${artist.toLowerCase()} `)) {
+    parsed.title = parsed.title.slice(artist.length).trim();
+  }
+  const label = page?.label_name || pm.publisher || '';
+  const durationSec = Math.round((page?.duration || page?.full_duration || 0) / 1000);
+
+  // Set tracklist from the page. Long sets only hydrate the first few tracks
+  // in full; a partial list would mislead, so it's all or nothing.
+  const pageTracks = isPlaylist && page?.tracks?.length && page.tracks.every(t => t.title)
+    ? page.tracks.map((t, i) => ({ position: String(i + 1), title: t.title, duration: '', artists: [] }))
+    : [];
+
+  let postType = isPlaylist
+    ? ((page?.track_count || pageTracks.length) >= 3 ? 'album' : 'single')
+    // Title + length only: descriptions are label blurbs ("...played live by
+    // Dixon") and tripped the live-set keyword scan on plain tracks.
+    : detectPostType({ platform: 'soundcloud', duration: durationSec, title: rawTitle });
+
+  let discogsData = null;
+  if (postType !== 'livemix') {
+    discogsData = await findDiscogsRelease(search = { kind: isPlaylist ? 'album' : 'track',
+      artist,
+      title: parsed.title,
+      album: pmArtist ? (pm.album_title || pm.release_title) : '',
+      labels: [label, pm.publisher, ...parsed.hints, uploader],
+      catNo: parsed.catNo,
+      uploader,
+    });
+    if (discogsData?.tracks?.length && !isPlaylist) {
+      postType = detectPostType({ platform: 'soundcloud', duration: durationSec, title: rawTitle, tracks: discogsData.tracks, catNo: discogsData.catNo });
+    }
+  }
+
+  const artists = splitArtists(artist || uploader);
+  const scGenres = genresFromKeywords(`${page?.genre || ''} ${rawTitle}`);
+
+  return {
+    platform: 'soundcloud',
+    _search: search,
+    detected_type: postType,
+    stream_url: pageUrl,
+    embed_url: oembed?.html?.match(/src="([^"]+)"/)?.[1]
+      || `https://w.soundcloud.com/player/?url=${encodeURIComponent(pageUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=true`,
+    artists,
+    artist: artists.map(a => a.name).join(', '),
+    channel: null,
+    // A single track keeps its own title (the id block in /resolve uses it to
+    // find the pasted track on the release); a set is the release.
+    title: isPlaylist ? (discogsData?.release_title || parsed.title) : parsed.title,
+    ...discogsFields(discogsData, {
+      cover: page?.artwork_url?.replace('-large.', '-t500x500.') || oembed?.thumbnail_url,
+      year: page?.release_date?.slice(0, 4),
+      tracks: pageTracks,
+      label,
+      catNo: parsed.catNo,
+      genres: scGenres,
+    }),
+  };
+}
+
+// ─── Bandcamp ─────────────────────────────────────────────────────────────────
+// Bandcamp retired its oEmbed endpoint (404 for every URL, checked
+// 2026-09-25), which is why every Bandcamp paste failed. The album/track page
+// itself carries everything: og:title "Title, by Artist", og:type
+// album|song, og:site_name (the account — often the label), og:image, the
+// item id (bc-page-properties), the tracklist (.track-title / .time),
+// "released <date>" and the tag list.
+
 async function resolveBandcamp(url) {
+  let search = null; // for resolveWithFallback when Discogs misses
   url = url.split(/[?#]/)[0];
   // An honest app User-Agent gets the normal page. A browser UA string on a
   // non-browser client is what trips Bandcamp's bot check (3KB challenge
   // page instead of the album) — don't "fix" this by faking Chrome.
-  const page = await fetch(url, {
-    headers: { 'User-Agent': 'LNV/0.1 (+https://github.com/gabrieljcdev/LNV)' },
-  });
+  const page = await fetch(url, { headers: UA });
   if (!page.ok) throw new Error(`Bandcamp page ${page.status}`);
   const html = await page.text();
 
-  const meta = prop => decodeHtml(html.match(new RegExp(`<meta property="og:${prop}"\\s+content="([^"]*)"`))?.[1]);
+  const meta = prop => metaTag(html, `og:${prop}`);
   const ogTitle = meta('title');                       // "Walk Ya Down, by Dj.Mc"
   const byMatch = ogTitle.match(/^(.*), by (.*)$/);
-  const title = (byMatch?.[1] || ogTitle).trim();
-  const artist = (byMatch?.[2] || '').trim();
-  const artists = splitArtists(artist);
+  const rawTitle = (byMatch?.[1] || ogTitle).trim();
+  let artist = (byMatch?.[2] || '').trim();
+  const account = meta('site_name');
   const isAlbum = meta('type') === 'album';
+
+  // Label accounts title releases "CAT001 - Artist - Title" or
+  // "Title [CAT001]"; the "by" credit is then often the label itself.
+  const parsed = parseReleaseTitle(rawTitle);
+  const title = parsed.title || rawTitle;
+  if (parsed.artist && (!artist || namesAgree(artist, account) || /^various/i.test(artist))) artist = parsed.artist;
+  const artists = splitArtists(artist);
 
   // _5 is a 700px rendition; _10 is the full-size original.
   const cover = meta('image').replace(/_\d+\.(jpg|png)$/, '_10.$1') || null;
@@ -707,83 +1366,144 @@ async function resolveBandcamp(url) {
   const bcTracks = titles.map((t, i) => ({ title: t, duration: times[i] || '', position: String(i + 1) }));
   const year = html.match(/released [A-Za-z]+ \d{1,2}, (\d{4})/)?.[1] || null;
   const tags = [...html.matchAll(/class="tag"[^>]*>\s*([^<]+?)\s*</g)].map(m => decodeHtml(m[1]));
+  // A track page names its album: "from <a ...><span class="fromAlbum">Album</span>"
+  const fromAlbum = decodeHtml(html.match(/class="fromAlbum">([^<]+)</)?.[1] || '').trim();
 
   const postType = isAlbum
     ? (bcTracks.length <= 2 ? 'single' : 'album')
     : detectPostType({ platform: 'bandcamp', title });
 
   let discogsData = null;
-  if (postType !== 'livemix' && artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
+  if (postType !== 'livemix' && title) {
+    discogsData = await findDiscogsRelease(search = { kind: isAlbum ? 'album' : 'track',
+      artist,
+      title,
+      album: isAlbum ? '' : fromAlbum,
+      labels: [account, ...parsed.hints],
+      catNo: parsed.catNo,
+      uploader: account,
+    });
   }
 
+  const tagGenres = genresFromKeywords(tags.join(' '));
   return {
     platform: 'bandcamp',
-    detected_type: discogsData?.tracks?.length
-      ? detectPostType({ platform: 'bandcamp', title, tracks: discogsData.tracks, catNo: discogsData.catNo })
-      : postType,
+    _search: search,
+    detected_type: typeFromTracks('bandcamp', title, discogsData, postType),
     stream_url: url,
     embed_url: embedUrl,
-    cover_image: discogsData?.cover_image || cover,
-    year: discogsData?.year || year,
-    tracks: discogsData?.tracks?.length ? discogsData.tracks : bcTracks,
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres?.length ? discogsData.genres : (genresFromKeywords(tags.join(' ')).length ? genresFromKeywords(tags.join(' ')) : genresFromKeywords(title)),
-    discogs_id: discogsData?.discogs_id || null,
-    all_releases: discogsData?.all_releases || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, {
+      cover, year, tracks: bcTracks, catNo: parsed.catNo,
+      // The account is the label when it isn't the artist.
+      label: account && !namesAgree(account, artist) ? account : '',
+      genres: tagGenres.length ? tagGenres : genresFromKeywords(title),
+    }),
   };
 }
 
+// ─── Spotify ──────────────────────────────────────────────────────────────────
+// The Web API needs OAuth; the public page doesn't. A track page has og:title
+// (track), og:description "Artist · Album · Song · 2010", music:musician_
+// description (each artist) and music:album (album URL). An album page's
+// base64 "initialState" script holds the album entity: name, type
+// (Album/EP/Single), date, artists, tracklist and the ℗/© lines — the label.
+
+function spotifyAlbumFrom(html) {
+  const b64 = html?.match(/<script id="initialState" type="text\/plain">([^<]+)<\/script>/)?.[1];
+  if (!b64) return null;
+  try {
+    const state = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    const album = Object.values(state.entities?.items || {}).find(v => v?.__typename === 'Album');
+    if (!album) return null;
+    return {
+      name: album.name || '',
+      type: album.type || '',
+      year: album.date?.year ? String(album.date.year) : '',
+      artists: (album.artists?.items || []).map(a => a.profile?.name).filter(Boolean),
+      labels: labelsFromCopyright((album.copyright?.items || []).map(c => c.text)),
+      tracks: (album.tracksV2?.items || []).map((t, i) => ({
+        position: String(i + 1),
+        title: normaliseVersionTitle(t.track?.name || ''),
+        duration: secondsToClock(Math.round((t.track?.duration?.totalMilliseconds || 0) / 1000)),
+        artists: (t.track?.artists?.items || []).map(a => ({ name: a.profile?.name })).filter(a => a.name),
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveSpotify(url) {
-  // Spotify requires OAuth — return partial data with embed URL
-  const matchTrack = url.match(/spotify\.com\/(track|album|playlist)\/([A-Za-z0-9]+)/);
-  if (!matchTrack) throw new Error('Invalid Spotify URL');
-  const [, type, id] = matchTrack;
+  let search = null; // for resolveWithFallback when Discogs misses
+  const match = url.match(/spotify\.com\/(?:intl-[\w-]+\/)?(track|album|playlist)\/([A-Za-z0-9]+)/);
+  if (!match) throw new Error('Invalid Spotify URL');
+  const [, type, id] = match;
+  const pageUrl = `https://open.spotify.com/${type}/${id}`;
   const embedUrl = `https://open.spotify.com/embed/${type}/${id}`;
 
-  // Try to get metadata via oEmbed
-  let title = '', artist = '';
-  try {
-    const oe = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`);
-    if (oe.ok) {
-      const d = await oe.json();
-      title = d.title || '';
-      artist = d.author_name || '';
-    }
-  } catch { /* ignore */ }
+  const html = await fetchHtml(pageUrl);
+  const cover = metaTag(html, 'og:image') || null;
+  let title = '', artist = '', albumName = '', year = metaTag(html, 'music:release_date').slice(0, 4);
+  let album = null;
+
+  if (type === 'album') {
+    album = spotifyAlbumFrom(html);
+    title = album?.name || metaTag(html, 'og:title').replace(/ - (?:Album|EP|Single|Compilation) by .*$/, '').replace(/ \| Spotify$/, '');
+    artist = album?.artists.join(', ') || metaTag(html, 'og:description').split(' · ')[0] || '';
+  } else if (type === 'track') {
+    title = normaliseVersionTitle(metaTag(html, 'og:title'));
+    const desc = metaTag(html, 'og:description').split(' · ');  // [artist, album, 'Song', year]
+    artist = metaTags(html, 'music:musician_description').join(', ') || desc[0] || '';
+    albumName = desc.length >= 4 ? desc[1] : '';
+    // The album page has the label (℗ line) and the full tracklist.
+    const albumUrl = metaTag(html, 'music:album');
+    if (albumUrl) album = spotifyAlbumFrom(await fetchHtml(albumUrl));
+    albumName = album?.name || albumName;
+  } else {
+    // Playlists aren't releases — title only, no Discogs.
+    const oe = await fetchJson(`https://open.spotify.com/oembed?url=${encodeURIComponent(pageUrl)}`);
+    title = oe?.title || metaTag(html, 'og:title').replace(/ \| Spotify$/, '');
+  }
 
   const artists = splitArtists(artist);
-  const postType = type === 'album' ? 'album' : detectPostType({ platform: 'spotify', title });
+  const fallbackType = type === 'album'
+    ? ((album?.tracks.length || 0) <= 2 || album?.type === 'SINGLE' ? 'single' : 'album')
+    : type === 'playlist' ? 'album' : detectPostType({ platform: 'spotify', title });
+
   let discogsData = null;
-  if (postType !== 'livemix' && artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
+  if (type !== 'playlist' && fallbackType !== 'livemix' && title) {
+    discogsData = await findDiscogsRelease(search = { kind: type === 'album' ? 'album' : 'track',
+      artist,
+      title,
+      album: type === 'track' ? albumName : '',
+      labels: album?.labels || [],
+    });
   }
 
   return {
     platform: 'spotify',
-    detected_type: postType,
-    stream_url: url,
+    _search: search,
+    detected_type: typeFromTracks('spotify', title, discogsData, fallbackType),
+    stream_url: pageUrl,
     embed_url: embedUrl,
-    cover_image: null,
-    year: discogsData?.year || null,
-    tracks: discogsData?.tracks || [],
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres || [],
-    discogs_id: discogsData?.discogs_id || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, {
+      cover,
+      year: year || album?.year,
+      tracks: type === 'album' ? album?.tracks : [],
+      label: album?.labels?.[0],
+    }),
   };
 }
+
+// ─── Mixcloud ─────────────────────────────────────────────────────────────────
 
 async function resolveMixcloud(url) {
   const oe = await fetch(`https://www.mixcloud.com/oembed/?url=${encodeURIComponent(url)}&format=json`);
@@ -836,164 +1556,243 @@ async function resolveMixcloud(url) {
   };
 }
 
+// ─── Deezer ───────────────────────────────────────────────────────────────────
+// Public API, no key. A track gives its album id; the album gives label, UPC
+// barcode, record_type (album/ep/single), genres and the tracklist.
+
 async function resolveDeezer(url) {
-  const match = url.match(/deezer\.com\/(?:\w+\/)?(track|album|playlist)\/(\d+)/);
+  let search = null; // for resolveWithFallback when Discogs misses
+  const match = url.match(/deezer\.com\/(?:[\w-]+\/)?(track|album|playlist)\/(\d+)/);
   if (!match) throw new Error('Invalid Deezer URL');
   const [, type, id] = match;
 
-  const apiR = await fetch(`https://api.deezer.com/${type}/${id}`);
-  if (!apiR.ok) throw new Error('Deezer API failed');
-  const data = await apiR.json();
+  const data = await fetchJson(`https://api.deezer.com/${type}/${id}`);
+  if (!data || data.error) throw new Error('Deezer API failed');
+  const album = type === 'album' ? data
+    : type === 'track' && data.album?.id ? await fetchJson(`https://api.deezer.com/album/${data.album.id}`)
+    : null;
 
-  const title = data.title || '';
-  const artist = data.artist?.name || '';
+  const title = type === 'track' ? normaliseVersionTitle(data.title || '') : (data.title || '');
+  // Every main artist, not just the first ("A & B" tracks list both).
+  const mains = (data.contributors || []).filter(c => /main/i.test(c.role || '')).map(c => c.name);
+  const artist = mains.length ? mains.join(', ') : (data.artist?.name || '');
   const artists = splitArtists(artist);
-  const postType = type === 'album' ? 'album' : detectPostType({ platform: 'deezer', title });
+  const albumTracks = (album?.tracks?.data || []).map((t, i) => ({
+    position: String(i + 1), title: normaliseVersionTitle(t.title || ''), duration: secondsToClock(t.duration), artists: [],
+  }));
+
+  const fallbackType = type === 'album'
+    ? (album?.record_type === 'single' || albumTracks.length <= 2 ? 'single' : 'album')
+    : type === 'playlist' ? 'album' : detectPostType({ platform: 'deezer', title, duration: data.duration || 0 });
 
   let discogsData = null;
-  if (postType !== 'livemix' && artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
+  if (type !== 'playlist' && fallbackType !== 'livemix' && title) {
+    discogsData = await findDiscogsRelease(search = { kind: type === 'album' ? 'album' : 'track',
+      artist,
+      title,
+      album: type === 'track' ? album?.title : '',
+      labels: [album?.label],
+      barcode: album?.upc,
+    });
   }
 
   return {
     platform: 'deezer',
-    detected_type: postType,
+    _search: search,
+    detected_type: typeFromTracks('deezer', title, discogsData, fallbackType),
     stream_url: url,
     embed_url: `https://widget.deezer.com/widget/dark/${type}/${id}`,
-    cover_image: data.cover_xl || data.album?.cover_xl || null,
-    year: data.release_date ? data.release_date.substring(0, 4) : (discogsData?.year || null),
-    tracks: discogsData?.tracks || (data.tracks?.data || []).map(t => ({ title: t.title, duration: t.duration })),
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres || (data.genres?.data || []).map(g => g.name),
-    discogs_id: discogsData?.discogs_id || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, {
+      cover: data.cover_xl || album?.cover_xl || data.album?.cover_xl,
+      year: (album?.release_date || data.release_date || '').slice(0, 4),
+      tracks: type === 'album' ? albumTracks : [],
+      label: album?.label,
+      genres: (album?.genres?.data || []).map(g => g.name),
+    }),
   };
 }
 
+// ─── Apple Music ──────────────────────────────────────────────────────────────
+// iTunes lookup, no key: the album ("collection") gives name, artist,
+// release date, genre and the ℗ line (the label); entity=song adds the
+// tracks, so a ?i= link finds its own track's title. Lookups are per
+// storefront — /gb/album/... is looked up in the GB store.
+
 async function resolveAppleMusic(url) {
-  // Parse Apple Music URL: /album/name/id or /album/id
-  const albumMatch = url.match(/apple\.com\/(?:\w+\/)?album\/(?:[^/]+\/)?(\d+)/);
-  const trackMatch = url.match(/\?i=(\d+)/);
-  const id = albumMatch?.[1];
-  if (!id) throw new Error('Invalid Apple Music URL');
+  let search = null; // for resolveWithFallback when Discogs misses
+  const albumId = url.match(/apple\.com\/(?:\w+\/)?album\/(?:[^/]+\/)?(\d+)/)?.[1];
+  const songId = url.match(/[?&]i=(\d+)/)?.[1] || url.match(/apple\.com\/(?:\w+\/)?song\/(?:[^/]+\/)?(\d+)/)?.[1];
+  if (!albumId && !songId) throw new Error('Invalid Apple Music URL');
+  const country = url.match(/apple\.com\/([a-z]{2})\//)?.[1] || 'us';
 
-  // iTunes Search API as proxy
-  let title = '', artist = '', cover = '', year = '';
-  try {
-    const lookupUrl = trackMatch
-      ? `https://itunes.apple.com/lookup?id=${trackMatch[1]}`
-      : `https://itunes.apple.com/lookup?id=${id}&entity=album`;
-    const r = await fetch(lookupUrl);
-    const d = await r.json();
-    const item = d.results?.[0];
-    if (item) {
-      title = item.collectionName || item.trackName || '';
-      artist = item.artistName || '';
-      cover = item.artworkUrl100?.replace('100x100', '600x600') || null;
-      year = item.releaseDate?.substring(0, 4) || '';
-    }
-  } catch { /* ignore */ }
-
-  const artists = splitArtists(artist);
-  const type = url.includes('?i=') ? 'single' : 'album';
-  let discogsData = null;
-  if (artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
+  let collectionId = albumId;
+  if (!collectionId) {
+    const s = await fetchJson(`https://itunes.apple.com/lookup?id=${songId}&country=${country}`);
+    collectionId = s?.results?.[0]?.collectionId;
   }
+  const d = collectionId ? await fetchJson(`https://itunes.apple.com/lookup?id=${collectionId}&entity=song&country=${country}`) : null;
+  const results = d?.results || [];
+  const coll = results.find(r => r.wrapperType === 'collection') || {};
+  const songs = results.filter(r => r.wrapperType === 'track');
+  const song = songId ? songs.find(r => String(r.trackId) === songId) : null;
+
+  const album = stripReleaseSuffix(coll.collectionName);
+  const title = song ? normaliseVersionTitle(song.trackName) : album;
+  const artist = song?.artistName || coll.artistName || '';
+  const artists = splitArtists(artist);
+  const appleTracks = songs.map(t => ({
+    position: String(t.trackNumber || ''), title: normaliseVersionTitle(t.trackName), duration: secondsToClock(Math.round((t.trackTimeMillis || 0) / 1000)), artists: [],
+  }));
+  const fallbackType = song ? 'single' : (/ - Single$/i.test(coll.collectionName || '') || appleTracks.length <= 2 ? 'single' : 'album');
+
+  const discogsData = title ? await findDiscogsRelease(search = { kind: song ? 'track' : 'album',
+    artist,
+    title,
+    album: song ? album : '',
+    labels: labelsFromCopyright(coll.copyright),
+  }) : null;
 
   return {
     platform: 'applemusic',
-    detected_type: discogsData ? detectPostType({ platform: 'applemusic', title, tracks: discogsData.tracks, catNo: discogsData.catNo }) : type,
+    _search: search,
+    detected_type: typeFromTracks('applemusic', title, discogsData, fallbackType),
     stream_url: url,
     embed_url: `https://embed.music.apple.com/${url.split('apple.com/')[1]}`,
-    cover_image: discogsData?.cover_image || cover,
-    year: discogsData?.year || year,
-    tracks: discogsData?.tracks || [],
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres || [],
-    discogs_id: discogsData?.discogs_id || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, {
+      cover: coll.artworkUrl100?.replace('100x100', '600x600'),
+      year: coll.releaseDate?.slice(0, 4),
+      tracks: song ? [] : appleTracks,
+      label: labelsFromCopyright(coll.copyright)[0],
+      genres: genresFromKeywords(coll.primaryGenreName || ''),
+    }),
   };
 }
 
-async function resolveTidal(url) {
-  const oe = await fetch(`https://oembed.tidal.com/v1/oembed?url=${encodeURIComponent(url)}&format=json`);
-  if (!oe.ok) throw new Error('Tidal oEmbed failed');
-  const data = await oe.json();
+// ─── Tidal ────────────────────────────────────────────────────────────────────
+// Tidal's /v1/oembed now wants an auth token (every Tidal paste failed); the
+// public page's JSON-LD has the name, artists, album (for a track),
+// release date and cover. Embeds: embed.tidal.com/{tracks|albums}/<id>.
 
-  const title = data.title || '';
-  const artist = data.author_name || '';
+async function resolveTidal(url) {
+  let search = null; // for resolveWithFallback when Discogs misses
+  const match = url.match(/tidal\.com\/(?:browse\/)?(track|album)\/(\d+)/);
+  if (!match) throw new Error('Invalid Tidal URL');
+  const [, type, id] = match;
+  const pageUrl = `https://tidal.com/${type}/${id}`;
+
+  const html = await fetchHtml(pageUrl);
+  const ld = jsonLd(html).find(x => /^Music(?:Recording|Album)$/.test(x['@type'])) || {};
+  const ogTitle = metaTag(html, 'og:title');           // "Artist - Title"
+  if (!ld.name && (!ogTitle || /^Not Found/i.test(ogTitle))) throw new Error('Tidal page not found');
+
+  const artist = (ld.byArtist || []).map(a => a.name).filter(Boolean).join(', ') || ogTitle.split(' - ')[0] || '';
+  const title = normaliseVersionTitle(ld.name || ogTitle.split(' - ').slice(1).join(' - '));
+  const albumName = type === 'track' ? (ld.inAlbum?.name || '') : '';
   const artists = splitArtists(artist);
-  let discogsData = null;
-  if (artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
-  }
+  const fallbackType = type === 'album' ? 'album' : detectPostType({ platform: 'tidal', title });
+
+  const discogsData = fallbackType !== 'livemix' && title
+    ? await findDiscogsRelease(search = { kind: type === 'album' ? 'album' : 'track', artist, title, album: albumName })
+    : null;
 
   return {
     platform: 'tidal',
-    detected_type: detectPostType({ platform: 'tidal', title }),
-    stream_url: url,
-    embed_url: null,
-    cover_image: data.thumbnail_url || null,
-    year: discogsData?.year || null,
-    tracks: discogsData?.tracks || [],
+    _search: search,
+    detected_type: typeFromTracks('tidal', title, discogsData, fallbackType),
+    stream_url: pageUrl,
+    embed_url: `https://embed.tidal.com/${type}s/${id}`,
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres || [],
-    discogs_id: discogsData?.discogs_id || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, {
+      cover: ld.image || metaTag(html, 'og:image'),
+      year: (ld.datePublished || metaTag(html, 'music:release_date')).slice(0, 4),
+    }),
   };
 }
 
-async function resolveBeatport(url) {
-  // Beatport has no public API — use oEmbed or page scrape via title tag
-  let title = '', artist = '';
+// ─── Beatport ─────────────────────────────────────────────────────────────────
+// No public API and no oEmbed any more, but every page ships __NEXT_DATA__:
+// a track has name, mix_name, artists, remixers, release { name,
+// catalog_number }, label, genre; a release has name, artists, label,
+// catalog_number, upc and (second query) its tracks.
+
+function beatportData(html) {
+  const raw = html?.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s)?.[1];
+  if (!raw) return [];
   try {
-    const oe = await fetch(`https://embed.beatport.com/oembed?url=${encodeURIComponent(url)}&format=json`);
-    if (oe.ok) {
-      const d = await oe.json();
-      title = d.title || '';
-      artist = d.author_name || '';
-    }
-  } catch { /* ignore */ }
+    return (JSON.parse(raw).props?.pageProps?.dehydratedState?.queries || []).map(q => ({ key: q.queryKey, data: q.state?.data }));
+  } catch {
+    return [];
+  }
+}
+
+// "Mesmerizing" + "Original Mix" -> "Mesmerizing"; + "Dixon Remix" -> "Mesmerizing (Dixon Remix)"
+const beatportTitle = (name, mix) => (mix && !/^(?:original|extended|club|main)(?: mix| version)?$/i.test(mix.trim()) ? `${name} (${mix.trim()})` : (name || ''));
+
+async function resolveBeatport(url) {
+  let search = null; // for resolveWithFallback when Discogs misses
+  const match = url.match(/beatport\.com\/(track|release)\/[^/]*\/(\d+)/);
+  if (!match) throw new Error('Invalid Beatport URL');
+  const [, type, id] = match;
+
+  const queries = beatportData(await fetchHtml(url.split(/[?#]/)[0]));
+  const names = list => (list || []).map(a => a.name).filter(Boolean);
+  let title, artist, albumName = '', label = '', catNo = '', barcode = '', year = '', cover = null, genre = '', tracks = [];
+
+  if (type === 'track') {
+    const t = queries.find(q => q.data?.track_id || q.data?.track_name)?.data || {};
+    title = beatportTitle(t.track_name || t.name, t.mix_name);
+    artist = names(t.artists).join(', ');
+    albumName = t.release?.name || '';
+    label = t.label?.name || t.release?.label?.name || '';
+    catNo = t.release?.catalog_number || t.catalog_number || '';
+    year = (t.release?.release_date || t.publish_date || '').slice(0, 4);
+    cover = t.release?.image_url?.replace('{w}x{h}', '1400x1400') || null;
+    genre = t.genre?.name || '';
+  } else {
+    const r = queries.find(q => JSON.stringify(q.key).startsWith('["release-'))?.data || {};
+    title = r.name || '';
+    artist = names(r.artists).join(', ');
+    label = r.label?.name || '';
+    catNo = r.catalog_number || '';
+    barcode = r.upc || '';
+    year = (r.new_release_date || r.publish_date || '').slice(0, 4);
+    cover = r.image?.uri || null;
+    const list = queries.find(q => Array.isArray(q.key) && q.key[0] === 'tracks')?.data?.results || [];
+    tracks = list.map((t, i) => ({
+      position: String(i + 1), title: beatportTitle(t.name, t.mix_name), duration: t.length || '', artists: names(t.artists).map(name => ({ name })),
+    }));
+    genre = list[0]?.genre?.name || '';
+  }
+  if (!title) throw new Error('Beatport page had no release data');
 
   const artists = splitArtists(artist);
-  let discogsData = null;
-  if (artist && title) {
-    discogsData = await tryDiscogsLookup(artist, title);
-  }
+  const fallbackType = type === 'release' ? (tracks.length <= 2 ? 'single' : 'album') : 'single';
+  const discogsData = await findDiscogsRelease(search = { kind: type === 'release' ? 'album' : 'track',
+    artist, title, album: albumName, labels: [label], catNo, barcode,
+  });
 
   return {
     platform: 'beatport',
-    detected_type: detectPostType({ platform: 'beatport', title }),
+    _search: search,
+    detected_type: typeFromTracks('beatport', title, discogsData, fallbackType),
     stream_url: url,
     embed_url: null,
-    cover_image: null,
-    year: discogsData?.year || null,
-    tracks: discogsData?.tracks || [],
     artists,
     artist,
     channel: null,
     title,
-    label: discogsData?.label || '',
-    catNo: discogsData?.catNo || '',
-    genres: discogsData?.genres || ['Electronic'],
-    discogs_id: discogsData?.discogs_id || null,
-    source: discogsData ? 'discogs' : 'platform',
+    ...discogsFields(discogsData, { cover, year, tracks, label, catNo, genres: genresFromKeywords(genre) }),
   };
 }
 
@@ -1161,6 +1960,11 @@ router.get('/resolve', async (req, res) => {
       default:            return res.status(400).json({ error: 'Unknown platform' });
     }
 
+    // No Discogs release: cross-check other catalogues, try Discogs again
+    // with what they found, else fill the blanks and attach artist/label ids.
+    await resolveWithFallback(result);
+    delete result._search;
+
     // ── Attach real Discogs artist/label ids ────────────────────────────────
     // One place for all twelve platforms. Whenever a resolver landed on a
     // Discogs release (directly, or via tryDiscogsLookup's reverse match),
@@ -1186,7 +1990,12 @@ router.get('/resolve', async (req, res) => {
       const normT = s => cleanForSearch(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       const want = normT(result.title);
       const matchedTrack = want && platform !== 'discogs'
-        ? (rel?.tracklist || []).find(t => normT(t.title) === want) || null
+        // Exact first; then word-for-word both ways, so "Total M Classic
+        // Re-Wash" finds "Total M's Classic Re-Wash" but "Equinox" never
+        // claims "Equinox (Remix)".
+        ? (rel?.tracklist || []).find(t => normT(t.title) === want)
+          || (rel?.tracklist || []).find(t => namesAgree(result.title, t.title, 1) && namesAgree(t.title, result.title, 1))
+          || null
         : null;
 
       // Discogs' release-level credit wins, "Various" included — gabriel's
@@ -1208,7 +2017,7 @@ router.get('/resolve', async (req, res) => {
       // row blank in the tracklist.
       if (matchedTrack && Array.isArray(result.tracks)) {
         result.tracks = result.tracks.map(t =>
-          !t.stream_url && t.position === matchedTrack.position && normT(t.title) === want
+          !t.stream_url && t.position === matchedTrack.position && t.title === matchedTrack.title
             ? { ...t, stream_url: result.stream_url }
             : t);
       }

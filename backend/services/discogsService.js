@@ -44,10 +44,34 @@ export async function searchDiscogs(query, type = 'release', page = 1) {
   return data;
 }
 
+// Releases by UPC/EAN (Deezer and Beatport hand us one). Cached like a search.
+export async function searchDiscogsBarcode(barcode) {
+  const digits = String(barcode || '').replace(/\D/g, '');
+  if (!digits) return { results: [] };
+  const key = `barcode:${digits}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const url = `${DISCOGS_BASE}/database/search?barcode=${digits}&type=release&per_page=5`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Discogs barcode search failed: ${res.status}`);
+  const data = await res.json();
+  setCache(key, data);
+  return data;
+}
+
 // Bump when normaliseRelease gains a field, so cached releases stored in the
 // older shape are refetched once instead of being served without it.
-// 2 = per-track artists (2026-09-25).
-const RELEASE_SHAPE_VERSION = 2;
+// 2 = per-track artists (2026-09-25). 3 = remixers (2026-10-02).
+const RELEASE_SHAPE_VERSION = 3;
+
+// Remix/edit credits. A remix is often posted under the REMIXER's name
+// ("Total M" on SoundCloud), while Discogs credits it to the original artist
+// with the remixer only in extraartists ("DJ Total M — Remix").
+const REMIX_ROLE = /remix|edit|re-?work|version/i;
+const remixersOf = list => (list || [])
+  .filter(a => REMIX_ROLE.test(a.role || ''))
+  .map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') }));
 
 export async function getRelease(releaseId) {
   const key = `release:${releaseId}`;
@@ -234,7 +258,10 @@ function normaliseRelease(data) {
     tracklist: (data.tracklist || []).map(t => ({
       position: t.position, title: t.title, duration: t.duration,
       artists: (t.artists || []).map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') })),
+      remixers: remixersOf(t.extraartists),
     })),
+    // Release-level remix credits (they name their tracks in a.tracks).
+    remixers: remixersOf(data.extraartists),
     coverImage: data.images?.[0]?.uri || null,
     thumbImage: data.thumb || null,
     _v: RELEASE_SHAPE_VERSION,
