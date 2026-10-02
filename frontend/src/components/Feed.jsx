@@ -173,7 +173,16 @@ function designFor(idx, isLiveMix) {
 // SPOTLIGHT_MIN_POSTS is how many posts a subject needs in the currently
 // loaded feed to be spotlight-eligible (below this the recent-adds list /
 // collage look sparse).
-const SPOTLIGHT_EVERY = 5
+const SPOTLIGHT_EVERY = 5 // superseded by SPOTLIGHT_ROUTINE (2026-10-02); kept for the comments that cite it
+
+// Feed rhythm (2026-10-02, from the "LNV Feed Rhythm" mockup gabriel picked):
+// - spotlights come after 3, then 5, then 4 posts, on repeat, and their
+//   subject rotates artist -> label -> channel (a type with no subject is skipped);
+// - in a run of back-to-back singles every second one is mirrored (art on
+//   the left), so pairs face each other like a book spread;
+// "Sides" (5-post sides with marker cards) is parked for later.
+const SPOTLIGHT_ROUTINE = [3, 5, 4]
+const SPOTLIGHT_TYPES = ['artist', 'label', 'channel']
 
 // Feed lazy loading: posts per page, and how far from the end of what's
 // loaded the next page is fetched (60 / 10 → at post 50, 110, 170…).
@@ -346,12 +355,20 @@ const FEED_SURFACE = 'var(--theme-bg)'
 // Text colours per card: the palette's --theme-text-* assume the palette's
 // own light/dark, but a card can be any tone of it (dark1 in a light
 // palette, a spectrum step…). FloatSlot sets light or dark ink on each card
-// from its actual colour — the same rule useCardInk applies inside
-// LiveSetCard / AlbumCard — and re-checks when the palette changes.
+// from its actual colour — for every card type, LiveSetCard and AlbumCard
+// included — and re-checks when the palette changes.
 // Tones are strong enough for >= 3:1 even on mid-tone spectrum cards, where
 // neither white nor black has much room.
-const INK_DARK_BG  = { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.66)', '--theme-border': 'rgba(255,255,255,0.18)' }
-const INK_LIGHT_BG = { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.60)', '--theme-border': 'rgba(0,0,0,0.12)' }
+// 2026-10-02: tertiary text a touch stronger (.66 -> .72 / .60 -> .66) — it
+// sat right at 3:1 on mid-tone spectrum cards. The --lv-* names are what
+// AlbumCard / LiveSetCard read; they used to be set once by useCardInk and
+// went stale when the palette changed (dark-on-dark after a switch).
+const INK_DARK_BG  = { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.72)', '--theme-border': 'rgba(255,255,255,0.18)' }
+const INK_LIGHT_BG = { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.66)', '--theme-border': 'rgba(0,0,0,0.12)' }
+for (const ink of [INK_DARK_BG, INK_LIGHT_BG]) {
+  ink['--lv-pri'] = ink['--theme-text-pri']; ink['--lv-sec'] = ink['--theme-text-sec']
+  ink['--lv-ter'] = ink['--theme-text-ter']; ink['--lv-line'] = ink['--theme-border']
+}
 function bgIsDark(el) {
   const c = getComputedStyle(el).backgroundColor
   const m = c.match(/\d+(\.\d+)?/g)
@@ -1074,7 +1091,7 @@ const LIVE_PADX = 56    // same padding left and right
 // sets at every screen size (gabriel, 2026-09-26).
 function liveCardWidth() {
   const T = DESIGN_BASE
-  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 270}px))`
+  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 330}px))`
   return `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
 }
 
@@ -1085,20 +1102,6 @@ function isLiveSetPost(p) {
   return detectType(p) === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 }
 
-// Readable ink on whatever colour a card lands on: sets --lv-pri / -sec /
-// -ter / -line on the card from its actual background luminance. Used by
-// LiveSetCard and AlbumCard.
-function useCardInk(cardRef, cardBg) {
-  useLayoutEffect(() => {
-    const el = cardRef.current
-    if (!el) return
-    // Same rule and tones as FloatSlot's ink (bgIsDark / INK_*), which also
-    // reads color(srgb …) spectrum colours correctly.
-    const ink = bgIsDark(el) ? INK_DARK_BG : INK_LIGHT_BG
-    ;[['--lv-pri', '--theme-text-pri'], ['--lv-sec', '--theme-text-sec'], ['--lv-ter', '--theme-text-ter'], ['--lv-line', '--theme-border']]
-      .forEach(([v, from]) => el.style.setProperty(v, ink[from]))
-  }, [cardRef, cardBg])
-}
 
 function LiveSetCard({ post, cardBg, d, onEdit }) {
   const { registerPostRef } = useLayout() || {}
@@ -1115,7 +1118,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   const T = DESIGN_BASE
   // One video height drives the whole card: the full-width size, or whatever
   // fits under the regular cards' top/bottom padding once the name row,
-  // ~3 description lines and the byline (~270px) are allowed for. The card
+  // ~3 description lines (beside the big post number) and the byline (~330px; was 270 before the number) are allowed for. The card
   // is then exactly that video's 16:9 width plus LIVE_PADX each side, so
   // the tags / year / edit-delete on the right sit flush with the video's
   // right edge and the side padding is equal.
@@ -1134,7 +1137,6 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   const subtitle = (post.title || '').includes('|') ? post.title.split('|').slice(1).join('|').trim() : post.title
   const platform = post.platform || platformOfUrl(streamUrl) || ''
 
-  useCardInk(cardRef, cardBg)
 
   const MONO = "'IBM Plex Mono', monospace", SANS = "'Barlow', sans-serif"
   const pill = { display: 'inline-block', fontFamily: SANS, fontWeight: 600, fontSize: 10, lineHeight: 1, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: 3, textDecoration: 'none' }
@@ -1187,9 +1189,12 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         </div>
       </div>
 
-      {/* post description — same label, size and in-card scroll as the
-          regular post card */}
-      <div style={{ marginTop: 22, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
+      {/* post description (same label, size and in-card scroll as the
+          regular post card) | the big post number, right-aligned under the
+          badges and year — same size, weight and fade as on the single and
+          album cards (gabriel, 2026-10-02) */}
+      <div style={{ marginTop: 22, flex: '1 1 auto', minHeight: 0, display: 'flex', gap: 30, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, maxHeight: '100%', display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
         <PostTitle post={post} labelStyle={{ fontFamily: T.labelFf, fontWeight: 600, fontSize: T.postLabelSize, letterSpacing: `${T.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: T.postLabelMb, flexShrink: 0 }} />
         {note ? (
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
@@ -1198,9 +1203,17 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
           <p style={{ fontSize: T.descSize, fontFamily: T.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
         )}
       </div>
+        <div style={{ flexShrink: 0, width: T.artSize, alignSelf: 'flex-end' }}>
+          <div aria-hidden="true" style={{ fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)', textAlign: 'right' }}>
+            {String(post.id).padStart(2, '0')}
+          </div>
+          {/* Line under the number, as on the single and album cards. */}
+          <div style={{ height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
+        </div>
+      </div>
 
       {/* byline — kept quiet at the bottom */}
-      <div style={{ marginTop: 'auto', paddingTop: 18, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
+      <div style={{ marginTop: 'auto', paddingTop: T.bylineMt, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, lineHeight: '15px' /* = the album byline's height, so the numbers sit level */, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
         <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
         </button>
@@ -1250,7 +1263,6 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const cardRef = useRef(null)
-  useCardInk(cardRef, cardBg)
 
   const tracks = post.tracks || []
   const urlOf = t => t.stream_url || t.youtube_url || null
@@ -1288,7 +1300,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   // big numeral (~290px) + byline — the numeral moved under the title.
   // artMtTop: the sleeve starts as far down as the single card's art
   // (gabriel, 2026-10-01), so that space comes out of the same budget.
-  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + d.artMtTop + 330}px))`
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + d.artMtTop + 352}px))` // 352 (was 330): +21 for the line under the number (2026-10-02)
   // Both rows share one column split — sleeve / title block on the left,
   // description / tracklist on the right — with the divider centred in
   // the gap between them.
@@ -1364,7 +1376,11 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
           <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>{[label, catNo, post.year].filter(Boolean).join(' · ')}</div>
-          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: 12, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
+          {/* Pushes the number + its line to the bottom of the column, so
+              album and live-set numbers sit level at any screen height
+              (gabriel, 2026-10-02); 12px is the least gap under the metaline. */}
+          <div style={{ flex: '1 0 12px' }} />
+          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: 0, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
             {String(post.id).padStart(2, '0')}
           </div>
           {/* Line under the big number — the single card's solid rule under
@@ -2005,7 +2021,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
             style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
           >+ add to feed</button>
         ) : browsable ? (
-          <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: 'var(--theme-accent)', fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
+          <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: textPri, fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
         ) : <span />}
         <span style={{ fontSize: T.stampSize, letterSpacing: `${T.stampLs}em`, fontFamily: T.monoFf, color: textSec }}>LNV · editorial</span>
       </div>
@@ -2107,21 +2123,41 @@ function buildShelfItems(posts, prev = null) {
   const real = posts.filter(p => !p.is_spotlight)
   const key = s => s.type + ':' + s.name
   let st
-  if (!prev) st = { items: [], order: shuffled(buildSpotlightPool(real)), pick: 0, count: 0 }
+  if (!prev) st = { items: [], order: shuffled(buildSpotlightPool(real)), count: 0, since: 0, gap: 0, turn: 0, picks: {}, run: 0 }
   else {
     // Subjects that only qualify now (enough posts loaded) join the end of
     // the rotation; the ones already in it keep their order.
     const seen = new Set(prev.order.map(key))
     const fresh = shuffled(buildSpotlightPool(real).filter(s => !seen.has(key(s))))
-    st = { ...prev, items: [...prev.items], order: [...prev.order, ...fresh] }
+    st = { ...prev, items: [...prev.items], order: [...prev.order, ...fresh], picks: { ...prev.picks } }
+  }
+  // Next spotlight subject: the type whose turn it is, else the next type
+  // round that has one. The placeholder channel is a last resort only.
+  function nextSubject() {
+    for (let k = 0; k < SPOTLIGHT_TYPES.length; k++) {
+      const type = SPOTLIGHT_TYPES[(st.turn + k) % SPOTLIGHT_TYPES.length]
+      const pool = st.order.filter(s => s.type === type && !s.isPlaceholder)
+      if (!pool.length) continue
+      st.turn += k + 1
+      const n = st.picks[type] || 0
+      st.picks[type] = n + 1
+      return pool[n % pool.length]
+    }
+    st.turn++
+    return st.order.find(s => s.isPlaceholder) || null
   }
   for (const post of real.slice(st.count)) {
     const i = st.count++
-    st.items.push({ key: `p-${post.id}`, kind: 'post', post })
-    if ((i + 1) % SPOTLIGHT_EVERY === 0 && st.order.length > 0) {
-      const subject = st.order[st.pick % st.order.length]
-      st.pick++
-      st.items.push({ key: `spotlight-${i}-${subject.type}-${subject.name}`, kind: 'spotlight', subject })
+    const single = !isLiveSetPost(post) && !isAlbumPost(post)
+    st.run = single ? st.run + 1 : 0
+    st.items.push({ key: `p-${post.id}`, kind: 'post', post, mirror: single && st.run % 2 === 0 })
+    if (++st.since === SPOTLIGHT_ROUTINE[st.gap % SPOTLIGHT_ROUTINE.length]) {
+      st.since = 0; st.gap++
+      const subject = nextSubject()
+      if (subject) {
+        st.items.push({ key: `spotlight-${i}-${subject.type}-${subject.name}`, kind: 'spotlight', subject })
+        st.run = 0 // a spotlight breaks a run of singles
+      }
     }
   }
   return st
@@ -2635,7 +2671,8 @@ export default function Feed() {
                 ? <LiveSetCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
-                : <PostCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, detectType(item.post) === 'livemix')} onEdit={setEditingPost} />)
+                : <PostCard key={item.key} post={item.post} cardBg={cardBg} onEdit={setEditingPost}
+                    d={item.mirror ? { ...designFor(idx, false), mediaSide: 'left', plateAlign: 'left' } : designFor(idx, detectType(item.post) === 'livemix')} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
             nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
           })
