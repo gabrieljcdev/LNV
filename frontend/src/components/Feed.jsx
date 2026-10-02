@@ -9,6 +9,7 @@ import { getUserId, isAdmin, authHeaders } from '../lib/auth'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
+import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -589,6 +590,28 @@ function usePostActions(post) {
   return { queryClient, canModify, deleting, deletePost }
 }
 
+// A name on a card that opens its drawer straight to that artist / label /
+// genre / DJ (gabriel, 2026-10-02: every card, not just the single one).
+// Small text (labels) is dotted-underlined like a link; big names (`quiet`)
+// underline on hover only, so the headline type isn't scored through.
+function DrawerLink({ kind, name, quiet = false, style, children }) {
+  const { openD3 } = useLayout() || {}
+  const [hover, setHover] = useState(false)
+  const open = e => { e.stopPropagation(); openD3?.(kind, { filter: name }) }
+  return (
+    <span role="link" tabIndex={0} title={`Open ${name} in the ${kind === 'live' ? 'live sets' : kind} drawer`}
+      onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(e) }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        cursor: 'pointer',
+        ...(quiet
+          ? { textDecoration: hover ? 'underline' : 'none', textDecorationThickness: 2, textUnderlineOffset: 4 }
+          : { borderBottom: '1px dotted currentColor' }),
+        ...style,
+      }}>{children}</span>
+  )
+}
+
 function PostCard({ post, cardBg, d, onEdit }) {
   const { canModify, deleting, deletePost } = usePostActions(post)
   const { openD3, registerPostRef } = useLayout() || {}
@@ -777,9 +800,8 @@ function PostCard({ post, cardBg, d, onEdit }) {
       </div>
       <div
         ref={artistNameRef}
-        onClick={() => artist && !isVariousArtist(artist) && openD3?.('artists', { filter: artist })}
-        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, marginTop: d.artistMt, cursor: artist && !isVariousArtist(artist) ? 'pointer' : 'default', wordBreak: 'break-word' }}
-      >{artist || post.title}</div>
+        style={{ fontSize: d.artistSize, fontWeight: d.artistWeight, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, color: textPri, fontFamily: d.artistFf, marginTop: d.artistMt, wordBreak: 'break-word' }}
+      >{artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}</div>
       {/* v2: the post title gets promoted to its own large italic line
           (same size as the artist name) instead of sharing the small
           metaline with label/year — only shown when there's an artist
@@ -790,12 +812,12 @@ function PostCard({ post, cardBg, d, onEdit }) {
       )}
       {(label || post.year) && (
         <div style={{ fontSize: d.metalineSize, fontWeight: 500, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', marginTop: d.metalineMt, color: textTer, fontFamily: d.monoFf, lineHeight: d.metalineLh }}>
-          {label && <span onClick={() => openD3?.('labels', { filter: label })} style={{ cursor: 'pointer', borderBottom: '1px dotted currentColor' }}>{label}</span>}
+          {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
           {label && post.year && ' · '}
           {post.year}
         </div>
       )}
-      <div style={{ fontSize: d.numeralSize, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: textPri, fontFamily: d.numeralFf, margin: d.numeralMargin }}>
+      <div aria-hidden="true" style={{ pointerEvents: 'none' /* its glyphs reach up over the metaline: clicks go to the label link */, fontSize: d.numeralSize, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: textPri, fontFamily: d.numeralFf, margin: d.numeralMargin }}>
         {String(post.id).padStart(2, '0')}
       </div>
     </div>
@@ -1188,7 +1210,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 30, marginTop: 26, flexShrink: 0 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)' }}>00-{post.id}</div>
-          <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: T.artistSize, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, marginTop: 10, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist}</div>
+          <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: T.artistSize, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, marginTop: 10, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist ? <DrawerLink kind="live" name={artist} quiet>{artist}</DrawerLink> : artist}</div>
           <div style={{ fontFamily: T.artistFf, fontStyle: 'italic', fontSize: T.titleSize, lineHeight: T.titleLh, letterSpacing: `${T.titleLs}em`, marginTop: 4, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -1215,11 +1237,11 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         ) : (
           <p style={{ fontSize: T.descSize, fontFamily: T.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
         )}
-        <div aria-hidden="true" style={{ flexShrink: 0, margin: T.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)' }}>
+        <div aria-hidden="true" style={{ pointerEvents: 'none' /* decoration: never swallow clicks on the text above */, flexShrink: 0, margin: T.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)' }}>
           {String(post.id).padStart(2, '0')}
         </div>
-        <div style={{ flex: '1 0 0px' }} />
-        {/* Line under the number, as on the single and album cards. */}
+        {/* Line right under the number, as on the single and album cards
+            (gabriel, 2026-10-02: no longer pinned to the bottom). */}
         <div style={{ flexShrink: 0, width: T.artSize, height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
       </div>
 
@@ -1389,16 +1411,19 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
             {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
           </div>
         <div style={{ gridColumn: 1, gridRow: 2, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}</div>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
-          <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>{[label, catNo, post.year].filter(Boolean).join(' · ')}</div>
-          {/* The number sits right under the metaline (gabriel, 2026-10-02:
-              "higher"); the spacer below it keeps its line at the bottom of
-              the column, level with the live-set card's. */}
-          <div aria-hidden="true" style={{ flexShrink: 0, margin: d.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
+          <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+            {/* The label opens the labels drawer, underlined like the single card's. */}
+            {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+            {label && (catNo || post.year) ? ' · ' : ''}
+            {[catNo, post.year].filter(Boolean).join(' · ')}
+          </div>
+          {/* The number sits right under the metaline and its line right
+              under the number, as on the single card (gabriel, 2026-10-02). */}
+          <div aria-hidden="true" style={{ pointerEvents: 'none' /* its glyphs reach up over the metaline: clicks go to the label link */, flexShrink: 0, margin: d.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
             {String(post.id).padStart(2, '0')}
           </div>
-          <div style={{ flex: '1 0 0px' }} />
           {/* Line under the big number — the single card's solid rule under
               its plate, same height, colour and spacing (gabriel, 2026-10-01). */}
           <div style={{ height: 1, background: 'var(--lv-line)', margin: `${d.ruleSolidMy}px 0`, flexShrink: 0 }} />
@@ -1546,38 +1571,7 @@ const SPOTLIGHT_PAD = 60
 // "Remix, Appearance". Rows are now grouped by year, each with a type tag
 // from the Discogs format and, on artist spotlights, a role pill.
 
-// Discogs format string ("2xVinyl, LP, Album") -> one short type tag.
-function releaseTag(format = '', title = '') {
-  if (/CD-ROM/i.test(format) || /\bOST\b|soundtrack/i.test(title)) return 'OST'
-  if (/Comp/i.test(format)) return 'Comp'
-  if (/Mixed|Mixtape/i.test(format)) return 'Mix'
-  if (/Album|\bLP\b/i.test(format)) return 'LP'
-  if (/\bEP\b/i.test(format)) return 'EP'
-  if (/Single/i.test(format)) return 'Single'
-  const vinyl = format.match(/(12|10|7)"/)
-  if (vinyl) return vinyl[0]
-  const files = Number(format.match(/(\d+)xFile/)?.[1])
-  if (files) return files <= 3 ? 'Single' : files <= 7 ? 'EP' : 'LP'
-  return format.split(/[,+]/)[0].trim() || '—'
-}
-
-// Discogs artist role -> which part of the catalogue it is. A shared role
-// ("Remix, Appearance") goes by its first part.
-const ROLE_PILL = { main: 'Own', remix: 'Remix', prod: 'Producer', guest: 'Guest' }
-function roleGroup(role = '') {
-  const first = role.split(',')[0].trim()
-  if (!first || first === 'Main') return 'main'
-  if (/Remix/i.test(first)) return 'remix'
-  if (/Producer/i.test(first)) return 'prod'
-  return 'guest'
-}
-
-// "Not On Label (X Self-released)" -> "Self-released"; drops Discogs'
-// "(2)" suffixes and repeated names ("A&G Productions, A&G Productions").
-function cleanLabelName(label = '') {
-  if (/^Not On Label/i.test(label)) return 'Self-released'
-  return [...new Set(label.split(',').map(s => s.replace(/\s*\(\d+\)$/, '').trim()).filter(Boolean))].slice(0, 2).join(', ')
-}
+// releaseTag / roleGroup / ROLE_PILL / cleanLabelName: lib/catalogue.js
 
 // 2026-08-26: the TEMP placeholder discography arrays that used to sit here
 // (PLACEHOLDER_ON_SITE / PLACEHOLDER_NOT_YET, added 2026-08-25 because every

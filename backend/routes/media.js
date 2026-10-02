@@ -1288,7 +1288,39 @@ async function resolveSoundCloud(url) {
   // label/premiere accounts often fill with their own name ("Techno Germany",
   // "Tucca Premiere / Kai Stein").
   const pmArtist = pm.artist && !namesAgree(pm.artist, uploader) ? pm.artist.trim() : '';
-  const artist = (parsed.artist || pmArtist || '').trim();
+
+  // A set's tracks, each cleaned like an upload title ("DS Premiere: AEMN -
+  // Occult [BCCX029]" -> AEMN / Occult) and with its own SoundCloud link, so
+  // a tracklist row plays that track (2026-10-02). Long sets only hydrate the
+  // first few tracks in full; a partial list would mislead, so all or nothing.
+  const setTracks = isPlaylist && page?.tracks?.length && page.tracks.every(t => t.title)
+    ? page.tracks.map((t, i) => {
+        const pt = parseReleaseTitle(t.title, uploader);
+        return {
+          position: String(i + 1),
+          title: pt.title || t.title,
+          artist: pt.artist,
+          duration: t.duration ? secondsToClock(Math.round(t.duration / 1000)) : '',
+          stream_url: t.permalink_url || '',
+          artists: pt.artist ? [{ name: pt.artist }] : [],
+        };
+      })
+    : [];
+  // A set titled only "BCCX029 | AEMN" names no artist; its tracks do. The
+  // artist most of them agree on wins over falling back to the uploader.
+  let trackArtist = '';
+  if (setTracks.length) {
+    const counts = new Map();
+    for (const t of setTracks) if (t.artist) counts.set(t.artist, (counts.get(t.artist) || 0) + 1);
+    const [top, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+    if (top && n >= setTracks.length / 2) trackArtist = top;
+  }
+  const artist = (parsed.artist || pmArtist || trackArtist || '').trim();
+  // What's left of the set title is just the artist's name: the catalogue
+  // number is the better title ("BCCX029" by AEMN, not "AEMN" by AEMN).
+  if (isPlaylist && trackArtist && !parsed.artist && squash(parsed.title) === squash(trackArtist)) {
+    parsed.title = parsed.catNo || parsed.title;
+  }
   // "MechaLAB Hellmarch" with artist MechaLAB -> "Hellmarch".
   if (artist && !parsed.artist && parsed.title.toLowerCase().startsWith(`${artist.toLowerCase()} `)) {
     parsed.title = parsed.title.slice(artist.length).trim();
@@ -1296,11 +1328,9 @@ async function resolveSoundCloud(url) {
   const label = page?.label_name || pm.publisher || '';
   const durationSec = Math.round((page?.duration || page?.full_duration || 0) / 1000);
 
-  // Set tracklist from the page. Long sets only hydrate the first few tracks
-  // in full; a partial list would mislead, so it's all or nothing.
-  const pageTracks = isPlaylist && page?.tracks?.length && page.tracks.every(t => t.title)
-    ? page.tracks.map((t, i) => ({ position: String(i + 1), title: t.title, duration: '', artists: [] }))
-    : [];
+  // The set's own tracklist, minus the parse helper field; a track by the
+  // set's artist doesn't need its own credit.
+  const pageTracks = setTracks.map(({ artist: a, ...t }) => (a && namesAgree(a, artist) ? { ...t, artists: [] } : t));
 
   let postType = isPlaylist
     ? ((page?.track_count || pageTracks.length) >= 3 ? 'album' : 'single')
@@ -1340,7 +1370,12 @@ async function resolveSoundCloud(url) {
     // find the pasted track on the release); a set is the release.
     title: isPlaylist ? (discogsData?.release_title || parsed.title) : parsed.title,
     ...discogsFields(discogsData, {
-      cover: page?.artwork_url?.replace('-large.', '-t500x500.') || oembed?.thumbnail_url,
+      // A set has no artwork of its own: its first track's, then (never
+      // SoundCloud's grey placeholder) oEmbed's, then the uploader's avatar.
+      cover: [page?.artwork_url, page?.tracks?.find(t => t.artwork_url)?.artwork_url]
+        .find(Boolean)?.replace('-large.', '-t500x500.')
+        || (/placeholder/i.test(oembed?.thumbnail_url || '') ? null : oembed?.thumbnail_url)
+        || page?.user?.avatar_url?.replace('-large.', '-t500x500.'),
       year: page?.release_date?.slice(0, 4),
       tracks: pageTracks,
       label,

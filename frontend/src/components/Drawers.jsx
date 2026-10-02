@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
+import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -220,6 +221,124 @@ function Facts({ lines }) {
 }
 const yearSpan = ps => { const ys = uniq(ps.map(p => p.year)).sort(); return ys.length > 1 ? `${ys[0]} – ${ys[ys.length - 1]}` : ys[0] || '' }
 
+// ── Discography (2026-10-02) ──────────────────────────────────────────────────
+// "The artist should show everything they've done": under an artist's or
+// label's own LNV posts, their WHOLE Discogs catalogue — from the backend's
+// catalogue crawl (GET /discogs/{artist|label}/:id/releases), 100 at a time,
+// searchable. Same type tags and role pills as the spotlight list
+// (lib/catalogue). A release already on LNV jumps to its post; anything else
+// opens on Discogs.
+
+// The Discogs id behind a name, from any post that carries it.
+function discogsIdOf(kind, name, posts) {
+  for (const p of posts) {
+    const id = kind === 'artist' ? p.artist_ids?.[name] : p.labels.find(l => l.name === name)?.id
+    if (id) return id
+  }
+  return null
+}
+
+function rolePillStyle(group) {
+  const base = { fontFamily: SANS, fontWeight: 600, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', borderRadius: 99, padding: '2px 8px', whiteSpace: 'nowrap', border: '1px solid transparent', justifySelf: 'start' }
+  if (group === 'main') return { ...base, background: 'var(--theme-accent)', color: '#fff' }
+  return { ...base, color: group === 'guest' ? TER : PRI, borderColor: group === 'guest' ? LINE : SEC, borderStyle: group === 'prod' ? 'dashed' : 'solid' }
+}
+
+function Discography({ kind, id, name, allPosts }) {
+  const { jump } = useDrawerNav()
+  const [query, setQuery] = useState('')
+  const [q, setQ] = useState('')
+  useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t) }, [query])
+
+  const pages = useInfiniteQuery({
+    queryKey: ['drawer-discography', kind, id, q],
+    queryFn: async ({ pageParam }) => {
+      const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q })
+      const r = await fetch(`${API}/discogs/${kind}/${id}/releases?${qs}`)
+      return r.ok ? r.json() : null
+    },
+    initialPageParam: 0,
+    getNextPageParam: last => {
+      if (!last) return undefined
+      const next = last.pagination.offset + last.releases.length
+      return next < last.pagination.matched ? next : undefined
+    },
+    enabled: !!id,
+    staleTime: 60_000,
+    refetchInterval: qy => (qy.state.data?.pages?.[0]?.crawl?.done === false ? 6000 : false),
+  })
+  const first = pages.data?.pages?.[0]
+  const rows = (pages.data?.pages || []).flatMap(pg => pg?.releases || [])
+
+  // Masters come without format/label: their main release's, from the same
+  // slow background queue the spotlight uses.
+  const infoIds = rows.filter(r => r.type === 'master' && r.mainRelease).map(r => r.mainRelease).slice(0, 300)
+  const { data: info } = useQuery({
+    queryKey: ['spotlight-release-info', infoIds.join(',')],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/release-info?ids=${infoIds.join(',')}`); return r.ok ? r.json() : { info: {} } },
+    enabled: infoIds.length > 0,
+    staleTime: Infinity,
+    refetchInterval: qy => (qy.state.data?.pending > 0 ? 5000 : false),
+  })
+
+  const postByRelease = new Map(allPosts.filter(p => p.discogs_id).map(p => [p.discogs_id, p]))
+  const total = first?.pagination?.items || 0
+  const crawl = first?.crawl
+  const right = !first ? '' : crawl && !crawl.done
+    ? `collecting ${crawl.have.toLocaleString('en-GB')} of ${crawl.total.toLocaleString('en-GB')}`
+    : `${total.toLocaleString('en-GB')} on Discogs`
+  const COLS = kind === 'artist' ? '50px minmax(0, 1fr) 76px 40px' : '50px minmax(0, 1fr) 40px'
+
+  if (!id) return <>
+    <SectionHead left={kind === 'artist' ? 'Discography' : 'Full catalogue'} />
+    <Empty>{name} isn't linked to Discogs yet, so there's no full {kind === 'artist' ? 'discography' : 'catalogue'} to show.</Empty>
+  </>
+
+  return <>
+    <SectionHead left={kind === 'artist' ? 'Discography' : 'Full catalogue'} right={right} />
+    {total > 20 && (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, background: FILL, border: `1px solid ${LINE}`, borderRadius: 99, padding: '6px 14px', margin: '2px 0 8px' }}>
+        <span aria-hidden="true" style={{ color: TER }}>⌕</span>
+        <input id={`discography-search-${kind}-${id}`} value={query} onChange={e => setQuery(e.target.value)}
+          placeholder={`Search ${total.toLocaleString('en-GB')} releases`} aria-label={`Search ${name}'s releases`}
+          style={{ border: 0, outline: 0, background: 'none', flex: 1, minWidth: 0, fontFamily: SANS, fontSize: 15, color: PRI }} />
+        {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
+      </label>
+    )}
+    {!first ? <Empty>{pages.isLoading ? 'Pulling the Discogs catalogue…' : 'Couldn’t load the catalogue.'}</Empty>
+      : !rows.length ? <Empty>{q ? `No releases match “${q}”.` : 'Nothing found on Discogs.'}</Empty>
+      : rows.map(r => {
+          const mi = r.type === 'master' ? info?.info?.[r.mainRelease] : null
+          const group = kind === 'artist' ? roleGroup(r.role || '') : null
+          const onSite = r.type !== 'master' ? postByRelease.get(r.id) : null
+          const sub = kind === 'label'
+            ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : ''].filter(Boolean).join(' · ')
+            : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || '')].filter(Boolean).join(' · ')
+          const open = () => onSite ? jump(onSite.id) : window.open(`https://www.discogs.com/${r.type === 'master' ? 'master' : 'release'}/${r.id}`, '_blank', 'noopener')
+          return (
+            <Row key={`${r.type}:${r.id}`} onClick={open} style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '7px 10px' }}>
+              <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center', border: `1px solid ${TER}`, borderRadius: 5, padding: '2px 0', color: PRI }}>{releaseTag(r.format || mi?.format || '', r.title)}</span>
+              <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {onSite && <span title={`On LNV as ${pad(onSite.id)}`} style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
+                  {r.title}
+                </span>
+                {sub && <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>}
+              </span>
+              {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
+              <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
+            </Row>
+          )
+        })}
+    {pages.hasNextPage && (
+      <button onClick={() => pages.fetchNextPage()} disabled={pages.isFetchingNextPage}
+        style={{ marginTop: 10, border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '5px 14px', fontFamily: SANS, fontSize: 13, color: SEC, cursor: 'pointer' }}>
+        {pages.isFetchingNextPage ? 'Loading…' : 'Show 100 more'}
+      </button>
+    )}
+  </>
+}
+
 // ── Artists ───────────────────────────────────────────────────────────────────
 export function ArtistsDrawer({ filter: initial }) {
   const { data, isLoading } = useBrowse()
@@ -245,6 +364,7 @@ export function ArtistsDrawer({ filter: initial }) {
         </div>
         <SectionHead left="On the feed" right="newest first" />
         {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        <Discography kind="artist" id={discogsIdOf('artist', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <ExtLink href={`https://www.discogs.com/search/?q=${enc}&type=artist`}>◈ Discogs</ExtLink>
@@ -286,8 +406,9 @@ export function LabelsDrawer({ filter: initial }) {
             <Tags names={uniq(ps.flatMap(p => p.genres)).slice(0, 8)} />
           </div>
         </div>
-        <SectionHead left="Catalogue" right="by year" />
+        <SectionHead left="On the feed" right="by year" />
         {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        <Discography kind="label" id={discogsIdOf('label', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
       </DrawerBody>
@@ -357,10 +478,12 @@ export function GenresDrawer({ filter: initial }) {
 }
 
 // ── Live sets ─────────────────────────────────────────────────────────────────
-export function LiveDrawer() {
+// `filter` (2026-10-02): a live-set card's DJ name opens the drawer
+// already filtered to that DJ's sets.
+export function LiveDrawer({ filter: initial }) {
   const { data, isLoading } = useBrowse()
   const { jump } = useDrawerNav()
-  const [filter, setFilter] = useState('')
+  const [filter, setFilter] = useState(initial || '')
   const [where, setWhere] = useState('all')
   const [sort, setSort] = useState('dj') // 'dj' = grouped by DJ, 'new' = one list, newest first
   if (isLoading || !data) return <><DrawerHead title="Live sets" count="" /><Loading /></>

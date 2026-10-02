@@ -133,19 +133,22 @@ router.get('/', (req, res, next) => {
 // genres, live sets) — they group and filter on the client. Newest first.
 router.get('/browse', (req, res, next) => {
   try {
-    const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at
+    const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at, discogs_id
       FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all();
     const by = (sql) => { const m = new Map(); for (const r of db.prepare(sql).all()) { if (!m.has(r.post_id)) m.set(r.post_id, []); m.get(r.post_id).push(r); } return m; };
-    const artists = by('SELECT post_id, artist_name FROM post_artists ORDER BY id');
-    const labels = by('SELECT post_id, label_name, catalogue_number FROM post_labels ORDER BY id');
+    const artists = by('SELECT post_id, artist_name, discogs_artist_id FROM post_artists ORDER BY id');
+    const labels = by('SELECT post_id, label_name, catalogue_number, discogs_label_id FROM post_labels ORDER BY id');
     const genres = by('SELECT post_id, genre FROM post_genres ORDER BY id');
     const tracks = new Map(db.prepare('SELECT post_id, COUNT(*) c FROM post_tracks GROUP BY post_id').all().map(r => [r.post_id, r.c]));
     res.json(posts.map(p => ({
       id: p.id, title: p.title, post_title: p.post_title, year: p.year,
       cover: p.thumb_image || p.cover_image || null, post_type: p.post_type,
       channel: p.channel, platform: p.platform, stream_url: p.stream_url, created_at: p.created_at,
+      discogs_id: p.discogs_id || null,
       artists: (artists.get(p.id) || []).map(r => r.artist_name),
-      labels: (labels.get(p.id) || []).map(r => ({ name: r.label_name, catno: r.catalogue_number })),
+      // name -> Discogs id, for the drawers' full discography (2026-10-02)
+      artist_ids: Object.fromEntries((artists.get(p.id) || []).filter(r => r.discogs_artist_id).map(r => [r.artist_name, r.discogs_artist_id])),
+      labels: (labels.get(p.id) || []).map(r => ({ name: r.label_name, catno: r.catalogue_number, id: r.discogs_label_id || null })),
       genres: (genres.get(p.id) || []).map(r => r.genre),
       track_count: tracks.get(p.id) || 0,
     })));
