@@ -3,6 +3,7 @@ import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
 import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, DrawerHead, DrawerBody } from './Drawers';
+import { AdminDrawer } from './AdminDrawer';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -13,6 +14,9 @@ const COMPONENTS = {
   genres:  (props) => <GenresDrawer {...props} />,
   live:    (props) => <LiveDrawer {...props} />,
   about:   (props) => <AboutDrawer {...props} />,
+  // Admin accounts only (the strip's admin button); every call it makes is
+  // checked server-side too.
+  admin:   (props) => <AdminDrawer {...props} />,
   logs:    (props) => <><DrawerHead title="Activity" count="" /><DrawerBody><Logs {...props} /></DrawerBody></>,
   files:   (props) => <><DrawerHead title="Files" count="" /><DrawerBody><FilesPage {...props} /></DrawerBody></>,
 };

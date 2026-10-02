@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import db from '../db/database.js';
+import { logEvent } from './logService.js';
 
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -275,6 +276,7 @@ async function crawlChannel(channelId) {
     }
   } catch (err) {
     console.error('[channel crawl]', channelId, err.message);
+    logEvent('error', 'crawl', `YouTube channel ${channelId}: ${err.message}`);
   } finally {
     crawling.delete(channelId);
   }
@@ -300,6 +302,7 @@ export function startChannelKeeper() {
       }
     } catch (err) {
       console.error('[channel keeper]', err.message);
+      logEvent('error', 'crawl', `Channel keeper: ${err.message}`);
     }
   };
   setTimeout(sweep, 20000);

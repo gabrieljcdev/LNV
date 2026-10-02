@@ -4,6 +4,7 @@ import { enrichPostTracks } from '../services/youtubeService.js';
 import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
+import { logEvent } from '../services/logService.js';
 
 const router = express.Router();
 
@@ -206,6 +207,7 @@ router.post('/', requireAuth, (req, res, next) => {
     // load. Nothing is persisted for them any more, so this no longer needs
     // to run on insert. Left in place (unused) rather than deleted in case
     // we want DB-persisted milestone spotlights back later.
+    logEvent('info', 'post', `New post #${postId}: ${title}`, { req, detail: { platform: platform || null, post_type } });
     res.status(201).json(getFullPost(postId));
     // No release matched at compose time: look again in the background so
     // the post gets its Discogs / BUY links if Discogs has it.
@@ -258,6 +260,7 @@ router.patch('/:id', requireAuth, (req, res, next) => {
         for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
       }
     })();
+    logEvent('info', 'post', `Edited post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });
     res.json(getFullPost(id));
   } catch (err) { next(err); }
 });
@@ -277,6 +280,7 @@ router.delete('/:id', requireAuth, (req, res, next) => {
       }
       db.prepare('DELETE FROM posts WHERE id = ?').run(id);
     })();
+    logEvent('warn', 'post', `Deleted post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });
     res.json({ message: 'Post deleted' });
   } catch (err) { next(err); }
 });

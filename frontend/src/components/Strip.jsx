@@ -1,7 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
-import { getUser, logout } from '../lib/auth';
+import { getUser, logout, isAdmin } from '../lib/auth';
 
 const BASE = import.meta.env.VITE_API_URL;
 
@@ -276,6 +276,20 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
+            (status, logs, users). A round button like ▶ and the identity
+            one, not a vertical pill: the tab stack is ~680px already and a
+            pill would push the identity button off a 768px-tall screen. */}
+        {user && isAdmin() && (() => {
+          const active = d3Content === 'admin';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >⚙</button>
+          );
+        })()}
         {/* Identity — your initial when signed in (click to sign out);
             otherwise a link to /login (see lib/auth.js). */}
         {user ? (

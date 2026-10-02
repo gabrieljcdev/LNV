@@ -41,6 +41,15 @@ async function call(path, body) {
 export const register = (username, email, password) => call('register', { username, email, password })
 export const resendConfirmation = email => call('resend', { email })
 
+// Forgotten password (2026-10-02): email a reset link → { devResetUrl? };
+// the link lands on /login?reset=<token>, which checks it, then sets the new
+// password (signs the account out everywhere).
+export const forgotPassword = email => call('forgot', { email })
+export const resetPassword = (token, password) => call('reset', { token, password })
+export async function checkResetLink(token) {
+  try { const r = await fetch(`${API}/auth/reset/check?token=${encodeURIComponent(token)}`); return (await r.json()).state } catch { return 'ok' }
+}
+
 export async function signIn(login, password) {
   const { token, user } = await call('login', { login, password })
   write({ token, user })

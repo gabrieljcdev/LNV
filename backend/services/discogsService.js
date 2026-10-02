@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import db from '../db/database.js';
+import { logEvent } from './logService.js';
 dotenv.config();
 
 const DISCOGS_BASE = 'https://api.discogs.com';
@@ -442,6 +443,7 @@ async function drainCatalogues() {
         else catalogueQueue.push(key); // back of the line
       } catch (err) {
         console.error('[catalogue crawl]', key, err.message);
+        logEvent('error', 'crawl', `Discogs catalogue ${key}: ${err.message}`);
         catalogueCrawling.delete(key); // retried next time it's asked for
       }
       await new Promise(r => setTimeout(r, CATALOGUE_GAP_MS));
@@ -462,11 +464,14 @@ export function startCatalogueKeeper() {
   const sweep = () => {
     try {
       const ins = db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)');
-      for (const { id } of db.prepare('SELECT DISTINCT discogs_artist_id id FROM post_artists WHERE discogs_artist_id IS NOT NULL').all()) ins.run('artist', id);
+      // 194 = Discogs' "Various" (every compilation) — not an artist to crawl.
+      for (const { id } of db.prepare("SELECT DISTINCT discogs_artist_id id FROM post_artists WHERE discogs_artist_id IS NOT NULL AND discogs_artist_id != 194 AND lower(artist_name) NOT IN ('various', 'various artists')").all()) ins.run('artist', id);
+      db.prepare("DELETE FROM discogs_catalogue_crawl WHERE kind = 'artist' AND entity_id = 194").run();
       for (const { id } of db.prepare('SELECT DISTINCT discogs_label_id id FROM post_labels WHERE discogs_label_id IS NOT NULL').all()) ins.run('label', id);
       for (const r of db.prepare('SELECT kind, entity_id FROM discogs_catalogue_crawl').all()) crawlCatalogue(r.kind, r.entity_id);
     } catch (err) {
       console.error('[catalogue keeper]', err.message);
+      logEvent('error', 'crawl', `Catalogue keeper: ${err.message}`);
     }
   };
   setTimeout(sweep, 15000);

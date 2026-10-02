@@ -12,6 +12,8 @@ import genreRoutes from './routes/genres.js';
 import labelRoutes from './routes/labels.js';
 import mediaRoutes from './routes/media.js';
 import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/admin.js';
+import { requestLogger, startLogPruning, logEvent } from './services/logService.js';
 import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
 import { startCatalogueKeeper } from './services/discogsService.js';
@@ -26,6 +28,7 @@ app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', limiter);
 app.use('/api', attachUser); // req.user from the Bearer token (or null)
+app.use('/api', requestLogger); // writes, failures and slow requests -> admin log
 app.use('/api/auth',    authRoutes);
 app.use('/api/discogs', discogsRoutes);
 app.use('/api/media',   mediaRoutes);
@@ -35,6 +38,7 @@ app.use('/api/tracks',  trackRoutes);
 app.use('/api/artists', artistRoutes);
 app.use('/api/genres',  genreRoutes);
 app.use('/api/labels',  labelRoutes);
+app.use('/api/admin',   adminRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Late Night Vibes API is running 🌙' });
@@ -44,6 +48,8 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
+  logEvent('info', 'system', 'Backend started');
+  startLogPruning();
   startDiscogsMatcher();
   // Fill the Discogs catalogues and YouTube channels in quiet moments.
   startCatalogueKeeper();
