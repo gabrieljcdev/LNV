@@ -5,7 +5,9 @@ import ComposeModal from './ComposeModal'
 import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
-import { getUserId, isAdmin, authHeaders } from '../lib/auth'
+import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
+import { useFeedMode, setFeedMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
+import { PostFavButton, FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag } from './Collect'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -818,7 +820,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
         </div>
       )}
       <div aria-hidden="true" style={{ pointerEvents: 'none' /* its glyphs reach up over the metaline: clicks go to the label link */, fontSize: d.numeralSize, fontWeight: d.numeralWeight, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: textPri, fontFamily: d.numeralFf, margin: d.numeralMargin }}>
-        {String(post.id).padStart(2, '0')}
+        {String(post.feedNumber ?? post.id).padStart(2, '0')}
       </div>
     </div>
   )
@@ -859,7 +861,14 @@ function PostCard({ post, cardBg, d, onEdit }) {
               // Right-plate (currently live) and center: num/duration
               // lead, title trails — title ends up on the same side as
               // the plate's own text and numeral.
-              const order = d.plateAlign === 'left' ? [titleEl, durEl, numEl] : [numEl, durEl, titleEl]
+              // ♡ (Hearted tracks) and + (a playlist) — 2026-10-03.
+              const actEl = tUrl ? (
+                <span key="act" style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline', flexShrink: 0 }}>
+                  <TrackHeart track={trackFrom(post, t)} size={d.trackSize} offColor={textTer} />
+                  <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align={d.plateAlign === 'left' ? 'left' : 'right'} style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: textTer }} />
+                </span>
+              ) : null
+              const order = d.plateAlign === 'left' ? [titleEl, durEl, numEl, actEl] : [actEl, numEl, durEl, titleEl]
               return (
                 <div key={i}
                   onClick={() => { if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
@@ -895,7 +904,11 @@ function PostCard({ post, cardBg, d, onEdit }) {
       <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: d.metarowSize, color: textTer, padding: 0, fontFamily: d.bodyFf, flexShrink: 0 }}>
         <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
       </button>
-      <span style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.user?.username || post.username}</span>
+      <PostFavButton post={post} artist={artist} label={label} size={d.metarowSize + 2} offColor={textTer} />
+      <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
+      <FollowedTag post={post} />
+      <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
+      <MainNumber post={post} style={{ fontSize: d.stampSize, color: textTer, fontFamily: d.monoFf }} />
       <span style={{ fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: textTer, fontFamily: d.monoFf, marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(post.created_at)}</span>
       {canModify && (
         <span style={{ display: 'flex', gap: 8, flexShrink: 0, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, fontFamily: d.monoFf }}>
@@ -1209,7 +1222,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
       {/* name + set line | badges + year */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 30, marginTop: 26, flexShrink: 0 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)' }}>00-{post.id}</div>
+          <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)' }}>00-{post.feedNumber ?? post.id}</div>
           <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: T.artistSize, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, marginTop: 10, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist ? <DrawerLink kind="live" name={artist} quiet>{artist}</DrawerLink> : artist}</div>
           <div style={{ fontFamily: T.artistFf, fontStyle: 'italic', fontSize: T.titleSize, lineHeight: T.titleLh, letterSpacing: `${T.titleLs}em`, marginTop: 4, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
         </div>
@@ -1238,7 +1251,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
           <p style={{ fontSize: T.descSize, fontFamily: T.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
         )}
         <div aria-hidden="true" style={{ pointerEvents: 'none' /* decoration: never swallow clicks on the text above */, flexShrink: 0, margin: T.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: T.numeralFf, fontWeight: T.numeralWeight, fontSize: T.numeralSize, lineHeight: T.numeralLh, letterSpacing: `${T.numeralLs}em`, opacity: T.numeralOpacity, color: 'var(--lv-pri)' }}>
-          {String(post.id).padStart(2, '0')}
+          {String(post.feedNumber ?? post.id).padStart(2, '0')}
         </div>
         {/* Line right under the number, as on the single and album cards
             (gabriel, 2026-10-02: no longer pinned to the bottom). */}
@@ -1254,10 +1267,15 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
             <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
           </span>
         )}
+        <PostFavButton post={post} artist={artist} label={post.channel} size={13} offColor="var(--lv-ter)" />
+        <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={13} offColor="var(--lv-ter)" />
+        <AddToPlaylistButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
         </button>
-        <span style={{ color: 'var(--lv-sec)' }}>{post.user?.username || post.username}</span>
+        <FollowedTag post={post} />
+        <WallLink name={post.user?.username || post.username} style={{ color: 'var(--lv-sec)' }} />
+        <MainNumber post={post} />
         <span>{timeAgo(post.created_at)}</span>
       </div>
       {commentsOpen && (
@@ -1354,9 +1372,13 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
         const active = !!activeUrl && u === activeUrl
         return (
           <div key={i} onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+            style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr) auto', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
             <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400 }}>{t.title}</span>
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
+              {u && <TrackHeart track={trackFrom(post, t)} size={d.trackSize} offColor="var(--lv-ter)" />}
+              {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
+            </span>
           </div>
         )
       })}
@@ -1422,7 +1444,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           {/* The number sits right under the metaline and its line right
               under the number, as on the single card (gabriel, 2026-10-02). */}
           <div aria-hidden="true" style={{ pointerEvents: 'none' /* its glyphs reach up over the metaline: clicks go to the label link */, flexShrink: 0, margin: d.numeralMargin, marginTop: NUMERAL_GAP, fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: d.numeralSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>
-            {String(post.id).padStart(2, '0')}
+            {String(post.feedNumber ?? post.id).padStart(2, '0')}
           </div>
           {/* Line under the big number — the single card's solid rule under
               its plate, same height, colour and spacing (gabriel, 2026-10-01). */}
@@ -1441,7 +1463,11 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
         <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
-        <span style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }}>{post.user?.username || post.username}</span>
+        <PostFavButton post={post} artist={artist} label={label} size={d.metarowSize + 2} offColor="var(--lv-ter)" />
+        <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <FollowedTag post={post} />
+        <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
+        <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
         <span style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>{timeAgo(post.created_at)}</span>
         {canModify && (
           <span style={{ display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
@@ -2138,11 +2164,22 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                           <div key={i}>
                           <div onClick={() => { if (!miss) playTrack({ ...t, url }, i) }}
                             title={miss ? 'no YouTube link found' : found === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}
-                            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+                            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px 36px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                             <span style={{ ...monoText, color: textTer }}>{t.position || i + 1}</span>
                             <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
                             <span style={{ ...monoText, color: textTer, textAlign: 'right' }}>{t.duration || ''}</span>
                             <span style={{ ...monoText, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
+                            {/* ♡ and + once the track has a link (2026-10-03); a track
+                                still to be found on YouTube gets them after its first play. */}
+                            <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
+                              {url && (() => {
+                                const tr = { post_id: onSitePost?.id || (openRow?.kind === 'post' ? openRow.post.id : null), position: t.position || null, title: t.title, artist: (t.artists || []).map(a => a.name).join(', ') || (type === 'artist' ? name : openRow?.artist || ''), url, embed_url: t.embed || null, duration: t.duration || null, cover: openRow?.thumb || openRow?.post?.thumb_image || null }
+                                return <>
+                                  <TrackHeart track={tr} size={12} offColor={textTer} />
+                                  <AddToPlaylistButton tracks={[tr]} label="+" align="right" style={{ ...monoText, color: textTer }} />
+                                </>
+                              })()}
+                            </span>
                           </div>
                           {/* The player opens right under the track that was clicked. */}
                           {isPlaying && (playing.embed || toEmbedSrc(playing.url)) && (
@@ -2173,7 +2210,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
           <button
             onClick={() => addUrl && onCreateFromDiscogs?.(addUrl)}
             style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
-          >+ add to feed</button>
+          >+ add to my feed</button>
         ) : browsable ? (
           <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: textPri, fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
         ) : <span />}
@@ -2539,20 +2576,39 @@ export default function Feed() {
   // fetches the next FEED_PAGE (see the IntersectionObserver below). The
   // latest feed pages by cursor (`before` = last post id) so new posts
   // can't shift the pages; search pages by number (ranked results).
+  // Which feed (2026-10-03): the main one, yours (built from your
+  // favourites) or a shared one — FeedSwitcher / lib/collections. A search
+  // always searches the main feed.
+  const feedMode = useFeedMode()
+  const feedSel = search || feedMode.type === 'main' ? null
+    : feedMode.type === 'home' ? ['home']
+    : feedMode.type === 'wall' ? ['wall', feedMode.username]
+    : ['playlist', feedMode.token ? `t:${feedMode.token}` : String(feedMode.id)]
   const { data: raw, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
-    queryKey: ['posts', search ? 'SEARCH' : 'LATEST', search],
+    queryKey: feedSel ? ['posts', 'FEED', ...feedSel] : ['posts', search ? 'SEARCH' : 'LATEST', search],
     initialPageParam: null,
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams({ limit: String(FEED_PAGE) })
       if (search) { qs.set('search', search); if (pageParam) qs.set('page', String(pageParam)) }
-      else if (pageParam) qs.set('before', String(pageParam))
-      const res = await fetch(`${API}/posts?${qs}`)
+      else {
+        if (feedSel?.[0] === 'home') qs.set('feed', 'home')
+        else if (feedSel?.[0] === 'wall') qs.set('wall', feedSel[1])
+        else if (feedSel?.[0] === 'playlist') {
+          if (feedSel[1].startsWith('t:')) qs.set('playlist_token', feedSel[1].slice(2))
+          else qs.set('playlist', feedSel[1])
+        }
+        if (pageParam) qs.set('before', String(pageParam))
+      }
+      const res = await fetch(`${API}/posts?${qs}`, feedSel ? { headers: authHeaders() } : undefined)
+      // Signed out, or no longer allowed to see that playlist: back to the main feed.
+      if (feedSel && (res.status === 401 || res.status === 404)) return { posts: [], hasMore: false, gone: true }
       if (!res.ok) return { posts: [], hasMore: false }
       const d = await res.json()
       // /api/posts returns {posts,total,page,limit,hasMore}; tolerate a bare array too.
-      return Array.isArray(d) ? { posts: d, hasMore: false } : { posts: d.posts || [], hasMore: !!d.hasMore }
+      return Array.isArray(d) ? { posts: d, hasMore: false } : { posts: d.posts || [], hasMore: !!d.hasMore, cursor: d.cursor ?? null }
     },
-    getNextPageParam: (last, all) => !last.hasMore ? undefined : search ? all.length + 1 : last.posts[last.posts.length - 1]?.id,
+    // Walls / shared feeds say where their next page starts (`cursor`).
+    getNextPageParam: (last, all) => !last.hasMore ? undefined : search ? all.length + 1 : (last.cursor ?? last.posts[last.posts.length - 1]?.id),
     // The 30 s check for new posts only runs while just the first page is
     // loaded — refetching would re-download every page scrolled through.
     refetchInterval: q => (search || (q.state.data?.pages?.length || 0) > 1) ? false : 30000,
@@ -2560,6 +2616,48 @@ export default function Feed() {
   // The search box's spinner and jump logic mean "loading a new search", not
   // "loading the next page".
   const searching = isFetching && !isFetchingNextPage
+  const feedGone = !!raw?.pages?.[0]?.gone
+  useEffect(() => { if (feedGone) setFeedMode({ type: 'main' }) }, [feedGone])
+
+  // Links (2026-10-03): ?wall=<username> opens a wall (public);
+  // ?playlist=<token> opens a shared playlist, read-only, in the playlists
+  // drawer; ?playlistinvite=<token> joins a playlist so you can add tracks
+  // (signed out, it waits in sessionStorage while you sign in).
+  const linksChecked = useRef(false)
+  useEffect(() => {
+    if (linksChecked.current) return
+    linksChecked.current = true
+    const params = new URLSearchParams(window.location.search)
+    const wallName = params.get('wall'), shared = params.get('playlist')
+    let invite = params.get('playlistinvite')
+    if (wallName || shared || invite) {
+      for (const k of ['wall', 'playlist', 'playlistinvite']) params.delete(k)
+      window.history.replaceState(null, '', window.location.pathname + (params.toString() ? `?${params}` : ''))
+    }
+    if (wallName) openWall(wallName)
+    if (shared) openD3?.('playlists', { token: shared })
+    try {
+      if (invite) sessionStorage.setItem('lnv_playlistinvite', invite)
+      else invite = sessionStorage.getItem('lnv_playlistinvite')
+    } catch { /* storage blocked */ }
+    if (!invite) return
+    const forget = () => { try { sessionStorage.removeItem('lnv_playlistinvite') } catch { /* ignore */ } }
+    if (!isLoggedIn()) {
+      if (window.confirm('A friend invited you to add tracks to their playlist. Sign in (or make an account) to accept?')) window.location.href = '/login'
+      else forget()
+      return
+    }
+    forget()
+    playlistsApi.preview(invite).then(p => {
+      if (p.joined) return openD3?.('playlists', { open: p.id })
+      if (!window.confirm(`${p.owner} invited you to add tracks to “${p.name}” (${p.track_count} track${p.track_count === 1 ? '' : 's'}). Accept?`)) return
+      return playlistsApi.join(invite).then(j => {
+        queryClient.invalidateQueries({ queryKey: ['playlists'] })
+        openD3?.('playlists', { open: j.id })
+      })
+    }).catch(err => window.alert(err.message))
+  }, [queryClient, openD3])
+
   const posts = useMemo(() => {
     const seen = new Set()
     return (raw?.pages || []).flatMap(p => p.posts).filter(p => !seen.has(p.id) && seen.add(p.id))
@@ -2595,27 +2693,45 @@ export default function Feed() {
   // `feedRef.current.scrollLeft = 0` here was overwritten by LayoutProvider's
   // ticker on the very next frame, so a search that shrank the shelf left the
   // view stranded past its end (typing "38" = blank, unscrollable page).
-  const scrolledForSearch = useRef('')
+  // 2026-10-03: switching feeds (main / mine / shared) moves the shelf the
+  // same way — to the first card, so you land on the feed you picked rather
+  // than back on the intro. Only clearing a search returns to the start.
+  const viewKey = search ? `s:${search}` : feedSel ? `f:${feedSel.join(':')}` : ''
+  const scrolledForSearch = useRef(viewKey) // a page load keeps its intro, whichever feed it opens on
   useEffect(() => {
-    if (searching || scrolledForSearch.current === search) return
-    scrolledForSearch.current = search
+    if (searching || scrolledForSearch.current === viewKey) return
+    const prev = scrolledForSearch.current
+    scrolledForSearch.current = viewKey
+    if (pendingJump.current != null) return // a jump to a post is on its way
     // Effects run after the new results are in the DOM, so measure now.
     const feed = feedRef?.current
     if (!feed) return
-    const first = search ? feed.children[1] : null
+    const first = viewKey || !prev.startsWith('s:') ? feed.children[1] : null
     // - STRIP_RADIUS: the feed's left edge sits that far under the strip (Layout.jsx)
     const target = first ? feed.scrollLeft + (first.getBoundingClientRect().left - feed.getBoundingClientRect().left) - STRIP_RADIUS : 0
     driveFeedScroll?.(Math.max(0, target))
-  }, [search, searching, postsSignature, feedRef, driveFeedScroll])
+  }, [viewKey, searching, postsSignature, feedRef, driveFeedScroll])
+
+  // A card's "main #N" (wall / shared feed): back to the main feed, then to
+  // that post once the main feed has loaded (Collect.jsx MainNumber).
+  useEffect(() => {
+    const h = e => { pendingJump.current = e.detail; setFeedMode({ type: 'main' }) }
+    window.addEventListener('lnv:jump-main', h)
+    return () => window.removeEventListener('lnv:jump-main', h)
+  }, [])
 
   // Finish a jump to a post that had to be fetched first (jumpToPost).
   useEffect(() => {
     const id = pendingJump.current
-    if (searching || id == null || !postRefs?.current?.has(id)) return
+    if (searching || id == null) return
+    if (feedSel) return // still showing a wall / shared feed: wait for the main one
+    // On the main feed but not among the loaded posts: fetch it by number.
+    if (!search && posts.length && !posts.some(p => p.id === id)) { setSearch(String(id)); return }
+    if (!posts.some(p => p.id === id) || !postRefs?.current?.has(id)) return
     pendingJump.current = null
     const t = setTimeout(() => scrollToPost?.(id), 250)
     return () => clearTimeout(t)
-  }, [searching, postsSignature, postRefs, scrollToPost])
+  }, [searching, postsSignature, postRefs, scrollToPost, feedSel, search, posts])
 
   // Scroll drag
   useEffect(() => {
@@ -2823,7 +2939,11 @@ export default function Feed() {
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: `0 0 ${DESIGN_BASE.cardW}px`, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
-            {search ? `No results for "${search}"` : 'No posts yet — share the first record.'}
+            {search ? `No results for "${search}"`
+              : feedSel?.[0] === 'home' ? (isFetching ? 'Loading your feed…' : 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them — the main feed is in the switcher, top right.')
+              : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and on the main feed).' : `Nothing on ${feedMode.username}’s wall yet.`)
+              : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
+              : 'No posts yet — share the first record.'}
           </div>
         )}
         {(() => {
@@ -2845,6 +2965,9 @@ export default function Feed() {
           return nodes
         })()}
       </div>
+
+      {/* Main feed / my feed / shared feeds (2026-10-03) */}
+      <FeedSwitcher />
 
       {/* Search — dropdown of post numbers, posts, artists/labels/genres */}
       <SearchBox

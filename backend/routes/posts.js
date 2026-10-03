@@ -5,6 +5,8 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { personalFeedPostIds, sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
+import { playlistRole, playlistFeedPostIds } from './playlists.js';
 
 const router = express.Router();
 
@@ -29,6 +31,10 @@ function getFullPost(postId) {
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
   const full = { ...post, artists, labels, genres, tracks, user, commentCount };
+  // Posted on a friend's wall: whose (cards show "on <name>'s wall").
+  if (post.wall_user_id && post.wall_user_id !== post.user_id) {
+    full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
+  }
   if (post.is_spotlight) {
     const sl = db.prepare('SELECT subject_type, subject_name, post_count_at_trigger FROM spotlights WHERE post_id = ?').get(postId);
     if (sl) {
@@ -95,6 +101,65 @@ router.get('/', (req, res, next) => {
     const { artist, label, genre, year, catno, user_id, discogs_id, search, page = 1, limit = 20 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
     let postIds;
+    // Your feed and shared feeds (2026-10-03) — same cursor paging as the
+    // main feed. Signed in only; a shared feed only for its members.
+    const before = Number(req.query.before) || null;
+    const lim = Math.min(Number(limit) || 20, 100);
+    // A wall (2026-10-03) — public: anyone can read anyone's wall. Each post
+    // carries its number on that wall (feedNumber); the main-feed number is
+    // still its id. `cursor` = where the next page starts.
+    if (req.query.wall) {
+      const owner = userByName(req.query.wall);
+      if (!owner) return res.status(404).json({ error: 'No such wall.' });
+      const rows = wallPage(owner.id, { before, limit: lim });
+      const posts = rows.map(r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; }).filter(Boolean);
+      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+    }
+    // Your feed (2026-10-03): your posts + the people you follow. Signed in
+    // only. Followed posts carry `followedFrom` (whose wall they're from).
+    if (req.query.feed === 'home') {
+      if (!req.user) return res.status(401).json({ error: 'Sign in to see your feed.' });
+      const rows = homePage(req.user.id, { before, limit: lim });
+      const names = new Map();
+      const nameOf = id => { if (!names.has(id)) names.set(id, db.prepare('SELECT username FROM users WHERE id = ?').get(id)?.username || null); return names.get(id); };
+      const posts = rows.map(r => {
+        const p = getFullPost(r.id);
+        return p && { ...p, feedNumber: r.num, followedFrom: r.wall_user_id !== req.user.id ? nameOf(r.wall_user_id) : null };
+      }).filter(Boolean);
+      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+    }
+    // A playlist viewed as a feed (2026-10-03): the posts its tracks come
+    // from, in playlist order, numbered 1, 2, 3… Its members (or anyone with
+    // its share link, `playlist_token`) can see it. `cursor` = next offset.
+    if (req.query.playlist || req.query.playlist_token) {
+      const pl = req.query.playlist_token
+        ? db.prepare('SELECT * FROM playlists WHERE share_token = ?').get(String(req.query.playlist_token))
+        : db.prepare('SELECT * FROM playlists WHERE id = ?').get(Number(req.query.playlist));
+      if (!pl || (!req.query.playlist_token && !playlistRole(pl, req.user?.id))) return res.status(404).json({ error: 'Playlist not found.' });
+      const all = playlistFeedPostIds(pl.id);
+      const from = Number(req.query.before) || 0;
+      const slice = all.slice(from, from + lim);
+      const posts = slice.map((id, k) => { const p = getFullPost(id); return p && { ...p, feedNumber: from + k + 1 }; }).filter(Boolean);
+      return res.json({ posts, page: 1, limit: lim, hasMore: from + lim < all.length, cursor: from + lim });
+    }
+    if (req.query.feed === 'mine' || req.query.shared) {
+      if (!req.user) return res.status(401).json({ error: 'Sign in to see that feed.' });
+      if (req.query.feed === 'mine') {
+        postIds = personalFeedPostIds(req.user.id, { before, limit: lim });
+        const posts = postIds.map(id => getFullPost(id)).filter(Boolean);
+        return res.json({ posts, page: 1, limit: lim, hasMore: postIds.length === lim, cursor: postIds.at(-1) ?? null });
+      }
+      const feedId = Number(req.query.shared);
+      if (!memberRole(feedId, req.user.id)) return res.status(404).json({ error: 'Feed not found.' });
+      // Numbered and paged in the order posts were added (cursor = item id).
+      const rows = sharedFeedPage(feedId, { before, limit: lim });
+      const adders = sharedFeedAdders(feedId, rows.map(r => r.id));
+      const posts = rows.map(r => {
+        const p = getFullPost(r.id);
+        return p && { ...p, feedNumber: r.num, addedBy: adders.get(r.id) || null };
+      }).filter(Boolean);
+      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.item_id ?? null });
+    }
     if (discogs_id) { postIds = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').all(Number(discogs_id)).map(r => r.id); }
     else if (search) {
       // Ranked full-text search (services/searchService.js) — the one search
@@ -116,7 +181,6 @@ router.get('/', (req, res, next) => {
       // The feed (2026-10-01): newest first, paged by cursor — `before` is
       // the last post id the feed already has — so posts added while
       // someone's scrolling can't shift the pages (no duplicates or gaps).
-      const before = Number(req.query.before) || null;
       postIds = before
         ? db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 AND id < ? ORDER BY id DESC LIMIT ?').all(before, Number(limit)).map(r => r.id)
         : db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 ORDER BY id DESC LIMIT ? OFFSET ?').all(Number(limit), offset).map(r => r.id);
@@ -180,16 +244,18 @@ router.post('/', requireAuth, (req, res, next) => {
       artists = [], labels = [], genres = [], tracks = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
+    // A post goes on its poster's wall (2026-10-03) and on the main feed.
+    const wallUserId = user_id;
     const resolvedDiscogsId = discogs_id || (discogs_url ? discogs_url.match(/release\/(\d+)/)?.[1] : null);
     const result = db.prepare(`
-      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type, channel, post_title)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO posts (user_id, discogs_id, discogs_type, title, year, country, cover_image, thumb_image, notes, discogs_url, stream_url, embed_url, platform, post_type, channel, post_title, wall_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       user_id, resolvedDiscogsId ? Number(resolvedDiscogsId) : null,
       discogs_type, title, year || null, country || null,
       cover_image || null, thumb_image || null, notes || null, discogs_url || null,
       stream_url || null, embed_url || null, platform || null, post_type || 'album',
-      channel || null, (post_title || '').trim() || null
+      channel || null, (post_title || '').trim() || null, wallUserId
     );
     if (!result.lastInsertRowid) return res.status(409).json({ error: 'A post with this Discogs release already exists' });
     const postId = result.lastInsertRowid;
@@ -275,9 +341,11 @@ router.delete('/:id', requireAuth, (req, res, next) => {
     // DELETE CASCADEs never fire — remove the child rows explicitly or they
     // stay behind as orphans.
     db.transaction(() => {
-      for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights']) {
+      for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights', 'shared_feed_items']) {
         db.prepare(`DELETE FROM ${table} WHERE post_id = ?`).run(id);
       }
+      // A record favourited straight off this post goes with it.
+      db.prepare(`DELETE FROM favourites WHERE kind = 'record' AND item_key = ?`).run(`post:${id}`);
       db.prepare('DELETE FROM posts WHERE id = ?').run(id);
     })();
     logEvent('warn', 'post', `Deleted post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });

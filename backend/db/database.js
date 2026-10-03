@@ -245,6 +245,111 @@ const migrations = [
     crawled_at TEXT,
     PRIMARY KEY (kind, entity_id)
   )`,
+  // Favourites (2026-10-03): artists, labels and records a user saves while
+  // digging. `item_key` is the identity — an artist/label's lower-cased name
+  // (how the drawers group them), a record's 'post:<id>', 'release:<id>' or
+  // 'master:<id>'. created_at + source_post_id make it a digging history
+  // (what was saved, when, from which post). `meta` is a small JSON blob
+  // (cover, artist, year…) so the favourites list needs no extra lookups.
+  `CREATE TABLE IF NOT EXISTS favourites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    discogs_id INTEGER,
+    post_id INTEGER,
+    source_post_id INTEGER,
+    meta TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (user_id, kind, item_key)
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_favourites_user ON favourites(user_id, kind)',
+  // Shared feeds (2026-10-03): a feed of posts a few friends put together.
+  // Joining is by the feed's share link (share_token); members add posts.
+  `CREATE TABLE IF NOT EXISTS shared_feeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    share_token TEXT UNIQUE NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS shared_feed_members (
+    feed_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    joined_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (feed_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS shared_feed_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feed_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    added_by INTEGER NOT NULL,
+    added_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (feed_id, post_id)
+  )`,
+  // Walls (2026-10-03): every user's public profile feed. A post lands on
+  // the wall of whoever posted it, or on a friend's wall they've been
+  // invited to post on (wall_writers, joined through walls.invite_token).
+  // Every post still shows on the main feed.
+  'ALTER TABLE posts ADD COLUMN wall_user_id INTEGER',
+  'UPDATE posts SET wall_user_id = user_id WHERE wall_user_id IS NULL',
+  'CREATE INDEX IF NOT EXISTS idx_posts_wall ON posts(wall_user_id, id)',
+  `CREATE TABLE IF NOT EXISTS walls (
+    user_id INTEGER PRIMARY KEY,
+    invite_token TEXT UNIQUE,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS wall_writers (
+    wall_user_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    added_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (wall_user_id, user_id)
+  )`,
+  // Playlists (2026-10-03): your own lists of tracks, picked from posts.
+  // A track keeps its own copy of title / link so it survives edits.
+  `CREATE TABLE IF NOT EXISTS playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS playlist_tracks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id INTEGER NOT NULL,
+    post_id INTEGER,
+    position TEXT,
+    title TEXT NOT NULL,
+    artist TEXT,
+    url TEXT NOT NULL,
+    embed_url TEXT,
+    duration TEXT,
+    cover TEXT,
+    sort INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT DEFAULT (datetime('now'))
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_playlist_tracks ON playlist_tracks(playlist_id, sort)',
+  // Following (2026-10-03): follow another user to keep their wall a click
+  // away.
+  `CREATE TABLE IF NOT EXISTS follows (
+    follower_id INTEGER NOT NULL,
+    followee_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (follower_id, followee_id)
+  )`,
+  // Shared playlists (2026-10-03): readable by anyone with the share link,
+  // editable by friends who joined with the invite link (playlist_members).
+  // kind 'hearted' = the list your track hearts go into (one per user).
+  "ALTER TABLE playlists ADD COLUMN kind TEXT NOT NULL DEFAULT 'list'",
+  'ALTER TABLE playlists ADD COLUMN share_token TEXT',
+  'ALTER TABLE playlists ADD COLUMN invite_token TEXT',
+  `CREATE TABLE IF NOT EXISTS playlist_members (
+    playlist_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    joined_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (playlist_id, user_id)
+  )`,
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

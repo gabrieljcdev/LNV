@@ -4,6 +4,7 @@ import Strip, { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Preloader from './Preloader';
 import ContentPanel from './ContentPanel';
 import OrangePlayer from './OrangePlayer';
+import QueueBar from './QueueBar';
 import { LayoutProvider } from '../context/LayoutProvider';
 
 function LayoutInner() {
@@ -45,6 +46,8 @@ function LayoutInner() {
         <div id="scroll-spacer" />
       </div>
       <OrangePlayer />
+      {/* The playlist player (2026-10-03) — outside the drawers, so it keeps playing. */}
+      <QueueBar />
     </>
   );
 }

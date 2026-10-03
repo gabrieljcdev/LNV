@@ -53,12 +53,14 @@ export async function checkResetLink(token) {
 export async function signIn(login, password) {
   const { token, user } = await call('login', { login, password })
   write({ token, user })
+  try { localStorage.removeItem('lnv_feed_mode') } catch { /* ignore */ } // open on "my feed"
   return user
 }
 
 export async function logout() {
   try { await call('logout') } catch { /* already gone */ }
   write(null)
+  try { localStorage.removeItem('lnv_feed_mode') } catch { /* ignore */ } // back to the main feed
 }
 
 // Check the stored session is still good (expired / signed out elsewhere);

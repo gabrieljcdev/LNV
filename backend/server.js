@@ -13,6 +13,10 @@ import labelRoutes from './routes/labels.js';
 import mediaRoutes from './routes/media.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
+import favouriteRoutes from './routes/favourites.js';
+import feedRoutes from './routes/feeds.js';
+import wallRoutes from './routes/walls.js';
+import playlistRoutes from './routes/playlists.js';
 import { requestLogger, startLogPruning, logEvent } from './services/logService.js';
 import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
@@ -39,6 +43,10 @@ app.use('/api/artists', artistRoutes);
 app.use('/api/genres',  genreRoutes);
 app.use('/api/labels',  labelRoutes);
 app.use('/api/admin',   adminRoutes);
+app.use('/api/favourites', favouriteRoutes);
+app.use('/api/feeds',   feedRoutes);
+app.use('/api/walls',   wallRoutes);
+app.use('/api/playlists', playlistRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Late Night Vibes API is running 🌙' });

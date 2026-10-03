@@ -2,6 +2,8 @@ import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
 import { getUser, logout, isAdmin } from '../lib/auth';
+import { goHome, homeMode, useFeedMode } from '../lib/collections';
+import { queue } from '../lib/queue';
 
 const BASE = import.meta.env.VITE_API_URL;
 
@@ -100,9 +102,13 @@ export default function Strip({ activeView }) {
   function handleTabClick(tab) {
     if (tab.panel) { openD3(tab.id); return; }
     closeD3();
+    // The first tab always brings back the home view — "my feed" once
+    // signed in, the main feed for visitors (2026-10-03).
+    if (tab.id === 'feed') goHome();
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+  const feedMode = useFeedMode();
 
   async function handleLogout() {
     await logout();
@@ -114,6 +120,7 @@ export default function Strip({ activeView }) {
       const res = await fetch(BASE + '/tracks/random');
       const data = await res.json();
       if (!data.youtube_url) return;
+      queue.close(); // one player at a time: the random track replaces the playlist
       setCurrentTrack({ title: data.title, artist: data.artist + ' — ' + data.album, youtubeUrl: data.youtube_url, postId: data.post_id, albumArt: data.cover_image || data.thumb_image || null });
     } catch (err) { console.error('Random error:', err); }
   }
@@ -259,14 +266,14 @@ export default function Strip({ activeView }) {
       <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
-          const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id;
+          const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);
           return (
             <button key={tab.id} data-tab={tab.id}
               onClick={() => handleTabClick(tab)}
               style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
-            >{tab.label}</button>
+            >{tab.id === 'feed' && user ? 'my feed' : tab.label}</button>
           );
         })}
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
@@ -276,6 +283,19 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        {/* Favourites (2026-10-03) — your hearted records, artists and labels,
+            your feed and shared feeds (FavouritesDrawer.jsx). Signed in only;
+            a round button like ▶ for the same height reason as admin below. */}
+        {user && (() => {
+          const active = d3Content === 'favourites' || d3Content === 'walls' || d3Content === 'playlists';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('favourites'))} title="Favourites, walls and playlists" aria-label="Favourites"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >♥</button>
+          );
+        })()}
         {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
             (status, logs, users). A round button like ▶ and the identity
             one, not a vertical pill: the tab stack is ~680px already and a
