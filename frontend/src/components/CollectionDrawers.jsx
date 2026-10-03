@@ -2,46 +2,34 @@ import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
-import { releaseTag } from '../lib/catalogue'
-import { useFavourites, favouritesApi, useFeedMode, useWall, useFollowing, wallsApi, wallLink, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
-import { FavButton, TrackHeart } from './Collect'
+import { useFeedMode, useWall, useFollowing, wallsApi, wallLink, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
+import { TrackHeart } from './Collect'
 import { queue, useQueue, currentTrack } from '../lib/queue'
-import { DrawerHead, DrawerBody, Chips, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
+import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
 
-// ── Favourites, walls and playlists drawers (2026-10-03) ─────────────────────
-// Favourites (☆): records, artists and labels you've saved — plus the
-// digging history (what you saved, when, from which post) and "fresh": the
-// newest releases from the crawled catalogues of the artists and labels you
-// saved. Walls: your wall and the people you follow. Playlists: lists of
-// tracks (♡ fills "Hearted tracks"), shareable read-only, with friends you
-// invite adding to them, and viewable as a feed.
+// ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
+// Walls: your wall and the people you follow. Playlists: lists of tracks
+// (♡ fills "Hearted tracks"), shareable read-only, with friends you invite
+// adding to them, playable straight through (lib/queue) and viewable as a
+// feed. (Favourites were dropped the same day — playlists do that job.)
 
 const SANS = "'Barlow', sans-serif", MONO = "'IBM Plex Mono', monospace"
 const PRI = 'var(--theme-text-pri)', SEC = 'var(--theme-text-sec)', TER = 'var(--theme-text-ter)', LINE = 'var(--theme-border)'
 const FILL = 'color-mix(in srgb, var(--theme-text-pri) 7%, transparent)'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 const pad = n => '#' + String(n).padStart(2, '0')
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 
-// Same as Drawers.jsx: every post as a summary (shared cache key), and the
-// drawer's jump / open / close.
-function useBrowse() {
-  return useQuery({
-    queryKey: ['posts', 'browse'],
-    queryFn: async () => { const r = await fetch(`${API}/posts/browse`); if (!r.ok) throw new Error(r.status); return r.json() },
-    staleTime: 60_000,
-  })
-}
+// The drawer's jump / open / close, as in Drawers.jsx.
 function useDrawerNav() {
   const { closeD3, openD3, jumpToPost } = useLayout() || {}
   return { close: closeD3, open: openD3, jump: id => jumpToPost?.(id) }
 }
 
-// Favourites · Walls · Playlists — hop between the three drawers.
+// Walls · Playlists — hop between the two drawers.
 function CollectNav({ current }) {
   const { openD3 } = useLayout() || {}
-  const items = [['favourites', 'Favourites'], ['walls', 'Walls'], ['playlists', 'Playlists']]
+  const items = [['playlists', 'Playlists'], ['walls', 'Walls']]
   return (
     <div style={{ display: 'flex', gap: 14, fontFamily: SANS, fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
       {items.map(([k, l]) => (
@@ -58,13 +46,6 @@ const pillOn = { ...pill, background: 'var(--theme-accent)', borderColor: 'var(-
 
 // Stored as UTC 'YYYY-MM-DD HH:MM:SS'.
 const toDate = s => new Date(String(s || '').replace(' ', 'T') + (String(s || '').includes('Z') ? '' : 'Z'))
-function dayLabel(s) {
-  const d = toDate(s), today = new Date()
-  const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000)
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
-}
 const savedOn = s => toDate(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 
 function SignedOut({ title, children }) {
@@ -73,133 +54,6 @@ function SignedOut({ title, children }) {
     <DrawerBody>
       <Empty>{children}</Empty>
       <a href="/login" style={{ ...pillOn, textDecoration: 'none', display: 'inline-block' }}>Sign in</a>
-    </DrawerBody>
-  </>
-}
-
-const discogsUrl = key => { const [t, id] = key.split(':'); return `https://www.discogs.com/${t}/${id}` }
-
-// One favourite: cover, what it is, when it was saved, and its star.
-function FavRow({ item, browse }) {
-  const { jump, open } = useDrawerNav()
-  const m = item.meta || {}
-  let cover = m.cover, title = item.name, sub = '', go
-  if (item.kind === 'record') {
-    title = m.title || item.name
-    sub = [m.artist, m.label, m.year].filter(Boolean).join(' · ')
-    go = item.post_id ? () => jump(item.post_id) : () => window.open(discogsUrl(item.key), '_blank', 'noopener')
-  } else {
-    const ps = (browse || []).filter(p => item.kind === 'artist'
-      ? p.artists.some(a => a.trim().toLowerCase() === item.key)
-      : p.labels.some(l => l.name.trim().toLowerCase() === item.key))
-    cover = cover || ps[0]?.cover
-    sub = ps.length ? plural(ps.length, 'post') + ' on the feed' : 'nothing on the feed yet'
-    go = () => open(item.kind === 'artist' ? 'artists' : 'labels', { filter: ps[0] ? (item.kind === 'artist' ? ps[0].artists.find(a => a.trim().toLowerCase() === item.key) : ps[0].labels.find(l => l.name.trim().toLowerCase() === item.key)?.name) : item.name })
-  }
-  const where = item.kind === 'record' ? (item.post_id ? pad(item.post_id) : 'Discogs ↗') : item.kind
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <Row onClick={go} style={{ flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px' }}>
-        <Cover src={cover} size={42} round={item.kind !== 'record'} />
-        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-          <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>
-        </span>
-        <span style={{ textAlign: 'right', fontFamily: MONO, fontSize: 12, color: TER, whiteSpace: 'nowrap', lineHeight: 1.5 }}>{where}<br />saved {savedOn(item.created_at)}</span>
-      </Row>
-      <FavButton kind={item.kind} favKey={item.key} name={item.name} size={17} offColor={TER} style={{ width: 24, justifyContent: 'center' }} />
-    </div>
-  )
-}
-
-// The digging history: every save, newest first, by day.
-function History({ items }) {
-  const { jump, open } = useDrawerNav()
-  if (!items.length) return <Empty>Nothing saved yet. Hit ☆ on a record, artist or label and it lands here, with the day and the post you found it on.</Empty>
-  return items.map((it, i) => {
-    const day = dayLabel(it.created_at)
-    const head = i === 0 || dayLabel(items[i - 1].created_at) !== day ? <SectionHead key={'d' + it.id} left={day} /> : null
-    const go = it.kind === 'record'
-      ? (it.post_id ? () => jump(it.post_id) : () => window.open(discogsUrl(it.key), '_blank', 'noopener'))
-      : () => open(it.kind === 'artist' ? 'artists' : 'labels', { filter: it.name })
-    return [head, (
-      <Row key={it.id} onClick={go} style={{ padding: '6px 10px' }}>
-        <span aria-hidden="true" style={{ color: 'var(--theme-accent)', width: 14 }}>★</span>
-        <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: TER, minWidth: 52 }}>{it.kind}</span>
-        <span style={{ flex: 1, minWidth: 0, fontFamily: SANS, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <b>{it.kind === 'record' ? (it.meta?.title || it.name) : it.name}</b>
-          {it.kind === 'record' && it.meta?.artist && <span style={{ color: SEC, fontStyle: 'italic' }}> — {it.meta.artist}</span>}
-        </span>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: TER, whiteSpace: 'nowrap' }}>
-          {it.source_post_id ? `from ${pad(it.source_post_id)}` : it.meta?.via ? `via ${it.meta.via}` : ''}
-        </span>
-      </Row>
-    )]
-  })
-}
-
-// Newest releases from the catalogues of the artists and labels you favourite.
-function Fresh() {
-  const { jump } = useDrawerNav()
-  const { data, isLoading } = useQuery({ queryKey: ['favourites', 'fresh'], queryFn: favouritesApi.fresh, staleTime: 5 * 60_000 })
-  if (isLoading) return <Empty>Looking through their catalogues…</Empty>
-  if (!data?.linked) return <Empty>Save (☆) an artist or label that’s linked to Discogs and its newest releases show up here.</Empty>
-  if (!data.releases.length) return <Empty>Their catalogues are still being collected — check back soon.</Empty>
-  return <>
-    <SectionHead left={`From ${plural(data.linked, 'favourite')}`} right="newest first" />
-    {data.releases.map(r => {
-      const key = r.post_id ? `post:${r.post_id}` : `${r.type}:${r.id}`
-      const go = r.post_id ? () => jump(r.post_id) : () => window.open(`https://www.discogs.com/${r.type}/${r.id}`, '_blank', 'noopener')
-      return (
-        <div key={`${r.type}:${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Row onClick={go} style={{ display: 'grid', gridTemplateColumns: '50px minmax(0, 1fr) auto', gap: 12, padding: '7px 10px', flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px' }}>
-            <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center', border: `1px solid ${TER}`, borderRadius: 5, padding: '2px 0', color: PRI }}>{releaseTag(r.format || '', r.title)}</span>
-            <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {r.post_id && <span title={`On the feed as ${pad(r.post_id)}`} style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
-                {r.title}
-              </span>
-              <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[r.artist, r.label].filter(Boolean).join(' · ')}</span>
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.5 }}>{r.year}<br />via {r.via}</span>
-          </Row>
-          <FavButton kind="record" favKey={key} name={r.title} postId={r.post_id} discogsId={r.type === 'release' ? r.id : null} size={15} offColor={TER} style={{ width: 22, justifyContent: 'center' }}
-            meta={{ title: r.title, artist: r.artist || '', label: r.label || '', year: r.year, cover: r.thumb || null, format: r.format || '', via: r.via }} />
-        </div>
-      )
-    })}
-  </>
-}
-
-const TABS = [['records', 'Records'], ['artists', 'Artists'], ['labels', 'Labels'], ['history', 'Digging history'], ['fresh', 'Fresh']]
-
-export function FavouritesDrawer({ tab: initial }) {
-  const { items, isLoading } = useFavourites()
-  const { data: browse } = useBrowse()
-  const [tab, setTab] = useState(initial || 'records')
-  const [filter, setFilter] = useState('')
-  if (!isLoggedIn()) return <SignedOut title="Favourites">Sign in to save (☆) records, artists and labels while you dig — a history of what you found, and their newest releases.</SignedOut>
-  if (isLoading) return <><DrawerHead title="Favourites" count="" /><Loading /></>
-
-  const kindOf = { records: 'record', artists: 'artist', labels: 'label' }
-  const count = k => items.filter(i => i.kind === k).length
-  const q = filter.trim().toLowerCase()
-  const match = i => !q || [i.name, i.meta?.title, i.meta?.artist, i.meta?.label].some(f => String(f || '').toLowerCase().includes(q))
-  const options = TABS.map(([k, l]) => [k, kindOf[k] ? `${l} ${count(kindOf[k])}` : l])
-  const list = kindOf[tab] ? items.filter(i => i.kind === kindOf[tab] && match(i)) : items.filter(match)
-
-  return <>
-    <DrawerHead title="Favourites" count={`${items.length} saved`} filter={tab === 'fresh' ? undefined : filter} setFilter={tab === 'fresh' ? undefined : setFilter}>
-      <CollectNav current="favourites" />
-      <Chips options={options} value={tab} onChange={setTab} />
-    </DrawerHead>
-    <DrawerBody>
-      {tab === 'fresh' ? <Fresh />
-        : tab === 'history' ? <History items={list} />
-        : list.length ? list.map(i => <FavRow key={i.id} item={i} browse={browse} />)
-        : <Empty>{q ? `Nothing matches “${filter}”.`
-          : tab === 'records' ? 'No records yet — hit ☆ on a card, or on any release in an artist’s or label’s discography.'
-          : `No ${tab} yet — open one from a card or the ${tab} drawer and hit ☆ next to its name.`}</Empty>}
     </DrawerBody>
   </>
 }

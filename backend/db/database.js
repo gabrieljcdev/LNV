@@ -245,26 +245,6 @@ const migrations = [
     crawled_at TEXT,
     PRIMARY KEY (kind, entity_id)
   )`,
-  // Favourites (2026-10-03): artists, labels and records a user saves while
-  // digging. `item_key` is the identity — an artist/label's lower-cased name
-  // (how the drawers group them), a record's 'post:<id>', 'release:<id>' or
-  // 'master:<id>'. created_at + source_post_id make it a digging history
-  // (what was saved, when, from which post). `meta` is a small JSON blob
-  // (cover, artist, year…) so the favourites list needs no extra lookups.
-  `CREATE TABLE IF NOT EXISTS favourites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    item_key TEXT NOT NULL,
-    name TEXT NOT NULL,
-    discogs_id INTEGER,
-    post_id INTEGER,
-    source_post_id INTEGER,
-    meta TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE (user_id, kind, item_key)
-  )`,
-  'CREATE INDEX IF NOT EXISTS idx_favourites_user ON favourites(user_id, kind)',
   // Shared feeds (2026-10-03): a feed of posts a few friends put together.
   // Joining is by the feed's share link (share_token); members add posts.
   `CREATE TABLE IF NOT EXISTS shared_feeds (

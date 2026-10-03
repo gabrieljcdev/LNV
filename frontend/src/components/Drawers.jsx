@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
-import { FavButton } from './Collect'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -318,8 +317,7 @@ function Discography({ kind, id, name, allPosts }) {
             : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || '')].filter(Boolean).join(' · ')
           const open = () => onSite ? jump(onSite.id) : window.open(`https://www.discogs.com/${r.type === 'master' ? 'master' : 'release'}/${r.id}`, '_blank', 'noopener')
           return (
-            <div key={`${r.type}:${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Row onClick={open} style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '7px 10px', flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px' }}>
+            <Row key={`${r.type}:${r.id}`} onClick={open} style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '7px 10px' }}>
               <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center', border: `1px solid ${TER}`, borderRadius: 5, padding: '2px 0', color: PRI }}>{releaseTag(r.format || mi?.format || '', r.title)}</span>
               <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -331,10 +329,6 @@ function Discography({ kind, id, name, allPosts }) {
               {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
               <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
             </Row>
-            <FavButton kind="record" favKey={onSite ? `post:${onSite.id}` : `${r.type === 'master' ? 'master' : 'release'}:${r.id}`} name={r.title}
-              postId={onSite?.id} discogsId={r.type === 'master' ? null : r.id} size={15} offColor={TER} style={{ width: 22, justifyContent: 'center' }}
-              meta={{ title: r.title, artist: r.artist || (kind === 'artist' ? name : ''), label: cleanLabelName(r.label || mi?.label || '') || (kind === 'label' ? name : ''), year: r.year || null, cover: r.thumb || null, format: r.format || mi?.format || '', via: name }} />
-            </div>
           )
         })}
     {pages.hasNextPage && (
@@ -360,8 +354,7 @@ export function ArtistsDrawer({ filter: initial }) {
     const ps = groups.get(selected) || []
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)}
-        action={<FavButton kind="artist" name={selected} discogsId={discogsIdOf('artist', selected, ps)} sourcePostId={ps[0]?.id} meta={{ cover: ps[0]?.cover || null }} size={24} offColor={SEC} style={{ alignSelf: 'center' }} />} />
+      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -405,8 +398,7 @@ export function LabelsDrawer({ filter: initial }) {
   if (selected) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)}
-        action={<FavButton kind="label" name={selected} discogsId={discogsIdOf('label', selected, ps)} sourcePostId={ps[ps.length - 1]?.id} meta={{ cover: ps[0]?.cover || null }} size={24} offColor={SEC} style={{ alignSelf: 'center' }} />} />
+      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />
@@ -574,5 +566,5 @@ export function AboutDrawer() {
   </>
 }
 
-// Shared with the favourites and feeds drawers (FavouritesDrawer.jsx).
+// Shared with the walls and playlists drawers (CollectionDrawers.jsx).
 export { Chips, SectionHead, Row, Cover, Empty, Loading, ExtLink }

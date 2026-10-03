@@ -5,7 +5,7 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
-import { personalFeedPostIds, sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
+import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
 
 const router = express.Router();
@@ -142,13 +142,8 @@ router.get('/', (req, res, next) => {
       const posts = slice.map((id, k) => { const p = getFullPost(id); return p && { ...p, feedNumber: from + k + 1 }; }).filter(Boolean);
       return res.json({ posts, page: 1, limit: lim, hasMore: from + lim < all.length, cursor: from + lim });
     }
-    if (req.query.feed === 'mine' || req.query.shared) {
+    if (req.query.shared) {
       if (!req.user) return res.status(401).json({ error: 'Sign in to see that feed.' });
-      if (req.query.feed === 'mine') {
-        postIds = personalFeedPostIds(req.user.id, { before, limit: lim });
-        const posts = postIds.map(id => getFullPost(id)).filter(Boolean);
-        return res.json({ posts, page: 1, limit: lim, hasMore: postIds.length === lim, cursor: postIds.at(-1) ?? null });
-      }
       const feedId = Number(req.query.shared);
       if (!memberRole(feedId, req.user.id)) return res.status(404).json({ error: 'Feed not found.' });
       // Numbered and paged in the order posts were added (cursor = item id).
@@ -344,8 +339,6 @@ router.delete('/:id', requireAuth, (req, res, next) => {
       for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights', 'shared_feed_items']) {
         db.prepare(`DELETE FROM ${table} WHERE post_id = ?`).run(id);
       }
-      // A record favourited straight off this post goes with it.
-      db.prepare(`DELETE FROM favourites WHERE kind = 'record' AND item_key = ?`).run(`post:${id}`);
       db.prepare('DELETE FROM posts WHERE id = ?').run(id);
     })();
     logEvent('warn', 'post', `Deleted post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });

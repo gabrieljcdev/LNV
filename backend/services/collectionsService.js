@@ -1,38 +1,9 @@
 import crypto from 'crypto';
 import db from '../db/database.js';
 
-// Favourites and shared feeds (2026-10-03) — the queries the posts route
-// needs for the personal and shared feeds, kept beside the routes that own
-// those tables (routes/favourites.js, routes/feeds.js).
-
-export const FAV_KINDS = new Set(['artist', 'label', 'record']);
-
-// An artist's or label's identity is its name, lower-cased and trimmed —
-// the same grouping the drawers use, so a favourite matches every post
-// that carries the name whether or not it's linked to Discogs.
-export const nameKey = name => String(name || '').trim().toLowerCase();
-
-// Posts by the artists and labels this user favourites, plus records they
-// favourited straight off a card. Newest first, paged by cursor like the
-// main feed (`before` = the last post id already shown).
-export function personalFeedPostIds(userId, { before = null, limit = 20 } = {}) {
-  return db.prepare(`
-    SELECT p.id FROM posts p
-    WHERE p.is_spotlight = 0
-      AND (? IS NULL OR p.id < ?)
-      AND (
-        EXISTS (SELECT 1 FROM post_artists a JOIN favourites f
-                  ON f.user_id = ? AND f.kind = 'artist' AND f.item_key = LOWER(TRIM(a.artist_name))
-                WHERE a.post_id = p.id)
-        OR EXISTS (SELECT 1 FROM post_labels l JOIN favourites f
-                  ON f.user_id = ? AND f.kind = 'label' AND f.item_key = LOWER(TRIM(l.label_name))
-                WHERE l.post_id = p.id)
-        OR EXISTS (SELECT 1 FROM favourites f
-                WHERE f.user_id = ? AND f.kind = 'record' AND f.post_id = p.id)
-      )
-    ORDER BY p.id DESC LIMIT ?
-  `).all(before, before, userId, userId, userId, limit).map(r => r.id);
-}
+// Walls, my feed, playlists and shared feeds (2026-10-03) — the queries the posts route
+// needs for those feeds, kept beside the routes that own
+// those tables (routes/walls.js, routes/playlists.js, routes/feeds.js).
 
 export function memberRole(feedId, userId) {
   if (!userId) return null;

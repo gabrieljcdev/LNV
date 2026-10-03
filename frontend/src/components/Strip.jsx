@@ -284,12 +284,12 @@ export default function Strip({ activeView }) {
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
         {/* Favourites (2026-10-03) — your hearted records, artists and labels,
-            your feed and shared feeds (FavouritesDrawer.jsx). Signed in only;
+            walls (CollectionDrawers.jsx). Signed in only;
             a round button like ▶ for the same height reason as admin below. */}
         {user && (() => {
-          const active = d3Content === 'favourites' || d3Content === 'walls' || d3Content === 'playlists';
+          const active = d3Content === 'walls' || d3Content === 'playlists';
           return (
-            <button onClick={() => (active ? closeD3() : openD3('favourites'))} title="Favourites, walls and playlists" aria-label="Favourites"
+            <button onClick={() => (active ? closeD3() : openD3('playlists'))} title="Playlists and walls" aria-label="Playlists and walls"
               style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}

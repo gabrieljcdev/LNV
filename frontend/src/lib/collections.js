@@ -1,14 +1,13 @@
-// Favourites, walls, following and playlists (2026-10-03) — the client side
-// of backend/routes/favourites.js, walls.js and playlists.js. Cached lists
-// (['favourites'], ['playlists'], ['playlists','hearted'], ['following'])
-// feed every star, heart and menu, so they stay in step everywhere.
+// Walls, following and playlists (2026-10-03) — the client side of
+// backend/routes/walls.js and playlists.js. Cached lists (['playlists'],
+// ['playlists','hearted'], ['following']) feed every heart and menu, so
+// they stay in step everywhere.
 //
 // The model: a main feed; everyone's wall (the posts they made, public);
 // following other users to keep their walls a click away; playlists of
 // tracks — shareable read-only by link, editable by friends you invite, and
 // viewable as a feed of the posts their tracks come from. ♡ on a track puts
-// it in your "Hearted tracks" playlist; ☆ saves a record, artist or label to
-// your favourites (the digging history).
+// it in your "Hearted tracks" playlist.
 
 import { useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,49 +21,6 @@ async function call(method, path, body) {
   if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; throw e }
   return data
 }
-
-// ── keys ──────────────────────────────────────────────────────────────────────
-// Must match the backend's: artists and labels by lower-cased name (how the
-// drawers group them), records as post:<id> / release:<id> / master:<id>.
-export const nameKey = name => String(name || '').trim().toLowerCase()
-export const favKey = (kind, keyOrName) => kind === 'record' ? keyOrName : nameKey(keyOrName)
-
-// ── favourites (☆) ────────────────────────────────────────────────────────────
-export function useFavourites() {
-  const signedIn = isLoggedIn()
-  const q = useQuery({
-    queryKey: ['favourites'],
-    queryFn: () => call('GET', '/favourites').then(d => d.items),
-    enabled: signedIn,
-    staleTime: 60_000,
-  })
-  const items = signedIn ? (q.data || []) : []
-  const index = new Set(items.map(i => `${i.kind}|${i.key}`))
-  return { items, isLoading: signedIn && q.isLoading, has: (kind, key) => index.has(`${kind}|${favKey(kind, key)}`) }
-}
-
-// Save / unsave, updating every star at once.
-export function useToggleFavourite() {
-  const qc = useQueryClient()
-  return async function toggle(fav, on) {
-    const key = favKey(fav.kind, fav.key ?? fav.name)
-    const prev = qc.getQueryData(['favourites']) || []
-    qc.setQueryData(['favourites'], on
-      ? [{ ...fav, key, meta: fav.meta || {}, created_at: new Date().toISOString().slice(0, 19).replace('T', ' ') }, ...prev.filter(i => !(i.kind === fav.kind && i.key === key))]
-      : prev.filter(i => !(i.kind === fav.kind && i.key === key)))
-    try {
-      if (on) await call('POST', '/favourites', { ...fav, key })
-      else await call('DELETE', '/favourites', { kind: fav.kind, key, name: fav.name })
-    } catch (err) {
-      qc.setQueryData(['favourites'], prev)
-      window.alert(`Couldn't save that: ${err.message}`)
-    } finally {
-      qc.invalidateQueries({ queryKey: ['favourites'] })
-    }
-  }
-}
-
-export const favouritesApi = { fresh: () => call('GET', '/favourites/fresh') }
 
 // ── which feed is showing ─────────────────────────────────────────────────────
 // { type: 'home' } — "my feed": your posts + the people you follow; the

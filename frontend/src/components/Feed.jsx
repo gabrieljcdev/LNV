@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { PostFavButton, FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag } from './Collect'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -904,7 +904,6 @@ function PostCard({ post, cardBg, d, onEdit }) {
       <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: d.metarowSize, color: textTer, padding: 0, fontFamily: d.bodyFf, flexShrink: 0 }}>
         <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
       </button>
-      <PostFavButton post={post} artist={artist} label={label} size={d.metarowSize + 2} offColor={textTer} />
       <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <FollowedTag post={post} />
       <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
@@ -1267,7 +1266,6 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
             <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
           </span>
         )}
-        <PostFavButton post={post} artist={artist} label={post.channel} size={13} offColor="var(--lv-ter)" />
         <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={13} offColor="var(--lv-ter)" />
         <AddToPlaylistButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
@@ -1463,7 +1461,6 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
         <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
-        <PostFavButton post={post} artist={artist} label={label} size={d.metarowSize + 2} offColor="var(--lv-ter)" />
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
         <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
@@ -2576,8 +2573,8 @@ export default function Feed() {
   // fetches the next FEED_PAGE (see the IntersectionObserver below). The
   // latest feed pages by cursor (`before` = last post id) so new posts
   // can't shift the pages; search pages by number (ranked results).
-  // Which feed (2026-10-03): the main one, yours (built from your
-  // favourites) or a shared one — FeedSwitcher / lib/collections. A search
+  // Which feed (2026-10-03): my feed (you + who you follow), the main one, a
+  // wall, or a playlist as a feed — FeedSwitcher / lib/collections. A search
   // always searches the main feed.
   const feedMode = useFeedMode()
   const feedSel = search || feedMode.type === 'main' ? null

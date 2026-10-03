@@ -4,7 +4,7 @@ import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
 import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, DrawerHead, DrawerBody } from './Drawers';
 import { AdminDrawer } from './AdminDrawer';
-import { FavouritesDrawer, WallsDrawer, PlaylistsDrawer } from './FavouritesDrawer';
+import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -18,8 +18,7 @@ const COMPONENTS = {
   // Admin accounts only (the strip's admin button); every call it makes is
   // checked server-side too.
   admin:   (props) => <AdminDrawer {...props} />,
-  // Favourites, walls and playlists (2026-10-03): the strip's ♥.
-  favourites: (props) => <FavouritesDrawer {...props} />,
+  // Walls and playlists (2026-10-03): the strip's ♥.
   walls:   (props) => <WallsDrawer {...props} />,
   playlists: (props) => <PlaylistsDrawer {...props} />,
   logs:    (props) => <><DrawerHead title="Activity" count="" /><DrawerBody><Logs {...props} /></DrawerBody></>,

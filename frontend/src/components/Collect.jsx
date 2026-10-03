@@ -3,12 +3,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
-  useFavourites, useToggleFavourite, useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
+  useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi,
 } from '../lib/collections'
 
-// Small UI pieces for favourites, walls and playlists (2026-10-03):
-// ☆ save a record / artist / label · ♡ heart a track (→ Hearted tracks) ·
+// Small UI pieces for walls and playlists (2026-10-03):
+// ♡ heart a track (→ Hearted tracks) ·
 // "+ list" add tracks to a playlist · names that open walls · follow ·
 // "main #N" · the feed switcher.
 
@@ -44,36 +44,6 @@ function MenuItem({ onClick, children, checked, muted }) {
       {checked !== undefined && <span aria-hidden="true" style={{ width: 14, color: 'var(--theme-accent)', fontWeight: 700 }}>{checked ? '✓' : ''}</span>}
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{children}</span>
     </button>
-  )
-}
-
-// ☆ / ★ — saves a record, artist or label to your favourites (the digging
-// history). `favKey` is the record key (post:/release:/master:); artists and
-// labels go by `name`.
-export function FavButton({ kind, favKey, name, discogsId, postId, sourcePostId, meta, size = 14, offColor = 'inherit', style }) {
-  const { has } = useFavourites()
-  const toggle = useToggleFavourite()
-  const on = has(kind, favKey ?? name)
-  function click(e) {
-    e.stopPropagation()
-    if (!isLoggedIn()) return askToSignIn('save favourites')
-    toggle({ kind, key: favKey ?? name, name, discogs_id: discogsId || null, post_id: postId || null, source_post_id: sourcePostId || null, meta }, !on)
-  }
-  return (
-    <button onClick={click} aria-pressed={on} title={on ? 'In your favourites — click to remove' : `Save this ${kind} to your favourites`}
-      aria-label={on ? `Remove ${name} from favourites` : `Save ${name} to favourites`}
-      style={{ ...plain, display: 'inline-flex', alignItems: 'center', flexShrink: 0, ...style, color: on ? 'var(--theme-accent)' : offColor }}>
-      <span aria-hidden="true" style={{ fontSize: size, lineHeight: 1 }}>{on ? '★' : '☆'}</span>
-    </button>
-  )
-}
-
-// A card's ☆: saves the post as a record.
-export function PostFavButton({ post, artist, label, style, size, offColor }) {
-  return (
-    <FavButton kind="record" favKey={`post:${post.id}`} name={post.title || artist || `Post ${post.id}`} postId={post.id} sourcePostId={post.id}
-      discogsId={post.discogs_id || null} size={size} style={style} offColor={offColor}
-      meta={{ title: post.title, artist: artist || '', label: label || '', year: post.year || null, cover: post.thumb_image || post.cover_image || null }} />
   )
 }
 
@@ -247,7 +217,6 @@ export function FeedSwitcher() {
             <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('playlists') }}>playlists…</MenuItem>
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('walls') }}>walls & following…</MenuItem>
-            <MenuItem muted onClick={() => { setOpen(false); openD3?.('favourites') }}>favourites…</MenuItem>
           </>}
         </div>
       )}
