@@ -6,7 +6,7 @@ import {
   hashPassword, checkPassword, createSession, endSession, endAllSessions, publicUser,
   createVerifyToken, consumeVerifyToken, sendVerifyEmail, mailConfigured, frontendUrl,
   createResetToken, consumeResetToken, resetTokenState, sendResetEmail, isReservedUsername,
-  USERNAME_RE, EMAIL_RE, PASSWORD_MIN,
+  USERNAME_RE, EMAIL_RE, PASSWORD_MIN, befriend,
 } from '../services/authService.js';
 import { logEvent } from '../services/logService.js';
 
@@ -35,6 +35,7 @@ router.post('/register', strict, async (req, res, next) => {
 
     const id = db.prepare('INSERT INTO users (username, display_name, email, password_hash) VALUES (?, ?, ?, ?)')
       .run(username, username, email, hashPassword(password)).lastInsertRowid;
+    befriend(id);
     logEvent('info', 'auth', `Account created: ${username}`, { req, user: { id, username }, detail: { email } });
     const link = createVerifyToken(id);
     await sendVerifyEmail({ username, email }, link);

@@ -47,6 +47,22 @@ for (const sql of [
 // The existing admin account keeps admin under the new rule.
 try { db.prepare("UPDATE users SET is_admin = 1 WHERE username = 'lnv_admin' AND is_admin = 0").run(); } catch { /* ignore */ }
 
+// First friend (2026-10-04): like Tom on MySpace, every account starts out
+// following the site's first admin, so no one's feed starts empty. It's an
+// ordinary follow: unfollowing sticks. `befriended_at` marks accounts that
+// already got theirs, so existing accounts are caught up once, never again.
+try { db.exec('ALTER TABLE users ADD COLUMN befriended_at TEXT'); } catch { /* already applied */ }
+export function firstFriend() {
+  return db.prepare('SELECT id, username FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1').get() || null;
+}
+export function befriend(userId) {
+  const friend = firstFriend();
+  if (!friend) return; // no admin yet: caught up once there is one
+  if (friend.id !== userId) db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(userId, friend.id);
+  db.prepare("UPDATE users SET befriended_at = datetime('now') WHERE id = ?").run(userId);
+}
+try { for (const { id } of db.prepare('SELECT id FROM users WHERE befriended_at IS NULL').all()) befriend(id); } catch { /* ignore */ }
+
 const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
 const newToken = () => crypto.randomBytes(32).toString('base64url');
 const isoIn = ms => new Date(Date.now() + ms).toISOString();

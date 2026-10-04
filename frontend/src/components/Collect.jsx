@@ -144,7 +144,7 @@ export function MainNumber({ post, style }) {
   if (post.feedNumber == null) return null
   return (
     <button onClick={e => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('lnv:jump-main', { detail: post.id })) }}
-      title={`Post #${post.id} on the main feed — go there`}
+      title={`Post #${post.id} in everything — go there`}
       style={{ ...plain, color: 'inherit', whiteSpace: 'nowrap', ...style }}>main #{String(post.id).padStart(2, '0')}</button>
   )
 }
@@ -201,8 +201,7 @@ export function FeedSwitcher() {
       </button>
       {open && (
         <div role="menu" style={{ ...MENU, top: 'calc(100% + 8px)', right: 0, maxHeight: '70vh', overflowY: 'auto' }}>
-          {signedIn && <MenuItem checked={isOn({ type: 'home' })} onClick={() => pick({ type: 'home' })}>my feed <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· you + who you follow</span></MenuItem>}
-          <MenuItem checked={isOn({ type: 'main' })} onClick={() => pick({ type: 'main' })}>main feed <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· everyone</span></MenuItem>
+          <MenuItem checked={isOn({ type: 'home' })} onClick={() => pick({ type: 'home' })}>{signedIn ? 'my feed' : 'front page'} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {signedIn ? 'you + who you follow' : 'start here'}</span></MenuItem>
           {signedIn ? <MenuItem checked={isOn({ type: 'wall', username: me })} onClick={() => pick({ type: 'wall', username: me })}>my wall <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· your posts</span></MenuItem>
             : <MenuItem muted onClick={() => askToSignIn('get your own wall')}>my wall — sign in</MenuItem>}
           {otherWall && <MenuItem checked onClick={() => setOpen(false)}>{feedModeLabel(mode)}</MenuItem>}
@@ -218,6 +217,10 @@ export function FeedSwitcher() {
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('playlists') }}>playlists…</MenuItem>
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('walls') }}>walls & following…</MenuItem>
           </>}
+          {/* Everything, every post, unfiltered (2026-10-04): kept for the
+              hardcore, but deliberately quiet — feeds are you + who you follow. */}
+          <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
+          <MenuItem muted checked={isOn({ type: 'main' })} onClick={() => pick({ type: 'main' })}>everything <span style={{ fontFamily: MONO, fontSize: 10.5 }}>· every post, unfiltered</span></MenuItem>
         </div>
       )}
     </div>

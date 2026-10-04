@@ -11,7 +11,7 @@ const BASE = import.meta.env.VITE_API_URL;
 // they browse the auto-collected artists/genres/labels data. Tabs without
 // it swap the feed-zone content itself (Layout's `view` state).
 const TABS = [
-  { id: 'feed',        label: 'main feed' },
+  { id: 'feed',        label: 'home' },
   null,
   { id: 'artists',     label: 'artists',   panel: true },
   { id: 'genres',      label: 'genres',    panel: true },

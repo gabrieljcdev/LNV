@@ -5,6 +5,7 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
 
@@ -115,10 +116,16 @@ router.get('/', (req, res, next) => {
       const posts = rows.map(r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; }).filter(Boolean);
       return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
     }
-    // Your feed (2026-10-03): your posts + the people you follow. Signed in
-    // only. Followed posts carry `followedFrom` (whose wall they're from).
+    // Your feed (2026-10-03): your posts + the people you follow. Followed
+    // posts carry `followedFrom` (whose wall they're from). Signed out, the
+    // home view is the first friend's wall — the front page (2026-10-04).
     if (req.query.feed === 'home') {
-      if (!req.user) return res.status(401).json({ error: 'Sign in to see your feed.' });
+      if (!req.user) {
+        const friend = firstFriend();
+        const rows = friend ? wallPage(friend.id, { before, limit: lim }) : [];
+        const posts = rows.map(r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; }).filter(Boolean);
+        return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+      }
       const rows = homePage(req.user.id, { before, limit: lim });
       const names = new Map();
       const nameOf = id => { if (!names.has(id)) names.set(id, db.prepare('SELECT username FROM users WHERE id = ?').get(id)?.username || null); return names.get(id); };

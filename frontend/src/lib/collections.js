@@ -23,22 +23,25 @@ async function call(method, path, body) {
 }
 
 // ── which feed is showing ─────────────────────────────────────────────────────
-// { type: 'home' } — "my feed": your posts + the people you follow; the
-// home view once signed in (the main feed is the home view for visitors) |
-// { type: 'main' } | { type: 'wall', username } |
+// { type: 'home' } — the home view: signed in, "my feed" (your posts + the
+// people you follow); signed out, the front page (the first friend's wall —
+// see firstFriend in the backend) |
+// { type: 'main' } — everything, every post; a quiet option for the
+// hardcore (2026-10-04) | { type: 'wall', username } |
 // { type: 'playlist', id?, token?, name } — a playlist viewed as a feed, by
 // id (yours / invited) or by its share link's token (anyone).
 // Kept in localStorage so the site reopens on the feed you left it on;
 // signing in or out starts again from the home view (lib/auth).
 const MODE_KEY = 'lnv_feed_mode'
 const MAIN = { type: 'main' }
-export const homeMode = () => (isLoggedIn() ? { type: 'home' } : MAIN)
+const HOME = { type: 'home' }
+export const homeMode = () => HOME
 let mode = (() => {
   try {
     const m = JSON.parse(localStorage.getItem(MODE_KEY) || 'null')
     if (!m) return homeMode()
     if (m.type === 'main') return MAIN
-    if (m.type === 'home' && isLoggedIn()) return m
+    if (m.type === 'home') return HOME
     if (m.type === 'wall' && m.username) return m
     if (m.type === 'playlist' && (m.token || (m.id && isLoggedIn()))) return m
     return homeMode()
@@ -60,8 +63,8 @@ export function useFeedMode() {
 export function feedModeLabel(m) {
   if (m.type === 'wall') return m.username === getUser() ? 'my wall' : `${m.username}’s wall`
   if (m.type === 'playlist') return `▶ ${m.name || 'playlist'}`
-  if (m.type === 'home') return 'my feed'
-  return 'main feed'
+  if (m.type === 'home') return isLoggedIn() ? 'my feed' : 'front page'
+  return 'everything'
 }
 export const openWall = username => setFeedMode({ type: 'wall', username })
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })

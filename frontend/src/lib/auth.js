@@ -60,7 +60,7 @@ export async function signIn(login, password) {
 export async function logout() {
   try { await call('logout') } catch { /* already gone */ }
   write(null)
-  try { localStorage.removeItem('lnv_feed_mode') } catch { /* ignore */ } // back to the main feed
+  try { localStorage.removeItem('lnv_feed_mode') } catch { /* ignore */ } // back to the front page
 }
 
 // Check the stored session is still good (expired / signed out elsewhere);

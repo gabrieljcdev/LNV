@@ -86,7 +86,7 @@ export function WallsDrawer() {
           <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{wall ? `${plural(wall.post_count, 'post')} · ${plural(wall.follower_count, 'follower')}` : ''}</span>
         </div>
         <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, margin: '2px 0 10px', lineHeight: 1.45 }}>
-          Everything you post, numbered from 1 — anyone can read it. To post, hit + and paste a link; it goes on your wall and the main feed.
+          Everything you post, numbered from 1 — anyone can read it. To post, hit + and paste a link; it goes on your wall, and into the feeds of everyone who follows you.
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <button onClick={() => { openWall(me); closeD3?.() }} style={showing ? pillOn : pill}>{showing ? 'showing' : 'open'}</button>

@@ -6,7 +6,7 @@ import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, setFeedMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
+import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag } from './Collect'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -2614,7 +2614,7 @@ export default function Feed() {
   // "loading the next page".
   const searching = isFetching && !isFetchingNextPage
   const feedGone = !!raw?.pages?.[0]?.gone
-  useEffect(() => { if (feedGone) setFeedMode({ type: 'main' }) }, [feedGone])
+  useEffect(() => { if (feedGone) setFeedMode(homeMode()) }, [feedGone])
 
   // Links (2026-10-03): ?wall=<username> opens a wall (public);
   // ?playlist=<token> opens a shared playlist, read-only, in the playlists
@@ -2937,8 +2937,8 @@ export default function Feed() {
           // viewport, so flex:1 squeezed this to ~40px just off-screen.
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: `0 0 ${DESIGN_BASE.cardW}px`, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
             {search ? `No results for "${search}"`
-              : feedSel?.[0] === 'home' ? (isFetching ? 'Loading your feed…' : 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them — the main feed is in the switcher, top right.')
-              : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and on the main feed).' : `Nothing on ${feedMode.username}’s wall yet.`)
+              : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : isLoggedIn() ? 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.' : 'Nothing on the front page yet.')
+              : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing on ${feedMode.username}’s wall yet.`)
               : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
               : 'No posts yet — share the first record.'}
           </div>
