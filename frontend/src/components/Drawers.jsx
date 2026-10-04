@@ -556,6 +556,16 @@ export function AboutDrawer() {
         <li>The search finds artists, labels, genres, tracks and catalogue numbers.</li>
         <li>Click a cover to play it, or a track to play that one. ▶ on the strip plays something at random.</li>
       </ul>
+      {/* 2026-10-04: the players are the platforms' own, ads included — so
+          point people at the ways to hear them without. No ad-blocker
+          suggestions: the YouTube embed terms forbid encouraging that. */}
+      <h3 style={h3}>Listening without interruptions</h3>
+      <p style={p}>The players here are each platform’s own, so their ads come with them. A few ways to keep the music going:</p>
+      <ul style={{ margin: '0 0 8px', paddingLeft: 18, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.7, maxWidth: '46ch' }}>
+        <li><b style={{ color: PRI }}>Sign in to your platforms</b> in this browser — YouTube, SoundCloud, Mixcloud, Spotify. Your own account and settings follow you into the players here.</li>
+        <li><b style={{ color: PRI }}>YouTube Premium</b> removes YouTube’s ads in these players too, as long as you’re signed in to YouTube.</li>
+        <li><b style={{ color: PRI }}>Bandcamp has no ads</b> — and buying there pays artists directly. Look for the BUY ↗ link on a card.</li>
+      </ul>
       <h3 style={h3}>Posting</h3>
       <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Add a post title and a few lines on why it matters.</p>
       <h3 style={h3}>Contact</h3>
