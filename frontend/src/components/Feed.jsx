@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor, RepostButton } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -927,6 +927,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
         <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
       </button>
       <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
+      <RepostButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <FollowedTag post={post} />
       <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
       <AlsoPosted post={post} style={{ fontSize: d.handleSize, color: textPri, fontFamily: d.bodyFf }} />
@@ -1291,6 +1292,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         )}
         <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={13} offColor="var(--lv-ter)" />
         <AddToPlaylistButton post={post} style={{ color: 'var(--lv-ter)' }} />
+        <RepostButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
         </button>
@@ -1486,6 +1488,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <RepostButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
         <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
         <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
@@ -2866,6 +2869,7 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
           </button>
           {live || !tracks.length ? <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={16} offColor="var(--theme-text-ter)" /> : null}
           <AddToPlaylistButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
+          <RepostButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
           {canModify && (
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 14, fontFamily: P_MONO, fontSize: 11 }}>
               <button onClick={() => onEdit?.(post)} style={pPlain}>edit</button>

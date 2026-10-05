@@ -121,11 +121,53 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
 
 // On "my feed", a post from someone you follow: a small "following" tag
 // beside their name, so it's told apart from your own.
+// On a wall or in my feed, a post that's there because someone reposted it
+// says so instead (2026-10-05): "↻ dan" — dan opens their wall; the card's
+// own name is still who posted it, so you meet them through dan.
 export function FollowedTag({ post, style }) {
+  if (post.viaRepost) return (
+    <span title={`Reposted by ${post.viaRepost}`}
+      style={{ flexShrink: 0, display: 'inline-flex', gap: 4, alignItems: 'baseline', fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.06em', color: '#fff', background: 'var(--theme-accent)', borderRadius: 99, padding: '2px 8px', whiteSpace: 'nowrap', alignSelf: 'center', ...style }}>
+      ↻ <WallLink name={post.viaRepost} style={{ color: '#fff' }} />
+    </span>
+  )
   if (!post.followedFrom) return null
   return (
     <span title={`From ${post.followedFrom}, who you follow`}
       style={{ flexShrink: 0, fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#fff', background: 'var(--theme-accent)', borderRadius: 99, padding: '2px 7px', whiteSpace: 'nowrap', alignSelf: 'center', ...style }}>following</span>
+  )
+}
+
+// ↻ repost (2026-10-05): share someone else's post — onto your wall and
+// into your followers' feeds, with "↻ you" on the card. Tap again to undo.
+// Not on your own posts, nor ones you posted too (they're on your wall).
+export function RepostButton({ post, style }) {
+  const qc = useQueryClient()
+  const me = getUser()
+  const [mine, setMine] = useState(null) // local answer until the feed refreshes
+  const [busy, setBusy] = useState(false)
+  const reposters = post.repostedBy || []
+  if (post.user?.username === me || (post.alsoPostedBy || []).includes(me)) return null
+  const on = mine ?? reposters.includes(me)
+  const count = reposters.length + (mine === true && !reposters.includes(me) ? 1 : 0) - (mine === false && reposters.includes(me) ? 1 : 0)
+  async function click(e) {
+    e.stopPropagation()
+    if (!isLoggedIn()) return askToSignIn('repost this')
+    setBusy(true)
+    try {
+      await (on ? joinApi.unrepost(post.id) : joinApi.repost(post.id))
+      setMine(!on)
+      qc.invalidateQueries({ queryKey: ['posts'] })
+      qc.invalidateQueries({ queryKey: ['wall'] })
+    } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  return (
+    <button onClick={click} disabled={busy} aria-pressed={on}
+      title={on ? 'You reposted this — tap to undo' : 'Repost — share it with the people who follow you'}
+      style={{ ...plain, whiteSpace: 'nowrap', opacity: busy ? 0.5 : 1, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
+      ↻ {on ? 'reposted' : 'repost'}{count > 0 ? ` · ${count}` : ''}
+    </button>
   )
 }
 

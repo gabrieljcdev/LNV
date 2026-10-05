@@ -340,6 +340,10 @@ const migrations = [
     PRIMARY KEY (post_id, user_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_post_joins_user ON post_joins(user_id)',
+  // Reposts (2026-10-05): a join is either "also posted" (you have the
+  // record too) or a repost (you're sharing someone's post — the card says
+  // "↻ you" in your followers' feeds). Same wall / feed entries either way.
+  "ALTER TABLE post_joins ADD COLUMN kind TEXT NOT NULL DEFAULT 'also'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

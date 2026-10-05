@@ -72,6 +72,9 @@ export const openWall = username => setFeedMode({ type: 'wall', username })
 export const joinApi = {
   join: postId => call('POST', `/posts/${postId}/join`),
   leave: postId => call('DELETE', `/posts/${postId}/join`),
+  // Reposts (2026-10-05): share someone's post onto your wall, or undo it.
+  repost: postId => call('POST', `/posts/${postId}/repost`),
+  unrepost: postId => call('DELETE', `/posts/${postId}/repost`),
 }
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })
 

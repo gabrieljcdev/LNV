@@ -53,19 +53,20 @@ export const userByName = name => db.prepare('SELECT id, username FROM users WHE
 // than once in a feed shows once, at its first entry (your own first).
 // Paged by cursor "<at>|<post id>" (where the next page starts); each row
 // carries its number in that feed (1 = the oldest) and whose entry it is.
+// `kind`: 'post' (made it), 'also' (posted it too) or 'repost'.
 const ENTRIES = `
-  SELECT wall_user_id AS owner, id AS post_id, created_at AS at FROM posts WHERE is_spotlight = 0
+  SELECT wall_user_id AS owner, id AS post_id, created_at AS at, 'post' AS kind FROM posts WHERE is_spotlight = 0
   UNION ALL
-  SELECT j.user_id, j.post_id, j.created_at FROM post_joins j JOIN posts p ON p.id = j.post_id AND p.is_spotlight = 0`;
+  SELECT j.user_id, j.post_id, j.created_at, j.kind FROM post_joins j JOIN posts p ON p.id = j.post_id AND p.is_spotlight = 0`;
 function entryPage(ownerFilter, params, { before = null, limit = 20 } = {}) {
   const [bAt, bId] = before ? String(before).split('|') : [null, null];
   const rows = db.prepare(`
     WITH e AS (${ENTRIES}),
-    seen AS (SELECT owner, post_id, at,
+    seen AS (SELECT owner, post_id, at, kind,
         ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY owner = @me DESC, at, owner) AS rn
       FROM e WHERE ${ownerFilter}),
-    feed AS (SELECT owner, post_id, at, ROW_NUMBER() OVER (ORDER BY at, post_id) AS num FROM seen WHERE rn = 1)
-    SELECT post_id AS id, owner AS wall_user_id, at, num FROM feed
+    feed AS (SELECT owner, post_id, at, kind, ROW_NUMBER() OVER (ORDER BY at, post_id) AS num FROM seen WHERE rn = 1)
+    SELECT post_id AS id, owner AS wall_user_id, at, kind, num FROM feed
     WHERE @bAt IS NULL OR at < @bAt OR (at = @bAt AND post_id < @bId)
     ORDER BY at DESC, post_id DESC LIMIT @limit
   `).all({ me: null, ...params, bAt: bAt || null, bId: Number(bId) || 0, limit });
