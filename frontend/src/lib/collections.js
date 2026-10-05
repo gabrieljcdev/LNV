@@ -94,9 +94,20 @@ export function useProfile(username) {
     staleTime: 60_000,
   })
 }
+// Favourites (2026-10-06): ♥ by an artist's, label's or channel's name —
+// three lists (artist / label / channel), on your profile. Signed in only.
+export function useFavourites() {
+  const signedIn = isLoggedIn()
+  const q = useQuery({ queryKey: ['favourites'], queryFn: () => call('GET', '/walls/me/favourites'), enabled: signedIn, staleTime: 60_000 })
+  const lists = (signedIn && q.data) || { artist: [], label: [], channel: [] }
+  const has = (kind, name) => (lists[kind] || []).some(n => n.toLowerCase() === String(name || '').toLowerCase())
+  return { lists, has }
+}
+export const favouritesApi = {
+  set: (kind, name, on) => call('PUT', '/walls/me/favourites', { kind, name, on }),
+}
 export const profileApi = {
   bio: bio => call('PATCH', '/walls/me/profile', { bio }),
-  pins: labels => call('PUT', '/walls/me/pins', { labels }),
   showPlaylist: (id, shown) => call('PUT', `/walls/me/playlists/${id}`, { shown }),
 }
 

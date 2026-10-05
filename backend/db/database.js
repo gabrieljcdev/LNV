@@ -349,6 +349,20 @@ const migrations = [
     PRIMARY KEY (user_id, label_name)
   )`,
   'ALTER TABLE playlists ADD COLUMN on_profile INTEGER NOT NULL DEFAULT 0',
+  // Favourites (2026-10-06): ♥ by an artist's, label's or channel's name —
+  // three lists, shown on your profile. `name_key` (lower-cased) is the
+  // identity, as the drawers group names. Pinned labels became favourites.
+  // (`favourite_names`: an older, dropped `favourites` table may still exist.)
+  `CREATE TABLE IF NOT EXISTS favourite_names (
+    user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, kind, name_key)
+  )`,
+  "INSERT OR IGNORE INTO favourite_names (user_id, kind, name, name_key) SELECT user_id, 'label', label_name, lower(trim(label_name)) FROM profile_pins",
+  'DELETE FROM profile_pins',
   // Reposts (2026-10-05): a join is either "also posted" (you have the
   // record too) or a repost (you're sharing someone's post — the card says
   // "↻ you" in your followers' feeds). Same wall / feed entries either way.

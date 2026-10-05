@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -2057,6 +2057,8 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         style={{ flexShrink: 0, marginTop: T.artistMt, fontSize: T.artistSize, fontWeight: T.artistWeight, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, color: textPri, fontFamily: T.artistFf, cursor: browsable ? 'pointer' : 'default', wordBreak: 'break-word' }}
       >
         {name}<sup style={{ fontFamily: T.monoFf, fontSize: T.metalineSize, fontWeight: 400, letterSpacing: `${T.metalineLs}em`, marginLeft: 6, verticalAlign: 'super', color: textSec }}>[{count}]</sup>
+        {/* ♥ to favourite (2026-10-06) */}
+        {!subject.isPlaceholder && <FavHeart kind={type} name={name} size={Math.round(T.artistSize * 0.6)} style={{ marginLeft: 10, color: textSec, verticalAlign: 'middle' }} />}
       </div>
       <div style={{ flexShrink: 0, marginTop: T.metalineMt, fontFamily: T.monoFf, fontSize: T.metalineSize, lineHeight: T.metalineLh, letterSpacing: `${T.metalineLs}em`, textTransform: 'uppercase', color: textSec }}>
         {hasCatalogue
@@ -2803,7 +2805,8 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
           </div>
         )}
         {live && post.channel && <div style={{ marginTop: 6, fontFamily: P_SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>
-          <DrawerLink kind="live" name={post.channel}>{post.channel}</DrawerLink>
+          <DrawerLink kind="live" name={post.channel}>{post.channel}</DrawerLink>{' '}
+          <FavHeart kind="channel" name={post.channel} size={15} style={{ color: 'var(--theme-text-ter)' }} />
         </div>}
       </div>
 
@@ -2891,7 +2894,9 @@ function PhoneSpotlight({ subject, onJump }) {
       <div style={{ transform: 'scale(0.6)', transformOrigin: 'left top', height: 66 }}>{SPOTLIGHT_MARK[subject.type]}</div>
       <div>
         <div style={pZlabel}>{SPOTLIGHT_NAME[subject.type]} spotlight</div>
-        <div style={{ fontFamily: D.artistFf, fontSize: 34, fontWeight: 800, lineHeight: 1.02, letterSpacing: '-0.025em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>{subject.name}</div>
+        <div style={{ fontFamily: D.artistFf, fontSize: 34, fontWeight: 800, lineHeight: 1.02, letterSpacing: '-0.025em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>
+          {subject.name} <FavHeart kind={subject.type} name={subject.name} size={24} style={{ color: 'var(--theme-text-sec)', verticalAlign: 'middle' }} />
+        </div>
         <div style={{ marginTop: 8, fontFamily: P_MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>
           {subject.posts.length} {subject.posts.length === 1 ? 'post' : 'posts'} here
         </div>

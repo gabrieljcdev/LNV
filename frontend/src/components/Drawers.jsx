@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
+import { FavHeart } from './Collect'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -354,7 +355,7 @@ export function ArtistsDrawer({ filter: initial }) {
     const ps = groups.get(selected) || []
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} />
+      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -398,7 +399,7 @@ export function LabelsDrawer({ filter: initial }) {
   if (selected) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} />
+      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />

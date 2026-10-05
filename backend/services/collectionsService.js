@@ -119,10 +119,10 @@ export function inCommon(a, b) {
 
 // A profile (2026-10-05): the wall's card. Interests come from what the
 // owner chose to post (their posts + records they ♥'d, as inCommon): top styles,
-// artists, labels; plus their pinned labels and the playlists they show.
-// Signed-in visitors also get who connects them; the owner gets the pin
-// choices, every playlist, and numbers only they see (not a scoreboard).
-const PROFILE_PINS_MAX = 3;
+// artists, labels; plus their favourites and the playlists they show.
+// Favourites (♥'d artists, labels, channels) lead their lists. Signed-in
+// visitors also get who connects them; the owner gets every playlist and
+// numbers only they see (not a scoreboard).
 function tally(table, col, userId, limit) {
   return db.prepare(`
     WITH theirs AS (${THEIRS})
@@ -142,15 +142,35 @@ function soundOf(userId) {
   const styles = all.filter(g => !DISCOGS_GENRES.has(g.name.toLowerCase()));
   return [...styles, ...all.filter(g => DISCOGS_GENRES.has(g.name.toLowerCase()))].slice(0, 6);
 }
-export const profilePins = userId => db.prepare('SELECT label_name FROM profile_pins WHERE user_id = ? ORDER BY sort').all(userId).map(r => r.label_name);
+// Favourites (2026-10-06): artists, labels and channels a user ♥'d —
+// three lists, oldest first (the order they were added).
+export const FAVOURITE_KINDS = ['artist', 'label', 'channel'];
+export function favouritesOf(userId) {
+  const out = { artist: [], label: [], channel: [] };
+  for (const r of db.prepare('SELECT kind, name FROM favourite_names WHERE user_id = ? ORDER BY created_at, name').all(userId)) out[r.kind]?.push(r.name);
+  return out;
+}
+export function setFavourite(userId, kind, name, on) {
+  const clean = String(name || '').trim().slice(0, 200);
+  if (!FAVOURITE_KINDS.includes(kind) || !clean) return false;
+  if (on) db.prepare('INSERT OR IGNORE INTO favourite_names (user_id, kind, name, name_key) VALUES (?, ?, ?, ?)').run(userId, kind, clean, clean.toLowerCase());
+  else db.prepare('DELETE FROM favourite_names WHERE user_id = ? AND kind = ? AND name_key = ?').run(userId, kind, clean.toLowerCase());
+  return true;
+}
 export const postedLabels = userId => tally('post_labels', 'label_name', userId, 500);
 export function profileOf(ownerId, viewerId) {
   const u = db.prepare('SELECT id, username, bio, created_at FROM users WHERE id = ?').get(ownerId);
   const own = viewerId === ownerId;
-  const labelsAll = postedLabels(ownerId);
-  const countOf = name => labelsAll.find(l => l.name.toLowerCase() === name.toLowerCase())?.count || 0;
-  const pins = profilePins(ownerId);
-  const pinnedSet = new Set(pins.map(n => n.toLowerCase()));
+  const favs = favouritesOf(ownerId);
+  // A list led by the favourites (♥), filled up to `fill` from what they post.
+  const ledBy = (favNames, posted, fill) => {
+    const count = new Map(posted.map(x => [x.name.toLowerCase(), x.count]));
+    const favSet = new Set(favNames.map(n => n.toLowerCase()));
+    return [
+      ...favNames.map(name => ({ name, count: count.get(name.toLowerCase()) || 0, favourite: true })),
+      ...posted.filter(x => !favSet.has(x.name.toLowerCase())).slice(0, Math.max(0, fill - favNames.length)),
+    ];
+  };
   const playlistRow = p => ({ id: p.id, name: p.name, kind: p.kind, shown: !!p.on_profile, share_token: p.share_token,
     track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c });
   const out = {
@@ -158,11 +178,9 @@ export function profileOf(ownerId, viewerId) {
     post_count: wallStats(ownerId).post_count,
     follower_count: db.prepare('SELECT COUNT(*) c FROM follows WHERE followee_id = ?').get(ownerId).c,
     sound: soundOf(ownerId),
-    artists: tally('post_artists', 'artist_name', ownerId, 6),
-    labels: [
-      ...pins.map(name => ({ name, count: countOf(name), pinned: true })),
-      ...labelsAll.filter(l => !pinnedSet.has(l.name.toLowerCase())).slice(0, Math.max(0, 6 - pins.length)),
-    ],
+    artists: ledBy(favs.artist, tally('post_artists', 'artist_name', ownerId, 12), 6),
+    labels: ledBy(favs.label, postedLabels(ownerId), 6),
+    channels: favs.channel.map(name => ({ name, favourite: true })),
     playlists: db.prepare('SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 ORDER BY created_at').all(ownerId).map(playlistRow),
     // Who they follow, newest first — a friends list to explore (2026-10-05).
     follows: (() => {
@@ -172,8 +190,6 @@ export function profileOf(ownerId, viewerId) {
   };
   if (own) {
     out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY kind = \'hearted\' DESC, created_at').all(ownerId).map(playlistRow);
-    out.pinChoices = labelsAll.slice(0, 40).map(l => l.name);
-    out.pinsMax = PROFILE_PINS_MAX;
     out.private = {
       hearted: db.prepare('SELECT COUNT(DISTINCT j.user_id) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ?').get(ownerId).c,
       replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,
@@ -186,16 +202,6 @@ export function profileOf(ownerId, viewerId) {
     out.followedBy = { names: via.slice(0, 2), total: via.length };
   }
   return out;
-}
-export function setProfilePins(userId, names) {
-  const mine = new Map(postedLabels(userId).map(l => [l.name.toLowerCase(), l.name]));
-  const clean = [...new Set((names || []).map(n => mine.get(String(n).toLowerCase())).filter(Boolean))].slice(0, PROFILE_PINS_MAX);
-  db.transaction(() => {
-    db.prepare('DELETE FROM profile_pins WHERE user_id = ?').run(userId);
-    const ins = db.prepare('INSERT INTO profile_pins (user_id, label_name, sort) VALUES (?, ?, ?)');
-    clean.forEach((n, i) => ins.run(userId, n, i));
-  })();
-  return clean;
 }
 
 // How many posts are on a wall (made or joined) and when the latest went up.

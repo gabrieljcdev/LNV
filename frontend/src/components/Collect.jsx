@@ -6,7 +6,7 @@ import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -188,6 +188,35 @@ export function HeartButton({ post, size, style }) {
   )
 }
 
+// ♥ by an artist's, label's or channel's name (2026-10-06): add it to
+// your favourite artists / labels / channels — three lists, on your
+// profile. Tap again to take it off. Visitors are asked to sign in.
+export function FavHeart({ kind, name, size, onChange, onColor = 'var(--theme-accent)', style }) {
+  const qc = useQueryClient()
+  const { has } = useFavourites()
+  const [busy, setBusy] = useState(false)
+  if (!name) return null
+  const on = has(kind, name)
+  const what = { artist: 'artists', label: 'labels', channel: 'channels' }[kind]
+  async function click(e) {
+    e.stopPropagation()
+    if (!isLoggedIn()) return askToSignIn(`keep favourite ${what}`)
+    setBusy(true)
+    try {
+      qc.setQueryData(['favourites'], await favouritesApi.set(kind, name, !on))
+      qc.invalidateQueries({ queryKey: ['wall'] })
+      onChange?.()
+    } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  return (
+    <button onClick={click} disabled={busy} aria-pressed={on}
+      aria-label={on ? `Remove ${name} from your favourite ${what}` : `Add ${name} to your favourite ${what}`}
+      title={on ? `In your favourite ${what} — tap to remove` : `Add to your favourite ${what}`}
+      style={{ ...plain, lineHeight: 1, opacity: busy ? 0.5 : 1, fontSize: size, ...style, ...(on && onColor ? { color: onColor } : null) }}>{on ? '♥' : '♡'}</button>
+  )
+}
+
 // A username on a card: opens their wall.
 export function WallLink({ name, style }) {
   if (!name) return null
@@ -291,16 +320,13 @@ export function FollowButton({ username }) {
 // The profile (2026-10-05, from the "LNV Profile Mockup" gabriel picked) —
 // the first card on a wall. One card, three views:
 // - everyone: picture (an initial for now), name, member since, posts and
-//   followers, bio; their sound (top styles), favourite labels (pinned
-//   first), top artists, the playlists they chose to show;
+//   followers, bio; their sound (top styles), labels, artists and channels
+//   (their ♥ favourites first), the playlists they chose to show;
 // - signed in: follow, who you follow that follows them, In common (alpha);
-// - the owner: edit the bio, pin up to 3 labels, tick which playlists show,
+// - the owner: edit the bio, un-♥ favourites, tick which playlists show,
 //   numbers only they see, and "View as visitor" to check the public card.
 // Everything about someone's taste comes from what they chose to post.
 // `compact` stacks it for phones.
-const PIN_ICON = filled => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 17v5" /><path d="M9 10.8V5h6v5.8l3 3.2H6z" /></svg>
-)
 export function WallCard({ username, compact = false }) {
   const qc = useQueryClient()
   const { openD3, jumpToPost } = useLayout() || {}
@@ -308,7 +334,6 @@ export function WallCard({ username, compact = false }) {
   const { data: common, isLoading: commonLoading } = useInCommon(p && !p.is_owner ? username : null)
   const [asVisitor, setAsVisitor] = useState(false)
   const [bioDraft, setBioDraft] = useState(null) // null = not editing
-  const [pinMenu, setPinMenu] = useState(false)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [newList, setNewList] = useState(null) // null = closed; else the name being typed
@@ -332,9 +357,6 @@ export function WallCard({ username, compact = false }) {
   const preview = p.is_owner && asVisitor
   const signedIn = isLoggedIn()
   const since = (() => { try { return new Date(p.member_since.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) } catch { return '' } })()
-  const pins = p.labels.filter(l => l.pinned).map(l => l.name)
-  const pinsMax = p.pinsMax || 3
-  const setPins = list => act(() => profileApi.pins(list))
   const max = Math.max(1, ...p.sound.map(x => x.count))
   const sectionTitle = (t, note) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
@@ -417,39 +439,29 @@ export function WallCard({ username, compact = false }) {
     </div>
   )
 
-  const labelsSection = (p.labels.length > 0 || owner) && (
+  // A list led by favourites (♥): labels, artists, channels. Owners can
+  // un-♥ from here; everyone else just opens the drawer.
+  const favChips = (list, kind, drawer) => list.map(x => (
+    <span key={x.name} style={{ ...chip, padding: 0, gap: 0, overflow: 'hidden', background: x.favourite ? fill(20) : fill(12) }}>
+      {x.favourite && (owner
+        ? <FavHeart kind={kind} name={x.name} onChange={refresh} onColor={pri} style={{ padding: compact ? '8px 2px 8px 12px' : '6px 2px 6px 11px', color: pri }} />
+        : <span aria-label="favourite" style={{ padding: compact ? '8px 0 8px 12px' : '6px 0 6px 11px' }}>♥</span>)}
+      <button onClick={() => openD3?.(drawer, { filter: x.name })} style={{ ...plain, color: pri, padding: compact ? '8px 13px 8px 7px' : '6px 12px 6px 7px', paddingLeft: x.favourite ? undefined : (compact ? 13 : 12) }}>
+        {x.name}{!x.favourite && x.count > 1 ? ` · ${x.count}` : ''}
+      </button>
+    </span>
+  ))
+  const favSection = (title, list, kind, drawer, emptyOwner) => (list.length > 0 || owner) && (
     <section>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <h3 style={head}>Favourite labels</h3>
-        {owner && <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>pin up to {pinsMax}</span>}
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, position: 'relative' }}>
-        {p.labels.map(l => owner ? (
-          <span key={l.name} style={{ ...chip, padding: 0, gap: 0, overflow: 'hidden', background: l.pinned ? pri : 'transparent', color: l.pinned ? 'var(--theme-showcase)' : pri, border: l.pinned ? 0 : `1px dashed ${fill(40)}` }}>
-            <button disabled={busy || (!l.pinned && pins.length >= pinsMax)} onClick={() => setPins(l.pinned ? pins.filter(n => n !== l.name) : [...pins, l.name])}
-              aria-label={l.pinned ? `Unpin ${l.name}` : `Pin ${l.name}`} title={!l.pinned && pins.length >= pinsMax ? `You can pin ${pinsMax}` : (l.pinned ? 'Unpin' : 'Pin to your profile')}
-              style={{ ...plain, color: 'inherit', padding: compact ? '8px 4px 8px 12px' : '6px 4px 6px 11px', display: 'inline-flex' }}>{PIN_ICON(l.pinned)}</button>
-            <button onClick={() => openD3?.('labels', { filter: l.name })} style={{ ...plain, color: 'inherit', padding: compact ? '8px 13px 8px 6px' : '6px 12px 6px 6px' }}>{l.name}{!l.pinned && l.count ? ` · ${l.count}` : ''}</button>
-          </span>
-        ) : (
-          <button key={l.name} onClick={() => openD3?.('labels', { filter: l.name })} style={{ ...chip, background: fill(l.pinned ? 18 : 12) }}>
-            {l.pinned && PIN_ICON(false)}{l.name}{!l.pinned && l.count ? ` · ${l.count}` : ''}
-          </button>
-        ))}
-        {owner && pins.length < pinsMax && (p.pinChoices || []).some(n => !p.labels.some(l => l.name === n)) && (
-          <button onClick={() => setPinMenu(v => !v)} aria-expanded={pinMenu} style={{ ...chip }}>+ pin another label</button>
-        )}
-        {owner && pinMenu && (
-          <div role="menu" style={{ ...MENU, top: 'calc(100% + 6px)', left: 0, maxHeight: 260, overflowY: 'auto' }}>
-            {(p.pinChoices || []).filter(n => !p.labels.some(l => l.name === n)).map(n => (
-              <MenuItem key={n} onClick={() => { setPinMenu(false); setPins([...pins, n]) }}>{n}</MenuItem>
-            ))}
-          </div>
-        )}
-        {owner && p.labels.length === 0 && <span style={{ fontSize: 13, color: ter }}>Labels you post show up here.</span>}
-      </div>
+      <h3 style={head}>{title}</h3>
+      {list.length === 0
+        ? <div style={{ fontSize: 13, color: ter }}>{emptyOwner}</div>
+        : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{favChips(list, kind, drawer)}</div>}
     </section>
   )
+  const labelsSection = favSection('Favourite labels', p.labels, 'label', 'labels', 'Labels you post or ♥ show up here.')
+  const artistsSection = favSection(owner ? 'Your artists' : 'Artists', p.artists, 'artist', 'artists', 'Artists you post or ♥ show up here.')
+  const channelsSection = favSection('Favourite channels', p.channels || [], 'channel', 'live', '♥ a channel on its spotlight to keep it here.')
 
   // A new playlist from the profile (2026-10-05): made, shown on the
   // profile (untick to keep it private), then opened to add tracks.
@@ -563,7 +575,7 @@ export function WallCard({ username, compact = false }) {
     <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16, fontSize: 13, color: ter }}>Signed-in visitors see what they have in common with you here.</section>
   ) : (
     <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16 }}>
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: ter }}>Your sound and top artists come from what you post — they update as you go. Pins and the playlists you tick are your choice; everything else here is just your posting.</p>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: ter }}>Your sound and top artists come from what you post — they update as you go. Your ♥ favourites and the playlists you tick are your choice; everything else here is just your posting.</p>
     </section>
   )
 
@@ -584,14 +596,8 @@ export function WallCard({ username, compact = false }) {
         )}
       </section>
       {labelsSection}
-      {p.artists.length > 0 && (
-        <section>
-          <h3 style={head}>Top artists</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {p.artists.map(a => <button key={a.name} onClick={() => openD3?.('artists', { filter: a.name })} style={chip}>{a.name}{a.count > 1 ? ` · ${a.count}` : ''}</button>)}
-          </div>
-        </section>
-      )}
+      {artistsSection}
+      {channelsSection}
       {playlistsSection}
       {followsSection}
       {commonSection}

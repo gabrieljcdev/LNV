@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userByName, wallStats, inCommon, profileOf, setProfilePins, newShareToken } from '../services/collectionsService.js';
+import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -72,9 +72,16 @@ router.patch('/me/profile', requireAuth, (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Your pinned labels — up to 3, from labels you've posted.
-router.put('/me/pins', requireAuth, (req, res, next) => {
-  try { res.json({ labels: setProfilePins(req.user.id, req.body?.labels) }); } catch (err) { next(err); }
+// Your favourites (2026-10-06): ♥ by an artist's, label's or channel's name.
+router.get('/me/favourites', requireAuth, (req, res, next) => {
+  try { res.json(favouritesOf(req.user.id)); } catch (err) { next(err); }
+});
+router.put('/me/favourites', requireAuth, (req, res, next) => {
+  try {
+    const { kind, name, on } = req.body || {};
+    if (!setFavourite(req.user.id, kind, name, !!on)) return res.status(400).json({ error: 'Favourite an artist, label or channel.' });
+    res.json(favouritesOf(req.user.id));
+  } catch (err) { next(err); }
 });
 
 // Show one of your playlists on your profile, or hide it. Shown means
