@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor, RepostButton } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor, RepostButton, WallCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -2916,13 +2916,15 @@ function PhoneSpotlight({ subject, onJump }) {
   )
 }
 
-function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar }) {
+function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar, header }) {
   const deckRef = useRef(null)
   const openingRef = useRef(null)
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(null) // key of the card whose player is open
   // The desktop's placeholder channel spotlight has nothing to show here.
   const list = (shelf.current || []).filter(it => it.kind === 'post' || !it.subject?.isPlaceholder)
+  // A wall's card (WallCard) leads it; the posts follow.
+  const head = header ? 1 : 0
 
   // A new feed or search starts at its first card, the opening shut.
   const [shownKey, setShownKey] = useState(viewKey)
@@ -2936,18 +2938,18 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
   }, [viewKey])
 
   // The next page when FEED_LOAD_AHEAD cards from the end.
-  useEffect(() => { if (hasMore && idx >= list.length - FEED_LOAD_AHEAD) loadMore() }, [idx, list.length, hasMore, loadMore])
+  useEffect(() => { if (hasMore && idx - head >= list.length - FEED_LOAD_AHEAD) loadMore() }, [idx, head, list.length, hasMore, loadMore])
 
   function go(i, smooth = true) {
     const el = deckRef.current
-    if (el) el.scrollTo({ left: Math.max(0, Math.min(i, list.length - 1)) * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
+    if (el) el.scrollTo({ left: Math.max(0, Math.min(i, list.length - 1 + head)) * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
   }
   // Jumps (search, drawers, a spotlight's covers) land straight on the card.
   const jumpTo = id => {
     const i = list.findIndex(it => it.post?.id === id)
     if (i < 0) return false
     openingRef.current?.close()
-    go(i, false)
+    go(i + head, false)
     return true
   }
   useEffect(() => { if (jumpRef) jumpRef.current = jumpTo })
@@ -2976,6 +2978,7 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
       </div>
       <div ref={deckRef} onScroll={onScroll} aria-label="Posts — swipe for the next one"
         style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', scrollbarWidth: 'none' }}>
+        {header && <Slide bg="var(--theme-showcase)">{header}</Slide>}
         {list.length === 0 ? (
           <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
         ) : list.map((it, i) => (
@@ -3446,8 +3449,9 @@ export default function Feed() {
         loadMore={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage() }}
         viewKey={viewKey}
         jumpRef={phoneJumpRef}
+        header={feedMode.type === 'wall' && !search ? <WallCard key={feedMode.username} username={feedMode.username} compact /> : null}
         topBar={<>
-          <FeedSwitcher menuLeft style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
+          <FeedSwitcher menuLeft noFollow style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
           {searchBox({ position: 'static', top: 'auto', right: 'auto', width: 'auto', flex: 1, minWidth: 0 })}
         </>}
       />
@@ -3473,6 +3477,8 @@ export default function Feed() {
           just stops the browser from independently claiming wheel input. */}
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
+        {/* A wall opens on its owner's card (2026-10-05). */}
+        {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

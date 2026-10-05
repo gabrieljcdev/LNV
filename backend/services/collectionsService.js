@@ -82,6 +82,41 @@ export const wallPage = (wallUserId, opts) => entryPage('owner = @wall', { wall:
 export const homePage = (userId, opts) => entryPage(
   'owner = @me OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me)', { me: userId }, opts);
 
+// In common (alpha, 2026-10-05): what two people both post — the same
+// records, artists and labels — from what they chose to post themselves
+// (their posts + "post it too"; not reposts). Fixed, explainable rules, no
+// learning and no engagement signals: an artist or label counts for more the
+// fewer people post it (Basic Channel says more than Columbia), so lists are
+// rarest first. "Various" is never an artist.
+const THEIRS = `
+  SELECT wall_user_id AS u, id AS p FROM posts WHERE is_spotlight = 0
+  UNION SELECT user_id, post_id FROM post_joins WHERE kind = 'also'`;
+function sharedNames(table, idCol, nameCol, a, b, limit) {
+  const rows = db.prepare(`
+    WITH theirs AS (${THEIRS}),
+    x AS (SELECT DISTINCT t.u, COALESCE('id:' || n.${idCol}, 'n:' || lower(n.${nameCol})) AS k, n.${nameCol} AS name
+      FROM theirs t JOIN ${table} n ON n.post_id = t.p
+      WHERE lower(trim(n.${nameCol})) NOT IN ('various', 'various artists'))
+    SELECT k, MIN(name) AS name, COUNT(DISTINCT u) AS posters FROM x
+    WHERE k IN (SELECT k FROM x WHERE u = @a) AND k IN (SELECT k FROM x WHERE u = @b)
+    GROUP BY k ORDER BY posters, name
+  `).all({ a, b });
+  return { total: rows.length, items: rows.slice(0, limit).map(r => ({ name: r.name, posters: r.posters })) };
+}
+export function inCommon(a, b) {
+  const records = db.prepare(`
+    WITH theirs AS (${THEIRS})
+    SELECT p.id, p.title, p.thumb_image, p.cover_image FROM posts p
+    WHERE p.id IN (SELECT p FROM theirs WHERE u = @a) AND p.id IN (SELECT p FROM theirs WHERE u = @b)
+    ORDER BY p.id DESC
+  `).all({ a, b });
+  return {
+    artists: sharedNames('post_artists', 'discogs_artist_id', 'artist_name', a, b, 8),
+    labels: sharedNames('post_labels', 'discogs_label_id', 'label_name', a, b, 8),
+    records: { total: records.length, items: records.slice(0, 6).map(r => ({ id: r.id, title: r.title, cover: r.thumb_image || r.cover_image || null })) },
+  };
+}
+
 // How many posts are on a wall (made or joined) and when the latest went up.
 export function wallStats(userId) {
   return db.prepare(`WITH e AS (${ENTRIES}) SELECT COUNT(DISTINCT post_id) AS post_count, MAX(at) AS latest FROM e WHERE owner = ?`).get(userId);

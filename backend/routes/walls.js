@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userByName, wallStats } from '../services/collectionsService.js';
+import { userByName, wallStats, inCommon } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -38,6 +38,17 @@ router.delete('/:username/follow', requireAuth, (req, res, next) => {
     const u = userByName(req.params.username);
     if (u) db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, u.id);
     res.json({ following: false });
+  } catch (err) { next(err); }
+});
+
+// What you and a wall's owner both post (alpha, 2026-10-05): shared records,
+// artists and labels, rarest first (services/collectionsService.js inCommon).
+router.get('/:username/common', requireAuth, (req, res, next) => {
+  try {
+    const owner = userByName(req.params.username);
+    if (!owner) return res.status(404).json({ error: 'No such wall.' });
+    if (owner.id === req.user.id) return res.json({ self: true });
+    res.json(inCommon(req.user.id, owner.id));
   } catch (err) { next(err); }
 });
 

@@ -4,7 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
-  usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi, joinApi,
+  usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi, joinApi, useInCommon,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -271,10 +271,78 @@ export function FollowButton({ username }) {
   )
 }
 
+// The first card on a wall (2026-10-05): whose it is, posts and followers,
+// follow — and, for someone else's, what you both post (alpha): shared
+// artists and labels, rarest first, and records you've both posted. Each
+// name opens its drawer; a record goes to its post. `compact` for phones.
+export function WallCard({ username, compact = false }) {
+  const { openD3, jumpToPost } = useLayout() || {}
+  const { data: wall } = useWall(username)
+  const { data: common, isLoading } = useInCommon(username)
+  const own = !!wall?.is_owner
+  const head = { fontFamily: SANS, fontWeight: 600, fontSize: 9.5, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', margin: '0 0 8px' }
+  const chip = { ...plain, fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-pri)', background: 'color-mix(in srgb, var(--theme-text-pri) 10%, transparent)', padding: '5px 11px', borderRadius: 99 }
+  const names = (list, kind) => list.items.length > 0 && (
+    <div style={{ marginBottom: 16 }}>
+      <div style={head}>{kind} · {list.total}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {list.items.map(n => (
+          <button key={n.name} onClick={() => openD3?.(kind, { filter: n.name })} title={`${n.posters} ${n.posters === 1 ? 'person posts' : 'people post'} ${n.name} — open the drawer`} style={chip}>{n.name}</button>
+        ))}
+      </div>
+    </div>
+  )
+  const nothing = common && !common.self && !common.artists.total && !common.labels.total && !common.records.total
+  return (
+    <div style={compact ? { padding: '22px 20px' } : { width: 460, height: '100%', boxSizing: 'border-box', padding: '90px 44px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s' }}>
+      <div style={{ fontFamily: SANS, fontWeight: 900, fontSize: compact ? 34 : 44, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>{username}</div>
+      <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>
+        {wall ? `${wall.post_count} ${wall.post_count === 1 ? 'post' : 'posts'} · ${wall.follower_count} ${wall.follower_count === 1 ? 'follower' : 'followers'}` : '…'}
+      </div>
+      <div style={{ marginTop: 16, minHeight: 34 }}>
+        {own ? <span style={{ fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>Your wall — everything you post, numbered from 1.</span> : <FollowButton username={username} />}
+      </div>
+      {!own && (
+        <div style={{ marginTop: 28, borderTop: '1px solid var(--theme-border)', paddingTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, color: 'var(--theme-text-pri)' }}>In common with you</span>
+            <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: 'var(--theme-text-pri)', borderRadius: 99, padding: '2px 7px' }}>α ALPHA</span>
+          </div>
+          {!isLoggedIn() ? (
+            <button onClick={() => askToSignIn('see what you have in common')} style={{ ...plain, fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)', textDecoration: 'underline', textUnderlineOffset: 3 }}>Sign in to see what you both post</button>
+          ) : isLoading || !common ? (
+            <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--theme-text-ter)' }}>…</div>
+          ) : nothing ? (
+            <div style={{ fontFamily: SANS, fontSize: 13, lineHeight: 1.5, color: 'var(--theme-text-sec)' }}>Nothing in common yet — everything on this wall is new to you.</div>
+          ) : (<>
+            {names(common.artists, 'artists')}
+            {names(common.labels, 'labels')}
+            {common.records.items.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={head}>records you both posted · {common.records.total}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {common.records.items.map(r => (
+                    <button key={r.id} onClick={() => jumpToPost?.(r.id)} title={`${r.title} — go to it`}
+                      style={{ ...plain, width: 56, height: 56, borderRadius: 10, background: r.cover ? `var(--theme-dark2) center/cover no-repeat url("${r.cover}")` : 'var(--theme-dark2)' }} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>)}
+          <p style={{ margin: '14px 0 0', fontFamily: SANS, fontSize: 11.5, lineHeight: 1.5, color: 'var(--theme-text-ter)' }}>
+            Matched only on what you both chose to post — records, artists and labels, the rarer the higher. No likes, plays or listening data.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Which feed is showing: the main feed, a wall (yours or someone's), or a
 // playlist viewed as a feed. Sits beside the search box. `style` moves it
-// (the phone top bar, 2026-10-05); `menuLeft` opens the menu from its left edge.
-export function FeedSwitcher({ style, menuLeft = false }) {
+// (the phone top bar, 2026-10-05); `menuLeft` opens the menu from its left edge;
+// `noFollow` leaves following to the wall's own card (WallCard).
+export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
   const mode = useFeedMode()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -291,7 +359,7 @@ export function FeedSwitcher({ style, menuLeft = false }) {
   const atHome = mode.type === homeMode().type
   return (
     <div ref={ref} style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
-      {otherWall && <FollowButton username={mode.username} />}
+      {otherWall && !noFollow && <FollowButton username={mode.username} />}
       <button onClick={() => setOpen(v => !v)} aria-haspopup="menu" aria-expanded={open} title="Choose a feed"
         style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 240, background: atHome ? 'var(--theme-dark3)' : 'var(--theme-accent)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', cursor: 'pointer',
           color: atHome ? 'var(--theme-text-pri)' : '#fff', fontFamily: SANS, fontSize: 12.5, fontWeight: 600 }}>

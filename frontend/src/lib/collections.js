@@ -87,6 +87,16 @@ export function useWall(username) {
     staleTime: 60_000,
   })
 }
+// What you and a wall's owner both post (alpha, 2026-10-05) — signed in only.
+export function useInCommon(username) {
+  const signedIn = isLoggedIn()
+  return useQuery({
+    queryKey: ['wall', username, 'common'],
+    queryFn: () => call('GET', `/walls/${encodeURIComponent(username)}/common`),
+    enabled: !!username && signedIn,
+    staleTime: 60_000,
+  })
+}
 export function useFollowing() {
   const signedIn = isLoggedIn()
   const q = useQuery({
