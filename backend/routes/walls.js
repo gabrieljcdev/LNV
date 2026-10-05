@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
+import { firstFriend } from '../services/authService.js';
 import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, introductionsFor, introReason } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
@@ -92,6 +93,12 @@ router.put('/me/introductions/settings', requireAuth, (req, res, next) => {
     db.prepare('UPDATE users SET intros_off = ? WHERE id = ?').run(req.body?.off ? 1 : 0, req.user.id);
     res.json(introSettings(req.user.id));
   } catch (err) { next(err); }
+});
+
+// Whose wall the front page is (2026-10-05): the first friend's — named on
+// the welcome card signed-out visitors see first.
+router.get('/front', (req, res, next) => {
+  try { res.json({ username: firstFriend()?.username || null }); } catch (err) { next(err); }
 });
 
 // What you and a wall's owner both post (alpha, 2026-10-05): shared records,

@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -422,7 +422,7 @@ function FloatSlot({ children }) {
     return () => { mo.disconnect(); clearTimeout(t) }
   }, [])
   return (
-    <div style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
+    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
       <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW, ...ink }}>
         {children}
       </div>
@@ -2997,6 +2997,14 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
   }
   useEffect(() => { if (jumpRef) jumpRef.current = jumpTo })
 
+  // "My profile" (lib/collections showMyProfile): back to the first slide —
+  // your profile, on my feed — with the opening out of the way.
+  useEffect(() => {
+    const h = () => { openingRef.current?.close(); deckRef.current?.scrollTo({ left: 0 }) }
+    window.addEventListener('lnv:show-profile', h)
+    return () => window.removeEventListener('lnv:show-profile', h)
+  }, [])
+
   // Arrow keys on a narrow desktop window.
   useEffect(() => {
     const h = e => {
@@ -3271,6 +3279,24 @@ export default function Feed() {
     return () => window.removeEventListener('lnv:jump-main', h)
   }, [])
 
+  // "My profile" (2026-10-05, lib/collections showMyProfile): my feed is
+  // already switched to; clear any search and bring your profile card into
+  // view once it's drawn. Phones go back to the deck's first slide
+  // (PhoneFeed listens too).
+  useEffect(() => {
+    let tries = 0, t = null
+    const scrollToCard = () => {
+      const feed = feedRef?.current
+      const card = feed?.querySelector('[data-profile-card="me"]')
+      if (!card) { if (++tries < 30) t = setTimeout(scrollToCard, 100); return }
+      const slot = card.closest('[data-float-slot]') || card
+      driveFeedScroll?.(Math.max(0, feed.scrollLeft + (slot.getBoundingClientRect().left - feed.getBoundingClientRect().left) - STRIP_RADIUS))
+    }
+    const h = () => { pendingJump.current = null; setSearch(''); tries = 0; clearTimeout(t); if (!phone) t = setTimeout(scrollToCard, 50) }
+    window.addEventListener('lnv:show-profile', h)
+    return () => { window.removeEventListener('lnv:show-profile', h); clearTimeout(t) }
+  }, [phone, feedRef, driveFeedScroll])
+
   // Finish a jump to a post that had to be fetched first (jumpToPost).
   useEffect(() => {
     const id = pendingJump.current
@@ -3526,7 +3552,8 @@ export default function Feed() {
         viewKey={viewKey}
         jumpRef={phoneJumpRef}
         header={search ? null : feedMode.type === 'wall' ? <WallCard key={feedMode.username} username={feedMode.username} compact />
-          : feedMode.type === 'home' && isLoggedIn() ? <WallCard key="me" username={getUser()} compact friends={myFeedSwitch} /> : null}
+          : feedMode.type === 'home' && isLoggedIn() ? <WallCard key="me" username={getUser()} compact friends={myFeedSwitch} />
+          : feedMode.type === 'home' ? <WelcomeCard key="welcome" compact /> : null}
         topBar={<>
           <FeedSwitcher menuLeft noFollow style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
           {searchBox({ position: 'static', top: 'auto', right: 'auto', width: 'auto', flex: 1, minWidth: 0 })}
@@ -3558,6 +3585,8 @@ export default function Feed() {
         {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
         {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
+        {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot key="welcome"><WelcomeCard /></FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

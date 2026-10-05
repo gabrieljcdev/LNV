@@ -64,6 +64,18 @@ export function setFeedMode(next) {
   listeners.forEach(l => l())
 }
 export const goHome = () => setFeedMode(homeMode())
+// Whose wall the front page is (the first friend, backend walls.js /front).
+export function useFrontPageOwner() {
+  const q = useQuery({ queryKey: ['wall', 'front'], queryFn: () => call('GET', '/walls/front'), staleTime: 60 * 60_000 })
+  return q.data?.username || null
+}
+// Your profile (2026-10-05): my feed, scrolled back to your profile card
+// (the strip's menu under your initial, the phone's "more"). Feed.jsx
+// listens for lnv:show-profile.
+export function showMyProfile() {
+  goHome()
+  window.dispatchEvent(new Event('lnv:show-profile'))
+}
 
 export function useFeedMode() {
   return useSyncExternalStore(cb => { listeners.add(cb); return () => listeners.delete(cb) }, () => mode)
