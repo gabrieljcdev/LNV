@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userByName } from '../services/collectionsService.js';
+import { userByName, wallStats } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -14,11 +14,11 @@ const router = express.Router();
 // the latest went up.
 router.get('/me/following', requireAuth, (req, res, next) => {
   try {
-    const rows = db.prepare(`SELECT u.id, u.username, f.created_at AS since,
-        (SELECT COUNT(*) FROM posts p WHERE p.wall_user_id = u.id AND p.is_spotlight = 0) AS post_count,
-        (SELECT MAX(p.created_at) FROM posts p WHERE p.wall_user_id = u.id AND p.is_spotlight = 0) AS latest
-      FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ?
-      ORDER BY latest IS NULL, latest DESC`).all(req.user.id);
+    // Counts include posts they joined (also posted by).
+    const rows = db.prepare(`SELECT u.id, u.username, f.created_at AS since
+      FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ?`).all(req.user.id)
+      .map(r => ({ ...r, ...wallStats(r.id) }))
+      .sort((a, b) => (b.latest || '').localeCompare(a.latest || ''));
     res.json({ following: rows });
   } catch (err) { next(err); }
 });
@@ -50,7 +50,7 @@ router.get('/:username', (req, res, next) => {
     const isOwner = me === owner.id;
     res.json({
       user_id: owner.id, username: owner.username,
-      post_count: db.prepare('SELECT COUNT(*) c FROM posts WHERE wall_user_id = ? AND is_spotlight = 0').get(owner.id).c,
+      post_count: wallStats(owner.id).post_count,
       is_owner: isOwner,
       following: !!(me && db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(me, owner.id)),
       follower_count: db.prepare('SELECT COUNT(*) c FROM follows WHERE followee_id = ?').get(owner.id).c,

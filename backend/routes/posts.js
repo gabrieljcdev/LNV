@@ -31,7 +31,9 @@ function getFullPost(postId) {
   const tracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount };
+  // Everyone else who posted this release (joined it), first to latest.
+  const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -105,6 +107,8 @@ router.get('/', (req, res, next) => {
     // Your feed and shared feeds (2026-10-03) — same cursor paging as the
     // main feed. Signed in only; a shared feed only for its members.
     const before = Number(req.query.before) || null;
+    // Walls and my feed page by "<at>|<post id>" (collectionsService).
+    const entryBefore = req.query.before ? String(req.query.before) : null;
     const lim = Math.min(Number(limit) || 20, 100);
     // A wall (2026-10-03) — public: anyone can read anyone's wall. Each post
     // carries its number on that wall (feedNumber); the main-feed number is
@@ -112,9 +116,9 @@ router.get('/', (req, res, next) => {
     if (req.query.wall) {
       const owner = userByName(req.query.wall);
       if (!owner) return res.status(404).json({ error: 'No such wall.' });
-      const rows = wallPage(owner.id, { before, limit: lim });
+      const rows = wallPage(owner.id, { before: entryBefore, limit: lim });
       const posts = rows.map(r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; }).filter(Boolean);
-      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
     }
     // Your feed (2026-10-03): your posts + the people you follow. Followed
     // posts carry `followedFrom` (whose wall they're from). Signed out, the
@@ -122,18 +126,18 @@ router.get('/', (req, res, next) => {
     if (req.query.feed === 'home') {
       if (!req.user) {
         const friend = firstFriend();
-        const rows = friend ? wallPage(friend.id, { before, limit: lim }) : [];
+        const rows = friend ? wallPage(friend.id, { before: entryBefore, limit: lim }) : [];
         const posts = rows.map(r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; }).filter(Boolean);
-        return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+        return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
       }
-      const rows = homePage(req.user.id, { before, limit: lim });
+      const rows = homePage(req.user.id, { before: entryBefore, limit: lim });
       const names = new Map();
       const nameOf = id => { if (!names.has(id)) names.set(id, db.prepare('SELECT username FROM users WHERE id = ?').get(id)?.username || null); return names.get(id); };
       const posts = rows.map(r => {
         const p = getFullPost(r.id);
         return p && { ...p, feedNumber: r.num, followedFrom: r.wall_user_id !== req.user.id ? nameOf(r.wall_user_id) : null };
       }).filter(Boolean);
-      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.id ?? null });
+      return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
     }
     // A playlist viewed as a feed (2026-10-03): the posts its tracks come
     // from, in playlist order, numbered 1, 2, 3… Its members (or anyone with
@@ -259,7 +263,11 @@ router.post('/', requireAuth, (req, res, next) => {
       stream_url || null, embed_url || null, platform || null, post_type || 'album',
       channel || null, (post_title || '').trim() || null, wallUserId
     );
-    if (!result.lastInsertRowid) return res.status(409).json({ error: 'A post with this Discogs release already exists' });
+    if (!result.changes) {
+      // Already up: post it too with POST /posts/:id/join (the composer offers it).
+      const existing = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').get(Number(resolvedDiscogsId));
+      return res.status(409).json({ error: 'This release is already posted — post it too to put it on your wall.', postId: existing?.id ?? null });
+    }
     const postId = result.lastInsertRowid;
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
     for (const a of artists) ia.run(postId, a.name, a.id || null);
@@ -343,13 +351,33 @@ router.delete('/:id', requireAuth, (req, res, next) => {
     // DELETE CASCADEs never fire — remove the child rows explicitly or they
     // stay behind as orphans.
     db.transaction(() => {
-      for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights', 'shared_feed_items']) {
+      for (const table of ['post_artists', 'post_labels', 'post_genres', 'post_tracks', 'comments', 'spotlights', 'shared_feed_items', 'post_joins']) {
         db.prepare(`DELETE FROM ${table} WHERE post_id = ?`).run(id);
       }
       db.prepare('DELETE FROM posts WHERE id = ?').run(id);
     })();
     logEvent('warn', 'post', `Deleted post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });
     res.json({ message: 'Post deleted' });
+  } catch (err) { next(err); }
+});
+
+// Also posted by (2026-10-04): post a release that's already up — it goes on
+// your wall and into your followers' feeds — or take it off again.
+router.post('/:id/join', requireAuth, (req, res, next) => {
+  try {
+    const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already on your wall.' });
+    const added = db.prepare('INSERT OR IGNORE INTO post_joins (post_id, user_id) VALUES (?, ?)').run(post.id, req.user.id).changes;
+    if (added) logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
+    res.json(getFullPost(post.id));
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/join', requireAuth, (req, res, next) => {
+  try {
+    db.prepare('DELETE FROM post_joins WHERE post_id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
+    res.json(getFullPost(Number(req.params.id)));
   } catch (err) { next(err); }
 });
 

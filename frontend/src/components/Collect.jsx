@@ -4,7 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
-  usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi,
+  usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi, joinApi,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -135,6 +135,33 @@ export function WallLink({ name, style }) {
   return (
     <button onClick={e => { e.stopPropagation(); openWall(name) }} title={`Open ${name}’s wall`}
       style={{ ...plain, color: 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...style }}>{name}</button>
+  )
+}
+
+// Also posted by (2026-10-04): "& dan" after the poster's name — everyone
+// else who posted this release, first one named, the rest as "+2". If
+// you're one of them, "you" takes it off your wall again.
+export function AlsoPosted({ post, style }) {
+  const qc = useQueryClient()
+  const names = post.alsoPostedBy || []
+  if (!names.length) return null
+  const me = getUser()
+  const first = names.includes(me) ? me : names[0]
+  const rest = names.length - 1
+  async function leave(e) {
+    e.stopPropagation()
+    if (!window.confirm('Take this off your wall?')) return
+    try { await joinApi.leave(post.id); qc.invalidateQueries({ queryKey: ['posts'] }); qc.invalidateQueries({ queryKey: ['wall'] }) }
+    catch (err) { window.alert(err.message) }
+  }
+  return (
+    <span title={`Also posted by ${names.join(', ')}`} style={{ display: 'inline-flex', gap: 4, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', ...style }}>
+      <span aria-hidden="true" style={{ opacity: 0.6 }}>&amp;</span>
+      {first === me
+        ? <button onClick={leave} title="You posted this too — take it off your wall" style={{ ...plain, color: 'inherit' }}>you</button>
+        : <WallLink name={first} />}
+      {rest > 0 && <span style={{ opacity: 0.6 }}>+{rest}</span>}
+    </span>
   )
 }
 

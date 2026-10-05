@@ -67,6 +67,12 @@ export function feedModeLabel(m) {
   return 'everything'
 }
 export const openWall = username => setFeedMode({ type: 'wall', username })
+// Also posted by (2026-10-04): put a release that's already up on your wall
+// too, or take it off again. Both return the updated post.
+export const joinApi = {
+  join: postId => call('POST', `/posts/${postId}/join`),
+  leave: postId => call('DELETE', `/posts/${postId}/join`),
+}
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })
 
 // ── walls + following ─────────────────────────────────────────────────────────

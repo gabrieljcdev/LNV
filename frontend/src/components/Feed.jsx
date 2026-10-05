@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted } from './Collect'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -907,6 +907,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
       <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <FollowedTag post={post} />
       <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
+      <AlsoPosted post={post} style={{ fontSize: d.handleSize, color: textPri, fontFamily: d.bodyFf }} />
       <MainNumber post={post} style={{ fontSize: d.stampSize, color: textTer, fontFamily: d.monoFf }} />
       <span style={{ fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: textTer, fontFamily: d.monoFf, marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(post.created_at)}</span>
       {canModify && (
@@ -1273,6 +1274,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         </button>
         <FollowedTag post={post} />
         <WallLink name={post.user?.username || post.username} style={{ color: 'var(--lv-sec)' }} />
+        <AlsoPosted post={post} style={{ color: 'var(--lv-sec)' }} />
         <MainNumber post={post} />
         <span>{timeAgo(post.created_at)}</span>
       </div>
@@ -1464,6 +1466,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
         <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
+        <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
         <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
         <span style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>{timeAgo(post.created_at)}</span>
         {canModify && (

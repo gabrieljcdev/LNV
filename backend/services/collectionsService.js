@@ -45,32 +45,43 @@ export function sharedFeedPage(feedId, { before = null, limit = 20 } = {}) {
 // ── walls ─────────────────────────────────────────────────────────────────────
 export const userByName = name => db.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE').get(String(name || ''));
 
-// A wall's posts, newest first, each with its number on that wall
-// (1 = the first post made on it).
-export function wallPage(wallUserId, { before = null, limit = 20 } = {}) {
-  return db.prepare(`
-    SELECT p.id,
-      (SELECT COUNT(*) FROM posts q WHERE q.wall_user_id = p.wall_user_id AND q.is_spotlight = 0 AND q.id <= p.id) AS num
-    FROM posts p
-    WHERE p.wall_user_id = ? AND p.is_spotlight = 0 AND (? IS NULL OR p.id < ?)
-    ORDER BY p.id DESC LIMIT ?
-  `).all(wallUserId, before, before, limit);
+// Walls and my feed are made of entries: a post on its poster's wall, plus
+// one for each person who joined it ("also posted by", post_joins) — on the
+// joiner's wall, at the time they joined (2026-10-04). A post reached more
+// than once in a feed shows once, at its first entry (your own first).
+// Paged by cursor "<at>|<post id>" (where the next page starts); each row
+// carries its number in that feed (1 = the oldest) and whose entry it is.
+const ENTRIES = `
+  SELECT wall_user_id AS owner, id AS post_id, created_at AS at FROM posts WHERE is_spotlight = 0
+  UNION ALL
+  SELECT j.user_id, j.post_id, j.created_at FROM post_joins j JOIN posts p ON p.id = j.post_id AND p.is_spotlight = 0`;
+function entryPage(ownerFilter, params, { before = null, limit = 20 } = {}) {
+  const [bAt, bId] = before ? String(before).split('|') : [null, null];
+  const rows = db.prepare(`
+    WITH e AS (${ENTRIES}),
+    seen AS (SELECT owner, post_id, at,
+        ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY owner = @me DESC, at, owner) AS rn
+      FROM e WHERE ${ownerFilter}),
+    feed AS (SELECT owner, post_id, at, ROW_NUMBER() OVER (ORDER BY at, post_id) AS num FROM seen WHERE rn = 1)
+    SELECT post_id AS id, owner AS wall_user_id, at, num FROM feed
+    WHERE @bAt IS NULL OR at < @bAt OR (at = @bAt AND post_id < @bId)
+    ORDER BY at DESC, post_id DESC LIMIT @limit
+  `).all({ me: null, ...params, bAt: bAt || null, bId: Number(bId) || 0, limit });
+  return rows.map(r => ({ ...r, cursor: `${r.at}|${r.id}` }));
 }
 
+// A wall: the posts its owner made or joined, newest first.
+export const wallPage = (wallUserId, opts) => entryPage('owner = @wall', { wall: wallUserId }, opts);
+
 // Your feed (2026-10-03) — the home view once signed in: your own posts and
-// the posts of everyone you follow, newest first, each numbered by its place
-// in this feed (1 = the oldest in it). Followed posts are labelled on the
-// cards (followedFrom).
-const HOME_WHERE = `p.is_spotlight = 0 AND (p.wall_user_id = @me
-  OR p.wall_user_id IN (SELECT followee_id FROM follows WHERE follower_id = @me))`;
-export function homePage(userId, { before = null, limit = 20 } = {}) {
-  return db.prepare(`
-    SELECT p.id, p.wall_user_id,
-      (SELECT COUNT(*) FROM posts p2 WHERE ${HOME_WHERE.replaceAll('p.', 'p2.')} AND p2.id <= p.id) AS num
-    FROM posts p
-    WHERE ${HOME_WHERE} AND (@before IS NULL OR p.id < @before)
-    ORDER BY p.id DESC LIMIT @limit
-  `).all({ me: userId, before, limit });
+// the posts of everyone you follow (and what they joined), newest first.
+// Followed posts are labelled on the cards (followedFrom).
+export const homePage = (userId, opts) => entryPage(
+  'owner = @me OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me)', { me: userId }, opts);
+
+// How many posts are on a wall (made or joined) and when the latest went up.
+export function wallStats(userId) {
+  return db.prepare(`WITH e AS (${ENTRIES}) SELECT COUNT(DISTINCT post_id) AS post_count, MAX(at) AS latest FROM e WHERE owner = ?`).get(userId);
 }
 
 // 24 url-safe characters — the share link is the only key to a feed.

@@ -330,6 +330,16 @@ const migrations = [
     joined_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (playlist_id, user_id)
   )`,
+  // Also posted by (2026-10-04): there's one post per release, so posting a
+  // record that's already up joins its post instead — it goes on your wall
+  // and into your followers' feeds, and the card says "also posted by you".
+  `CREATE TABLE IF NOT EXISTS post_joins (
+    post_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (post_id, user_id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_post_joins_user ON post_joins(user_id)',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

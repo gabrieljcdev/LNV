@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
+import { joinApi } from '../lib/collections'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -106,8 +107,6 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [phase, setPhase] = useState(() => (editPost ? 'form' : !user || !userId ? 'name' : 'link'))
  const [coverEdit, setCoverEdit] = useState(false)
  const [openTrack, setOpenTrack] = useState(null) // track row whose link field is open
- // "post anyway" on the already-posted notice re-runs the fetch past the check
- const skipDupe = useRef(false)
 
  const [inputUrl, setInputUrl] = useState(editPost ? (editPost.stream_url || editPost.discogs_url || '') : initialUrl)
  const [title, setTitle] = useState(editPost?.title || '')
@@ -255,10 +254,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  } catch (err) { setFetchError(`DISCOGS — ${String(err.message).toUpperCase()}`); setFetching(false); setFetchStatus(''); return }
  }
  setFetching(true); setFetchStatus('CHECKING DATABASE...')
- const skip = skipDupe.current; skipDupe.current = false
  try {
  const dupRes = await fetch(`${API}/posts?discogs_id=${id}`)
- if (dupRes.ok) { const dd = await dupRes.json(); const dp = Array.isArray(dd) ? dd : dd.posts; if (!skip && dp?.length > 0 && dp[0].id !== editPost?.id) { setDuplicate(dp[0]); setFetching(false); setFetchStatus(''); return } }
+ if (dupRes.ok) { const dd = await dupRes.json(); const dp = Array.isArray(dd) ? dd : dd.posts; if (dp?.length > 0 && dp[0].id !== editPost?.id) { setDuplicate(dp[0]); setFetching(false); setFetchStatus(''); return } }
  } catch { /* continue */ }
  setFetchStatus('FETCHING FROM DISCOGS...')
  try {
@@ -415,7 +413,16 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
 
  function goSignIn() { window.location.href = '/login' }
 
- function postAnyway() { skipDupe.current = true; setPhase('form'); handleFetch() }
+ // Already up (2026-10-04): there's one post per release, so "post it too"
+ // joins it — on your wall and in your followers' feeds, "also posted by".
+ const dupBy = duplicate?.user?.username || null
+ const dupMine = !!duplicate && (duplicate.user_id === getUserId() || (duplicate.alsoPostedBy || []).includes(getUser()))
+ async function postItToo() {
+ setFetching(true); setFetchError('')
+ try { await joinApi.join(duplicate.id); setDuplicate(null); setFetchStatus('ON YOUR WALL ✓'); setTimeout(() => { onPosted?.({ postId: duplicate.id }); onClose() }, 800) }
+ catch (err) { setFetchError(String(err.message).toUpperCase()) }
+ finally { setFetching(false) }
+ }
 
  const scrim = { position: 'fixed', inset: 0, background: 'rgba(30,33,38,0.7)', zIndex: 1000, backdropFilter: 'blur(3px)' }
  const mono = { fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, lineHeight: 1.45, letterSpacing: '0.09em', textTransform: 'uppercase' } // DESIGN_BASE metaline
@@ -452,14 +459,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  </div>
  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, padding: '12px 24px 0', ...mono }}>
  {duplicate
- ? <span style={{ color: 'rgba(255,255,255,0.85)' }}>Already on the board — {duplicate.title} · @{duplicate.username || 'lnv_admin'}</span>
+ ? <span style={{ color: 'rgba(255,255,255,0.85)' }}>{dupMine ? `Already on your wall — ${duplicate.title}` : `Already posted by @${dupBy} — ${duplicate.title}. Post it too and it goes on your wall.`}</span>
  : status
  ? <span style={{ color: isError ? '#ff8a65' : 'rgba(255,255,255,0.75)' }}>{status}</span>
  : naming
  ? <span style={{ color: 'rgba(255,255,255,0.55)' }}>Posts are signed with your account.</span>
  : <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', maxWidth: 480, fontSize: 10, letterSpacing: '0.08em' }}>{PLATFORMS.map(p => <span key={p.id} style={{ color: activePlatform?.id === p.id ? '#fff' : 'rgba(255,255,255,0.45)' }}>{p.label}</span>)}</span>}
  <span style={{ display: 'flex', gap: 16, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }}>
- {duplicate && <button onClick={postAnyway} style={{ ...quietBtn, color: '#fff' }}>post anyway</button>}
+ {duplicate && !dupMine && <button onClick={postItToo} disabled={fetching} style={{ ...quietBtn, color: '#fff' }}>post it too</button>}
  {cameBackEmpty && <button onClick={() => setPhase('form')} style={{ ...quietBtn, color: '#fff' }}>fill it in yourself</button>}
  <span>ENTER ↵ · ESC</span>
  </span>
