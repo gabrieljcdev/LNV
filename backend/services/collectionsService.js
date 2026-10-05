@@ -43,7 +43,9 @@ export function sharedFeedPage(feedId, { before = null, limit = 20 } = {}) {
 }
 
 // ── walls ─────────────────────────────────────────────────────────────────────
-export const userByName = name => db.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE').get(String(name || ''));
+// Case-insensitive, as sign-up keeps names unique that way — but an exact
+// match first (2026-10-05): older test accounts "ADMIN" and "admin" coexist.
+export const userByName = name => db.prepare('SELECT id, username FROM users WHERE username = @n COLLATE NOCASE ORDER BY username = @n DESC LIMIT 1').get({ n: String(name || '') });
 
 // Walls and my feed are made of entries: a post on its poster's wall, plus
 // one for each person who joined it ("also posted by", post_joins) — on the

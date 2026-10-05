@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -520,7 +520,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
         <div data-inner-scroll="" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: maxH, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
           {comments.map(c => (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
-              <span style={{ fontWeight: 700, color: 'var(--theme-text-pri)', flexShrink: 0 }}>{c.username || c.display_name || 'anon'}</span>
+              <CommentAuthor name={c.username} />
               <span style={{ color: 'var(--theme-text-sec)' }}>{c.content}</span>
             </div>
           ))}

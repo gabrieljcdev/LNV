@@ -138,6 +138,35 @@ export function WallLink({ name, style }) {
   )
 }
 
+// Who wrote a reply (2026-10-05): their name opens their wall, and a quiet
+// "+ follow" sits beside it when you don't follow them yet — replies are
+// where people meet, so following someone is one tap from what they said.
+// Not shown on your own replies, nor to visitors (the wall has the button).
+export function CommentAuthor({ name, style }) {
+  const qc = useQueryClient()
+  const { following } = useFollowing()
+  const [state, setState] = useState(null) // null | 'busy' | 'done'
+  if (!name) return <span style={style}>anon</span>
+  const me = getUser()
+  const offer = isLoggedIn() && name !== me && (state === 'done' || !following.some(f => f.username === name))
+  async function follow(e) {
+    e.stopPropagation()
+    setState('busy')
+    try { await wallsApi.follow(name); setState('done') } catch (err) { setState(null); window.alert(err.message) }
+    qc.invalidateQueries({ queryKey: ['following'] })
+    qc.invalidateQueries({ queryKey: ['wall', name] })
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, flexShrink: 0, ...style }}>
+      <WallLink name={name} style={{ fontWeight: 700, color: 'var(--theme-text-pri)' }} />
+      {offer && (state === 'done'
+        ? <span style={{ fontFamily: MONO, fontSize: '0.8em', color: 'var(--theme-text-ter)' }}>✓ following</span>
+        : <button onClick={follow} disabled={state === 'busy'} title={`Follow ${name}`}
+            style={{ ...plain, fontFamily: MONO, fontSize: '0.8em', color: 'var(--theme-accent)', opacity: state === 'busy' ? 0.5 : 1 }}>+ follow</button>)}
+    </span>
+  )
+}
+
 // Also posted by (2026-10-04): "& dan" after the poster's name — everyone
 // else who posted this release, first one named, the rest as "+2". If
 // you're one of them, "you" takes it off your wall again.
