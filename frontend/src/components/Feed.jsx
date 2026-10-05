@@ -2580,55 +2580,119 @@ function useInk(ref) {
 // The top bar (feed switcher + search) floats over the deck; cards start under it.
 const PHONE_TOPBAR_H = 'calc(58px + env(safe-area-inset-top))'
 
-// The phone's opening (2026-10-05): the desktop's first scroll, played on
-// its own. The three colours — the nav strip (rail), the strip's second
-// zone, the intro panel — stand side by side from the left with rounded
-// right edges, at the desktop's proportions (320 / 530 px of 1440). After a
-// beat they collapse leftwards one after the other, panel first, strip last,
-// and the first card rides in from the right on the panel's edge, rolling in
-// under the strip as on desktop. Once per page load; skipped for reduced motion.
+// The phone's opening (2026-10-05): the desktop's landing, built the same
+// way — the intro panel's colour, with the nav strip (rail) and the strip's
+// second zone over it at the left, at the desktop's proportions (320 / 530
+// px of 1440), rounded right edges. It sits just before the first post, the
+// post riding on the panel's right edge; the strip's two colours fold away as
+// the post comes across, as the desktop strip collapses over the feed.
+// It moves at its own fixed pace, not under the finger: on the first post, a
+// swipe back plays it in; on it, a swipe on (or a tap) plays it out. A page
+// load opens on it and plays it out after a beat. `ctlRef.current.close()`
+// shuts it at once (a new feed, a jump to a post).
 const OPENING_HOLD_MS = 500
-const OPENING_CLOSE_MS = 1400
-const OPENING_LAYERS = [ // drawn bottom to top
-  { bg: 'var(--theme-showcase)', rest: 100, from: 0, to: 0.7 },
-  { bg: 'var(--theme-channel, var(--theme-dark2))', rest: 37, from: 0.2, to: 0.85 },
-  { bg: 'var(--theme-sidebar)', rest: 22, from: 0.35, to: 1 },
+const OPENING_MOVE_MS = 1200
+const OPENING_SWIPE_PX = 24 // how far a swipe goes before it counts
+const OPENING_STRIP = [ // drawn bottom to top; `from`/`to`: the share of the way out it folds over
+  { bg: 'var(--theme-channel, var(--theme-dark2))', width: 37, from: 0, to: 0.75 },
+  { bg: 'var(--theme-sidebar)', width: 22, from: 0.2, to: 1 },
 ]
-let phoneOpeningPlayed = false
-function PhoneOpening({ deckRef }) {
-  const [done, setDone] = useState(() => phoneOpeningPlayed || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-  const layerRefs = useRef([])
-  // The deck starts off to the right, behind the panel.
-  useLayoutEffect(() => {
-    if (!done && deckRef.current) deckRef.current.style.transform = 'translateX(100%)'
-  }, [done, deckRef])
+const easeInOut = t => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+function PhoneOpening({ deckRef, ctlRef }) {
+  const rootRef = useRef(null)
+  const panelRef = useRef(null)
+  const stripRefs = useRef([])
   useEffect(() => {
-    if (done) return
-    phoneOpeningPlayed = true
-    const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
-    let raf = null, start = null
-    const tick = now => {
-      if (start === null) start = now
-      const t = Math.min(1, Math.max(0, now - start - OPENING_HOLD_MS) / OPENING_CLOSE_MS)
-      OPENING_LAYERS.forEach((l, i) => {
-        const k = ease(Math.min(1, Math.max(0, (t - l.from) / (l.to - l.from))))
-        const el = layerRefs.current[i]
-        if (el) el.style.width = `${l.rest * (1 - k)}%`
-        // the first card's left edge rides on the panel's right edge
-        if (i === 0 && deckRef.current) deckRef.current.style.transform = `translateX(${l.rest * (1 - k)}%)`
+    const deck = deckRef.current
+    const root = rootRef.current
+    // o: 1 = open (on the opening), 0 = closed (on the first post).
+    let o = 1, target = 1, tween = null, raf = null
+    const paint = () => {
+      const p = 1 - o
+      if (panelRef.current) panelRef.current.style.width = `${o * 100}%`
+      if (deck) deck.style.transform = o > 0 ? `translateX(${o * 100}%)` : ''
+      OPENING_STRIP.forEach((l, i) => {
+        const t = Math.min(1, Math.max(0, (p - l.from) / (l.to - l.from)))
+        const el = stripRefs.current[i]
+        if (el) el.style.width = `${l.width * (1 - easeInOut(t))}%`
       })
-      if (t < 1) raf = requestAnimationFrame(tick)
-      else setDone(true)
+      if (root) root.style.visibility = o > 0 ? 'visible' : 'hidden'
     }
-    raf = requestAnimationFrame(tick)
-    return () => { cancelAnimationFrame(raf); if (deckRef.current) deckRef.current.style.transform = '' }
-  }, [done, deckRef])
-  if (done) return null
+    const step = now => {
+      if (tween.start == null) tween.start = now
+      const t = Math.min(1, (now - tween.start) / tween.dur)
+      o = tween.from + (tween.to - tween.from) * easeInOut(t)
+      paint()
+      raf = t < 1 ? requestAnimationFrame(step) : null
+    }
+    const moveTo = to => {
+      target = to
+      cancelAnimationFrame(raf)
+      if (reducedMotion() || o === to) { o = to; paint(); return }
+      tween = { from: o, to, start: null, dur: OPENING_MOVE_MS * Math.abs(to - o) }
+      raf = requestAnimationFrame(step)
+    }
+    ctlRef.current = { close: () => { cancelAnimationFrame(raf); target = 0; o = 0; paint() } }
+
+    // On the first post: a swipe back (finger right, trackpad left, ←) plays it in.
+    let sx = 0, sy = 0, armed = false
+    const atStart = () => target === 0 && deck.scrollLeft <= 1
+    const onDeckTouchStart = e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; armed = atStart() }
+    const onDeckTouchMove = e => {
+      if (!armed) return
+      const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy
+      if (dx > OPENING_SWIPE_PX && dx > Math.abs(dy)) { armed = false; moveTo(1) }
+    }
+    const onDeckWheel = e => { if (atStart() && e.deltaX < -OPENING_SWIPE_PX) moveTo(1) }
+    // On the opening: a swipe on, a tap, or → plays it out.
+    const onRootTouchStart = e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; armed = true }
+    const onRootTouchMove = e => {
+      e.preventDefault() // the deck underneath stays put
+      if (!armed) return
+      const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy
+      if (-dx > OPENING_SWIPE_PX && -dx > Math.abs(dy)) { armed = false; moveTo(0) }
+    }
+    const onRootClick = () => moveTo(0)
+    const onRootWheel = e => { e.preventDefault(); if (e.deltaX > OPENING_SWIPE_PX || e.deltaY > OPENING_SWIPE_PX) moveTo(0) }
+    const onKey = e => {
+      if (e.target.closest?.('input, textarea, [contenteditable]')) return
+      if (target === 1 && e.key === 'ArrowRight') { e.stopPropagation(); moveTo(0) }
+      else if (atStart() && e.key === 'ArrowLeft') { e.stopPropagation(); moveTo(1) }
+    }
+    deck.addEventListener('touchstart', onDeckTouchStart, { passive: true })
+    deck.addEventListener('touchmove', onDeckTouchMove, { passive: true })
+    deck.addEventListener('wheel', onDeckWheel, { passive: true })
+    root.addEventListener('touchstart', onRootTouchStart, { passive: true })
+    root.addEventListener('touchmove', onRootTouchMove, { passive: false })
+    root.addEventListener('click', onRootClick)
+    root.addEventListener('wheel', onRootWheel, { passive: false })
+    window.addEventListener('keydown', onKey, true)
+
+    // A page load: open, then out after a beat.
+    paint()
+    const hold = setTimeout(() => moveTo(0), OPENING_HOLD_MS)
+    return () => {
+      clearTimeout(hold)
+      cancelAnimationFrame(raf)
+      deck.style.transform = ''
+      deck.removeEventListener('touchstart', onDeckTouchStart)
+      deck.removeEventListener('touchmove', onDeckTouchMove)
+      deck.removeEventListener('wheel', onDeckWheel)
+      root.removeEventListener('touchstart', onRootTouchStart)
+      root.removeEventListener('touchmove', onRootTouchMove)
+      root.removeEventListener('click', onRootClick)
+      root.removeEventListener('wheel', onRootWheel)
+      window.removeEventListener('keydown', onKey, true)
+      ctlRef.current = null
+    }
+  }, [deckRef, ctlRef])
+  const edge = { position: 'absolute', top: 0, left: 0, bottom: 0, borderTopRightRadius: STRIP_RADIUS, borderBottomRightRadius: STRIP_RADIUS, transition: 'background 0.8s' }
   return (
-    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, zIndex: 40, pointerEvents: 'none', overflow: 'hidden' }}>
-      {OPENING_LAYERS.map((l, i) => (
-        <div key={i} ref={el => { layerRefs.current[i] = el }}
-          style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${l.rest}%`, background: l.bg, borderTopRightRadius: STRIP_RADIUS, borderBottomRightRadius: STRIP_RADIUS }} />
+    <div ref={rootRef} aria-label="Opening — swipe or tap to start" style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'pointer' }}>
+      <div ref={panelRef} style={{ ...edge, width: '100%', background: 'var(--theme-showcase)' }} />
+      {OPENING_STRIP.map((l, i) => (
+        <div key={i} ref={el => { stripRefs.current[i] = el }} style={{ ...edge, width: `${l.width}%`, background: l.bg }} />
       ))}
     </div>
   )
@@ -2638,7 +2702,7 @@ function Slide({ bg, children }) {
   const ref = useRef(null)
   const ink = useInk(ref)
   return (
-    <section style={{ position: 'relative', zIndex: 1, flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
+    <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
       <div ref={ref} data-inner-scroll=""
         style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: PHONE_RADIUS, background: bg, boxShadow: '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
         {children}
@@ -2850,14 +2914,22 @@ function PhoneSpotlight({ subject, onJump }) {
 
 function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar }) {
   const deckRef = useRef(null)
+  const openingRef = useRef(null)
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(null) // key of the card whose player is open
   // The desktop's placeholder channel spotlight has nothing to show here.
   const list = (shelf.current || []).filter(it => it.kind === 'post' || !it.subject?.isPlaceholder)
-  // A new feed or search starts at its first card.
+
+  // A new feed or search starts at its first card, the opening shut.
   const [shownKey, setShownKey] = useState(viewKey)
   if (shownKey !== viewKey) { setShownKey(viewKey); setIdx(0) }
-  useEffect(() => { deckRef.current?.scrollTo({ left: 0 }) }, [viewKey])
+  const firstKey = useRef(viewKey)
+  useEffect(() => {
+    if (viewKey === firstKey.current) return
+    firstKey.current = null
+    openingRef.current?.close()
+    deckRef.current?.scrollTo({ left: 0 })
+  }, [viewKey])
 
   // The next page when FEED_LOAD_AHEAD cards from the end.
   useEffect(() => { if (hasMore && idx >= list.length - FEED_LOAD_AHEAD) loadMore() }, [idx, list.length, hasMore, loadMore])
@@ -2867,7 +2939,13 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
     if (el) el.scrollTo({ left: Math.max(0, Math.min(i, list.length - 1)) * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
   }
   // Jumps (search, drawers, a spotlight's covers) land straight on the card.
-  const jumpTo = id => { const i = list.findIndex(it => it.post?.id === id); if (i < 0) return false; go(i, false); return true }
+  const jumpTo = id => {
+    const i = list.findIndex(it => it.post?.id === id)
+    if (i < 0) return false
+    openingRef.current?.close()
+    go(i, false)
+    return true
+  }
   useEffect(() => { if (jumpRef) jumpRef.current = jumpTo })
 
   // Arrow keys on a narrow desktop window.
@@ -2888,14 +2966,14 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'var(--theme-bg)' }}>
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: 'var(--theme-bg)' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 8, padding: `calc(10px + env(safe-area-inset-top)) ${PHONE_GAP}px 10px` }}>
         {topBar}
       </div>
       <div ref={deckRef} onScroll={onScroll} aria-label="Posts — swipe for the next one"
         style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', scrollbarWidth: 'none' }}>
         {list.length === 0 ? (
-          <section style={{ position: 'relative', zIndex: 1, flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--theme-bg)', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
+          <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
         ) : list.map((it, i) => (
           <Slide key={it.key} bg={cardBg(i, it)}>
             {it.kind === 'spotlight'
@@ -2905,7 +2983,7 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
           </Slide>
         ))}
       </div>
-      <PhoneOpening deckRef={deckRef} />
+      <PhoneOpening deckRef={deckRef} ctlRef={openingRef} />
     </div>
   )
 }
