@@ -6,7 +6,7 @@ import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -190,12 +190,16 @@ export function HeartButton({ post, size, style }) {
 // ♥ by an artist's, label's or channel's name (2026-10-06): add it to
 // your favourite artists / labels / channels — three lists, on your
 // profile. Tap again to take it off. Visitors are asked to sign in.
+// Channels (2026-10-05): only proper ones (useProperChannels) get a ♡ —
+// one already ♥'d keeps its ♥ so it can still be taken off.
 export function FavHeart({ kind, name, size, onChange, onColor = 'var(--theme-accent)', style }) {
   const qc = useQueryClient()
   const { has } = useFavourites()
+  const proper = useProperChannels()
   const [busy, setBusy] = useState(false)
   if (!name) return null
   const on = has(kind, name)
+  if (kind === 'channel' && !on && !proper.has(name.toLowerCase())) return null
   const what = { artist: 'artists', label: 'labels', channel: 'channels' }[kind]
   async function click(e) {
     e.stopPropagation()

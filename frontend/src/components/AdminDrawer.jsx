@@ -274,6 +274,53 @@ function UsersTab() {
   )
 }
 
+// Channels (2026-10-05): which can be ♥'d — proper channels only, by
+// YouTube's numbers or your say-so. Mark one official / not, or let the
+// numbers decide again.
+function ChannelsTab() {
+  const qc = useQueryClient()
+  const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'channels'], queryFn: () => getJson('/channels') })
+  const [busy, setBusy] = useState(null)
+  if (isLoading) return <Note>Loading…</Note>
+  if (error) return <Note tone="error">{error.message}</Note>
+  const r = data.rule
+  const set = async (name, official) => {
+    setBusy(name)
+    try {
+      const d = await postJson('/channels/official', { name, official })
+      qc.setQueryData(['admin', 'channels'], { ...data, channels: d.channels })
+      qc.invalidateQueries({ queryKey: ['channels', 'proper'] })
+    } catch (e) { window.alert(e.message) }
+    setBusy(null)
+  }
+  return <>
+    <Section title="Who can be ♥'d">
+      <Note>Channels can be ♥'d with at least {n(r.minUploads)} uploads, {n(r.minSubscribers)} subscribers (shown, not hidden) and {r.minAgeDays} days on YouTube — or when you mark them official. The numbers refresh every 30 days.</Note>
+    </Section>
+    <Section title="Channels" right={`${data.channels.filter(c => c.proper).length} of ${data.channels.length} can be ♥'d`}>
+      {data.channels.map(c => (
+        <div key={c.name} style={{ borderBottom: `1px solid ${LINE}`, padding: '10px 0' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16, color: PRI }}>{c.name}</span>
+            {c.handle && <span style={{ fontFamily: MONO, fontSize: 11.5, color: TER }}>{c.handle}</span>}
+            <span style={{ marginLeft: 'auto', fontFamily: SANS, fontSize: 13, fontWeight: 600, color: c.proper ? PRI : LEVEL.warn }}>{c.proper ? '♥ allowed' : 'no ♥'}</span>
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER, marginTop: 2 }}>
+            {c.uploads != null ? `${n(c.uploads)} uploads` : 'no numbers'}
+            {c.subs_hidden ? ' · subscribers hidden' : c.subscribers != null ? ` · ${n(c.subscribers)} subscribers` : ''}
+            {c.started_at ? ` · since ${c.started_at.slice(0, 4)}` : ''} · {c.why}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            {c.official !== 1 && <Btn onClick={() => set(c.name, true)} disabled={!!busy}>Mark official</Btn>}
+            {c.official !== 0 && <Btn onClick={() => set(c.name, false)} disabled={!!busy}>Mark not official</Btn>}
+            {c.official != null && <Btn onClick={() => set(c.name, null)} disabled={!!busy}>Back to the numbers</Btn>}
+          </div>
+        </div>
+      ))}
+    </Section>
+  </>
+}
+
 // Introductions (alpha, 2026-10-05): who was introduced to whom and why,
 // over 30 days, and what came of it — so the rules can be checked by eye.
 function IntroductionsTab() {
@@ -319,12 +366,13 @@ export function AdminDrawer({ tab: initialTab }) {
   const [logLevel, setLogLevel] = useState('')
   return <>
     <DrawerHead title="Admin" count="">
-      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
+      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['channels', 'Channels'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
     </DrawerHead>
     <DrawerBody>
       {tab === 'status' && <StatusTab onShowLogs={lvl => { setLogLevel(lvl); setTab('logs') }} />}
       {tab === 'logs' && <LogsTab key={logLevel} initialLevel={logLevel} />}
       {tab === 'users' && <UsersTab />}
+      {tab === 'channels' && <ChannelsTab />}
       {tab === 'intros' && <IntroductionsTab />}
     </DrawerBody>
   </>

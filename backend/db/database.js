@@ -396,6 +396,22 @@ const migrations = [
   )`,
   'CREATE INDEX IF NOT EXISTS idx_intro_shown_viewer ON intro_shown(viewer_id, target_id)',
   'CREATE INDEX IF NOT EXISTS idx_intro_shown_target ON intro_shown(target_id, shown_at)',
+  // Proper channels (2026-10-05): only established channels can be ♥'d,
+  // judged from YouTube's own numbers (youtubeService channelVerdict) —
+  // subscribers (can be hidden), when the channel started, its @handle —
+  // fetched with the channel (no extra quota) or in batches of 50 (1 unit).
+  // channel_status: an admin's say-so by channel name, over the numbers.
+  'ALTER TABLE yt_channels ADD COLUMN subscribers INTEGER',
+  'ALTER TABLE yt_channels ADD COLUMN subs_hidden INTEGER',
+  'ALTER TABLE yt_channels ADD COLUMN started_at TEXT',
+  'ALTER TABLE yt_channels ADD COLUMN handle TEXT',
+  'ALTER TABLE yt_channels ADD COLUMN stats_at TEXT',
+  `CREATE TABLE IF NOT EXISTS channel_status (
+    name_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    official INTEGER NOT NULL,
+    set_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

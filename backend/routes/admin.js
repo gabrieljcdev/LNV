@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import db from '../db/database.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { readLog, logSummary, logEvent } from '../services/logService.js';
-import { quotaUsed } from '../services/youtubeService.js';
+import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } from '../services/youtubeService.js';
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
@@ -75,6 +75,21 @@ router.get('/logs', (req, res, next) => {
   try {
     const { level, kind, q, before, limit } = req.query;
     res.json(readLog({ level, kind, q, before, limit }));
+  } catch (err) { next(err); }
+});
+
+// ── Channels (2026-10-05) ──
+// Which channels can be ♥'d and why; mark one official, not, or back to
+// the numbers (official: true | false | null).
+router.get('/channels', (req, res, next) => {
+  try { res.json({ channels: channelsWithVerdicts(), rule: PROPER_CHANNEL }); } catch (err) { next(err); }
+});
+router.post('/channels/official', (req, res, next) => {
+  try {
+    const { name, official } = req.body || {};
+    if (!setChannelOfficial(name, official === null || official === undefined ? null : !!official)) return res.status(400).json({ error: 'Which channel?' });
+    logEvent('info', 'admin', `Channel “${name}”: ${official === null || official === undefined ? 'back to the numbers' : official ? 'marked official' : 'marked not official'}`);
+    res.json({ channels: channelsWithVerdicts() });
   } catch (err) { next(err); }
 });
 

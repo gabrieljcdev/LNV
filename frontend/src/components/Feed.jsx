@@ -1248,6 +1248,13 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
           <div style={{ fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', color: 'var(--lv-sec)' }}>00-{post.feedNumber ?? post.id}</div>
           <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: T.artistSize, lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, textTransform: T.artistCase, marginTop: 10, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist ? <DrawerLink kind="live" name={artist} quiet>{artist}</DrawerLink> : artist}</div>
           <div style={{ fontFamily: T.artistFf, fontStyle: 'italic', fontSize: T.titleSize, lineHeight: T.titleLh, letterSpacing: `${T.titleLs}em`, marginTop: 4, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+          {/* The channel, with its ♥ (2026-10-05, gabriel) — as on phones. */}
+          {post.channel && (
+            <div style={{ marginTop: 8, fontFamily: SANS, fontSize: 13, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <DrawerLink kind="live" name={post.channel}>{post.channel}</DrawerLink>{' '}
+              <FavHeart kind="channel" name={post.channel} size={15} style={{ color: 'var(--lv-sec)' }} />
+            </div>
+          )}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <span style={{ ...pill, background: 'var(--theme-showcase)', color: '#fff' }}>live set</span>{' '}

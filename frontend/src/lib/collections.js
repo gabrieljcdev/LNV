@@ -113,6 +113,13 @@ export function useFavourites() {
   const has = (kind, name) => (lists[kind] || []).some(n => n.toLowerCase() === String(name || '').toLowerCase())
   return { lists, has }
 }
+// Channels that can be ♥'d (2026-10-05): established ones only — enough
+// uploads, subscribers and years on YouTube, or marked official by an
+// admin (backend youtubeService channelVerdict). Public; names lower-cased.
+export function useProperChannels() {
+  const q = useQuery({ queryKey: ['channels', 'proper'], queryFn: () => call('GET', '/media/channels/proper'), staleTime: 10 * 60_000 })
+  return new Set((q.data?.names || []).map(n => n.toLowerCase()))
+}
 export const favouritesApi = {
   set: (kind, name, on) => call('PUT', '/walls/me/favourites', { kind, name, on }),
 }
