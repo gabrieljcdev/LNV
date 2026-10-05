@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLayout } from '../context/LayoutContext';
-import { usePlayer } from '../context/PlayerContext';
+import { usePlayer } from '../context/usePlayer';
 import { usePhone } from '../lib/usePhone';
 import { PHONE_NAV_H } from './PhoneNav';
+
+const WAVE_HEIGHTS = [6,10,18,12,22,26,18,14,22,28,20,14,12,18,24,16,10,14,20,26,18,12];
 
 export default function OrangePlayer() {
   const { currentTrack, setCurrentTrack, scrollToPost } = useLayout();
@@ -16,7 +18,7 @@ export default function OrangePlayer() {
   const hideTimer               = useRef(null);
   const waveRef                 = useRef(null);
   const waveFrame               = useRef(0);
-  const waveHeights             = [6,10,18,12,22,26,18,14,22,28,20,14,12,18,24,16,10,14,20,26,18,12];
+  const waveHeights             = WAVE_HEIGHTS;
 
   // Show player and load track when currentTrack changes
 useEffect(() => {
@@ -40,7 +42,7 @@ useEffect(() => {
       clearTimeout(hideTimer.current);
     }
     return () => clearTimeout(hideTimer.current);
-  }, [isPlaying, visible]);
+  }, [isPlaying, visible, currentTrack]);
 
   // Animate waveform
   useEffect(() => {
@@ -55,7 +57,7 @@ useEffect(() => {
       });
     }, 110);
     return () => clearInterval(iv);
-  }, [isPlaying]);
+  }, [isPlaying, waveHeights]);
 
   // Drag
   const onMouseDown = useCallback((e) => {

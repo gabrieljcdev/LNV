@@ -117,6 +117,67 @@ export function inCommon(a, b) {
   };
 }
 
+// Introductions (alpha, 2026-10-05): people my feed suggests you follow.
+// Fixed rules, written out on the About page — no learning, no engagement
+// signals, and they never reorder the feed (the client slots them in, at
+// most one in eight cards). Two kinds of reason:
+// - social: people you follow who follow them;
+// - musical: the artists, labels and records you both chose to post, the
+//   rarer the stronger (as inCommon: 1 / how many people post the name).
+// Someone qualifies with at least INTRO_MIN_POSTS posts, when a reason is
+// strong (two people you follow, or one plus something in common, or
+// enough in common on its own), and isn't followed, said no to (×), shown
+// to you in the last INTRO_RESHOW_DAYS, or already introduced to
+// INTRO_WEEK_CAP people this week.
+export const INTRO_MIN_POSTS = 5;
+export const INTRO_WEEK_CAP = 20;
+const INTRO_RESHOW_DAYS = 14, INTRO_MAX = 3;
+export function introductionsFor(viewerId) {
+  if (db.prepare('SELECT intros_off FROM users WHERE id = ?').get(viewerId)?.intros_off) return { off: true, items: [] };
+  const candidates = db.prepare(`
+    SELECT u.id, u.username, u.bio, u.created_at FROM users u
+    WHERE u.id <> @me
+      AND u.id NOT IN (SELECT followee_id FROM follows WHERE follower_id = @me)
+      AND u.id NOT IN (SELECT target_id FROM intro_dismissals WHERE user_id = @me)
+      AND u.id NOT IN (SELECT target_id FROM intro_shown WHERE viewer_id = @me AND shown_at > datetime('now', @reshow))
+      AND (SELECT COUNT(DISTINCT viewer_id) FROM intro_shown WHERE target_id = u.id AND shown_at > datetime('now', '-7 days')) < @cap
+  `).all({ me: viewerId, reshow: `-${INTRO_RESHOW_DAYS} days`, cap: INTRO_WEEK_CAP })
+    .filter(u => wallStats(u.id).post_count >= INTRO_MIN_POSTS);
+  const via = db.prepare(`SELECT u.username FROM follows a JOIN follows b ON b.follower_id = a.followee_id JOIN users u ON u.id = a.followee_id
+    WHERE a.follower_id = ? AND b.followee_id = ? ORDER BY u.username`);
+  const scored = [];
+  for (const u of candidates) {
+    const social = via.all(viewerId, u.id).map(r => r.username);
+    const common = inCommon(viewerId, u.id);
+    const names = [...common.labels.items, ...common.artists.items].sort((a, b) => a.posters - b.posters);
+    const musical = names.reduce((s, n) => s + 1 / n.posters, 0) + common.records.total * 0.5;
+    const strong = social.length >= 2 || (social.length >= 1 && musical > 0) || musical >= 1;
+    if (!strong) continue;
+    scored.push({ u, social, names, records: common.records.total, nameTotal: common.labels.total + common.artists.total, score: social.length + musical });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const latest = db.prepare(`WITH e AS (${ENTRIES}) SELECT p.id, p.title, p.thumb_image, p.cover_image FROM e JOIN posts p ON p.id = e.post_id
+    WHERE e.owner = ? ORDER BY e.at DESC LIMIT 3`);
+  return {
+    off: false,
+    items: scored.slice(0, INTRO_MAX).map(({ u, social, names, records, nameTotal }) => ({
+      username: u.username, bio: u.bio || '', member_since: u.created_at,
+      post_count: wallStats(u.id).post_count,
+      social: { names: social.slice(0, 2), total: social.length },
+      common: { names: names.slice(0, 2).map(n => ({ name: n.name, posters: n.posters })), more: Math.max(0, nameTotal - 2), records },
+      latest: latest.all(u.id).map(p => ({ id: p.id, title: p.title, cover: p.thumb_image || p.cover_image || null })),
+    })),
+  };
+}
+// The log line for the admin view: why someone was introduced.
+export function introReason(item) {
+  const parts = [];
+  if (item.social.total) parts.push(`follows: ${item.social.names.join(', ')}${item.social.total > item.social.names.length ? ` +${item.social.total - item.social.names.length}` : ''}`);
+  if (item.common.names.length) parts.push(`both post: ${item.common.names.map(n => n.name).join(', ')}${item.common.more ? ` +${item.common.more}` : ''}`);
+  if (item.common.records) parts.push(`${item.common.records} record${item.common.records === 1 ? '' : 's'} in common`);
+  return parts.join(' · ');
+}
+
 // A profile (2026-10-05): the wall's card. Interests come from what the
 // owner chose to post (their posts + records they ♥'d, as inCommon): top styles,
 // artists, labels; plus their favourites and the playlists they show.

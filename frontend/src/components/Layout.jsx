@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Strip, { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Preloader from './Preloader';
@@ -22,9 +22,12 @@ function LayoutInner() {
     setView(v);
   }
 
-  // Expose on window for strip access
-  window.lnvNavigate = navigate;
-  window.lnvSelectFeed = () => navigate('feed');
+  // Expose on window for strip access (set once mounted — React doesn't
+  // allow changing globals while drawing).
+  useEffect(() => {
+    window.lnvNavigate = v => setView(v);
+    window.lnvSelectFeed = () => setView('feed');
+  }, []);
 
   // Phones (2026-10-05): no strip, no sideways-scrolling shelf — the feed
   // fills the screen as a swipeable deck (PhoneFeed in Feed.jsx) over a bottom nav

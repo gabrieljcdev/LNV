@@ -1,9 +1,15 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl, catalogueCandidates } from '../services/discogsService.js';
-import { getChannelUploads, extractVideoId } from '../services/youtubeService.js';
+import { getChannelUploads, extractVideoId, channelsWithVerdicts } from '../services/youtubeService.js';
 
 const router = express.Router();
+
+// Channels that can be ♥'d (2026-10-05): established ones only, by
+// YouTube's numbers or an admin's say-so (youtubeService channelVerdict).
+router.get('/channels/proper', (req, res, next) => {
+  try { res.json({ names: channelsWithVerdicts().filter(c => c.proper).map(c => c.name) }); } catch (err) { next(err); }
+});
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 

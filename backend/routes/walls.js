@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite } from '../services/collectionsService.js';
+import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, introductionsFor, introReason } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -38,6 +38,59 @@ router.delete('/:username/follow', requireAuth, (req, res, next) => {
     const u = userByName(req.params.username);
     if (u) db.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user.id, u.id);
     res.json({ following: false });
+  } catch (err) { next(err); }
+});
+
+// ── introductions (alpha, 2026-10-05) ────────────────────────────────────────
+// People my feed suggests you follow (collectionsService introductionsFor).
+// The reasons last handed out are remembered so "seen" can log them.
+const lastReasons = new Map(); // viewer id -> Map(username -> reason)
+router.get('/me/introductions', requireAuth, (req, res, next) => {
+  try {
+    const out = introductionsFor(req.user.id);
+    lastReasons.set(req.user.id, new Map(out.items.map(i => [i.username, introReason(i)])));
+    res.json(out);
+  } catch (err) { next(err); }
+});
+// The card came on screen: log it (once a day per person at most).
+router.post('/me/introductions/:username/seen', requireAuth, (req, res, next) => {
+  try {
+    const u = userByName(req.params.username);
+    const reason = lastReasons.get(req.user.id)?.get(u?.username);
+    if (u && reason != null && !db.prepare("SELECT 1 FROM intro_shown WHERE viewer_id = ? AND target_id = ? AND shown_at > datetime('now', '-1 day')").get(req.user.id, u.id)) {
+      db.prepare('INSERT INTO intro_shown (viewer_id, target_id, reason) VALUES (?, ?, ?)').run(req.user.id, u.id, reason);
+    }
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+// × — never introduce this person to you again (DELETE undoes it).
+router.post('/me/introductions/:username/dismiss', requireAuth, (req, res, next) => {
+  try {
+    const u = userByName(req.params.username);
+    if (!u) return res.status(404).json({ error: 'No such user.' });
+    db.prepare('INSERT OR IGNORE INTO intro_dismissals (user_id, target_id) VALUES (?, ?)').run(req.user.id, u.id);
+    res.json({ dismissed: true });
+  } catch (err) { next(err); }
+});
+router.delete('/me/introductions/:username/dismiss', requireAuth, (req, res, next) => {
+  try {
+    const u = userByName(req.params.username);
+    if (u) db.prepare('DELETE FROM intro_dismissals WHERE user_id = ? AND target_id = ?').run(req.user.id, u.id);
+    res.json({ dismissed: false });
+  } catch (err) { next(err); }
+});
+// Your setting: on/off, and the people you said no to.
+const introSettings = userId => ({
+  off: !!db.prepare('SELECT intros_off FROM users WHERE id = ?').get(userId)?.intros_off,
+  dismissed: db.prepare('SELECT u.username FROM intro_dismissals d JOIN users u ON u.id = d.target_id WHERE d.user_id = ? ORDER BY d.created_at DESC').all(userId).map(r => r.username),
+});
+router.get('/me/introductions/settings', requireAuth, (req, res, next) => {
+  try { res.json(introSettings(req.user.id)); } catch (err) { next(err); }
+});
+router.put('/me/introductions/settings', requireAuth, (req, res, next) => {
+  try {
+    db.prepare('UPDATE users SET intros_off = ? WHERE id = ?').run(req.body?.off ? 1 : 0, req.user.id);
+    res.json(introSettings(req.user.id));
   } catch (err) { next(err); }
 });
 

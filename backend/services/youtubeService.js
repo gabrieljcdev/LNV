@@ -211,7 +211,80 @@ async function ensureChannel(videoId) {
   if (!uploadsId) throw new Error(`No uploads playlist for channel ${channelId}`);
   db.prepare('INSERT OR IGNORE INTO yt_channels (channel_id, uploads_id, title, thumb, total) VALUES (?, ?, ?, ?, ?)')
     .run(channelId, uploadsId, item.snippet?.title || '', item.snippet?.thumbnails?.default?.url || null, Number(item.statistics?.videoCount) || null);
+  saveChannelStats(item);
   return channelRow(channelId);
+}
+
+// ─── Proper channels (2026-10-05) ─────────────────────────────────────────────
+// gabriel: only channels worth having can be ♥'d — "not some 10 video
+// channel but an official channel". YouTube has no "official" flag in its
+// API, so it's judged from its numbers: enough uploads, enough subscribers
+// and a channel that's been going a while. Hidden subscriber counts don't
+// pass on their own. An admin can mark a channel official, or not, by
+// name (channel_status), over the numbers.
+export const PROPER_CHANNEL = { minUploads: 50, minSubscribers: 1000, minAgeDays: 365 };
+const STATS_EVERY_DAYS = 30;
+
+function saveChannelStats(item) {
+  const st = item?.statistics || {}, sn = item?.snippet || {};
+  db.prepare(`UPDATE yt_channels SET subscribers = ?, subs_hidden = ?, started_at = ?, handle = ?, total = COALESCE(?, total), stats_at = datetime('now')
+    WHERE channel_id = ?`).run(st.hiddenSubscriberCount ? null : (Number(st.subscriberCount) || 0), st.hiddenSubscriberCount ? 1 : 0,
+    sn.publishedAt || null, sn.customUrl || null, Number(st.videoCount) || null, item.id);
+}
+
+// Channels without numbers (or numbers older than STATS_EVERY_DAYS) get
+// them, 50 per request at 1 unit each — from the keeper's sweep.
+export async function refreshChannelStats() {
+  const ids = db.prepare(`SELECT channel_id FROM yt_channels WHERE stats_at IS NULL OR stats_at < datetime('now', ?)`)
+    .all(`-${STATS_EVERY_DAYS} days`).map(r => r.channel_id);
+  for (let i = 0; i < ids.length; i += 50) {
+    if (!spendQuota(1)) return;
+    const ch = await ytApi('channels', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: '50' });
+    for (const item of ch.items || []) saveChannelStats(item);
+  }
+}
+
+// Whether a channel can be ♥'d, and why — for the admin view too.
+export function channelVerdict(row, official) {
+  if (official === 1 || official === 0) return { proper: !!official, why: official ? 'marked official' : 'marked not' };
+  if (!row) return { proper: false, why: 'not a YouTube channel we know' };
+  if (!row.stats_at) return { proper: false, why: 'numbers not fetched yet' };
+  const ageDays = row.started_at ? (Date.now() - new Date(row.started_at).getTime()) / 86400000 : 0;
+  const misses = [];
+  if ((row.total || 0) < PROPER_CHANNEL.minUploads) misses.push(`under ${PROPER_CHANNEL.minUploads} uploads`);
+  if (row.subs_hidden) misses.push('subscribers hidden');
+  else if ((row.subscribers || 0) < PROPER_CHANNEL.minSubscribers) misses.push(`under ${PROPER_CHANNEL.minSubscribers.toLocaleString('en-GB')} subscribers`);
+  if (ageDays < PROPER_CHANNEL.minAgeDays) misses.push('under a year old');
+  return misses.length ? { proper: false, why: misses.join(', ') } : { proper: true, why: 'passes the numbers' };
+}
+
+// Every channel name in use (posted live sets + crawled channels), with its
+// verdict. Names match the YouTube channel title, ignoring case.
+export function channelsWithVerdicts() {
+  const overrides = new Map(db.prepare('SELECT name_key, official FROM channel_status').all().map(r => [r.name_key, r.official]));
+  const rows = new Map(db.prepare('SELECT * FROM yt_channels').all().map(r => [String(r.title || '').toLowerCase(), r]));
+  const names = new Map();
+  for (const r of rows.values()) if (r.title) names.set(r.title.toLowerCase(), r.title);
+  for (const { channel } of db.prepare("SELECT DISTINCT channel FROM posts WHERE channel IS NOT NULL AND trim(channel) <> ''").all()) {
+    if (!names.has(channel.toLowerCase())) names.set(channel.toLowerCase(), channel);
+  }
+  return [...names].map(([key, name]) => {
+    const row = rows.get(key) || null;
+    const official = overrides.has(key) ? overrides.get(key) : null;
+    return {
+      name, official,
+      uploads: row?.total ?? null, subscribers: row?.subscribers ?? null, subs_hidden: !!row?.subs_hidden,
+      started_at: row?.started_at || null, handle: row?.handle || null,
+      ...channelVerdict(row, official),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+export function setChannelOfficial(name, official) {
+  const clean = String(name || '').trim().slice(0, 200);
+  if (!clean) return false;
+  if (official === null) db.prepare('DELETE FROM channel_status WHERE name_key = ?').run(clean.toLowerCase());
+  else db.prepare('INSERT OR REPLACE INTO channel_status (name_key, name, official) VALUES (?, ?, ?)').run(clean.toLowerCase(), clean, official ? 1 : 0);
+  return true;
 }
 
 // One page of the uploads playlist into yt_channel_videos.
@@ -291,6 +364,8 @@ async function crawlChannel(channelId) {
 export function startChannelKeeper() {
   const sweep = async () => {
     try {
+      // Channel numbers for the ♥ rule (proper channels), 1 unit per 50.
+      await refreshChannelStats().catch(err => logEvent('error', 'crawl', `YouTube channel numbers: ${err.message}`));
       for (const { channel_id } of db.prepare('SELECT channel_id FROM yt_channels').all()) await crawlChannel(channel_id);
       const sets = db.prepare("SELECT stream_url FROM posts WHERE post_type = 'livemix' AND stream_url LIKE '%youtu%'").all();
       for (const { stream_url } of sets) {
