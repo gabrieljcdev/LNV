@@ -569,6 +569,19 @@ export function AboutDrawer() {
       </ul>
       <h3 style={h3}>Posting</h3>
       <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Add a post title and a few lines on why it matters.</p>
+      {/* 2026-10-05: the introductions' rules, in full (Collect.jsx IntroCard,
+          backend collectionsService introductionsFor). Keep them in step. */}
+      <h3 style={h3}>Introductions <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', border: `1px solid ${LINE}`, borderRadius: 99, padding: '1px 7px', verticalAlign: 'middle' }}>α ALPHA</span></h3>
+      <p style={p}>Now and then your feed introduces someone you might like to follow. It's a fixed set of rules, written here in full. Nothing learns from you, and nothing is tuned to keep you scrolling.</p>
+      <ol style={{ margin: '0 0 8px', paddingLeft: 20, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.6, maxWidth: '46ch' }}>
+        <li><b style={{ color: PRI }}>Your feed's order never changes.</b> Posts stay newest first; an introduction slots in between, at most once every eight cards and never before the eighth.</li>
+        <li><b style={{ color: PRI }}>Every introduction says why:</b> people you follow follow them, you both post the same artists, labels or records — or both.</li>
+        <li><b style={{ color: PRI }}>Only what people choose to post counts</b> — their posts and the records they ♥. Likes, plays, replies and time spent are never used.</li>
+        <li><b style={{ color: PRI }}>Rarer is stronger.</b> Sharing a small label says more than sharing a big one.</li>
+        <li><b style={{ color: PRI }}>Only people with at least 5 posts</b> are introduced, and nobody is suggested to more than 20 people a week.</li>
+        <li><b style={{ color: PRI }}>× means no, for good.</b> Undo it on your profile.</li>
+        <li><b style={{ color: PRI }}>Turn them off</b> any time — the switch is on your profile, under Friends' posts.</li>
+      </ol>
       <h3 style={h3}>Contact</h3>
       <p style={p}>hello@latenightvibes.com · @latenightvibes</p>
       <h3 style={h3}>Built with</h3>

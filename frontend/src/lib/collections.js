@@ -147,6 +147,31 @@ export const wallsApi = {
 }
 export const wallLink = username => `${window.location.origin}/?wall=${encodeURIComponent(username)}`
 
+// Introductions (alpha, 2026-10-05): people my feed suggests you follow,
+// with the reasons (backend collectionsService introductionsFor). Fetched
+// once per visit to my feed and kept steady while you scroll.
+export function useIntroductions(enabled) {
+  const on = enabled && isLoggedIn()
+  const q = useQuery({
+    queryKey: ['introductions'],
+    queryFn: () => call('GET', '/walls/me/introductions'),
+    enabled: on,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+  })
+  return on ? (q.data || null) : null
+}
+export function useIntroSettings(enabled = true) {
+  const q = useQuery({ queryKey: ['introductions', 'settings'], queryFn: () => call('GET', '/walls/me/introductions/settings'), enabled: enabled && isLoggedIn(), staleTime: 60_000 })
+  return q.data || null
+}
+export const introApi = {
+  seen: username => call('POST', `/walls/me/introductions/${encodeURIComponent(username)}/seen`),
+  dismiss: username => call('POST', `/walls/me/introductions/${encodeURIComponent(username)}/dismiss`),
+  undismiss: username => call('DELETE', `/walls/me/introductions/${encodeURIComponent(username)}/dismiss`),
+  setOff: off => call('PUT', '/walls/me/introductions/settings', { off }),
+}
+
 // ── playlists ─────────────────────────────────────────────────────────────────
 export function usePlaylists() {
   const signedIn = isLoggedIn()

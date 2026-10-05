@@ -274,17 +274,58 @@ function UsersTab() {
   )
 }
 
+// Introductions (alpha, 2026-10-05): who was introduced to whom and why,
+// over 30 days, and what came of it — so the rules can be checked by eye.
+function IntroductionsTab() {
+  const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'introductions'], queryFn: () => getJson('/introductions') })
+  if (isLoading) return <Note>Loading…</Note>
+  if (error) return <Note tone="error">{error.message}</Note>
+  const t = data.totals
+  const tiles = [['Shown', t.shown], ['Led to a follow', t.followed], ['Said no (×)', t.dismissed], ['Turned off', t.off]]
+  return <>
+    <Section title="Last 30 days">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8 }}>
+        {tiles.map(([label, value]) => (
+          <div key={label} style={{ background: FILL, borderRadius: 14, padding: '10px 12px' }}>
+            <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: TER }}>{label}</div>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 24, color: PRI, fontVariantNumeric: 'tabular-nums' }}>{n(value)}</div>
+          </div>
+        ))}
+      </div>
+    </Section>
+    {data.most.length > 0 && (
+      <Section title="Most introduced this week" right={`cap ${data.weekCap} people`}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {data.most.map(m => <span key={m.username} style={{ fontFamily: SANS, fontSize: 13.5, color: PRI, background: FILL, borderRadius: 99, padding: '5px 12px' }}>{m.username} · {m.people} of {data.weekCap}</span>)}
+        </div>
+      </Section>
+    )}
+    <Section title="Each one">
+      {data.rows.length === 0 ? <Note>None shown yet. They appear once someone qualifies (5+ posts and a strong reason).</Note> : data.rows.map(r => (
+        <div key={r.id} style={{ borderBottom: `1px solid ${LINE}`, padding: '9px 0' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontFamily: SANS, fontSize: 14.5, color: SEC }}>
+            <b style={{ color: PRI }}>{r.target}</b> to {r.viewer}
+            <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11.5, color: r.followed ? PRI : r.dismissed ? LEVEL.warn : TER }}>{r.followed ? 'followed' : r.dismissed ? 'said no' : 'no action'} · {ago(r.shown_at)}</span>
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER, marginTop: 2, overflowWrap: 'anywhere' }}>{r.reason}</div>
+        </div>
+      ))}
+    </Section>
+  </>
+}
+
 export function AdminDrawer({ tab: initialTab }) {
   const [tab, setTab] = useState(initialTab || 'status')
   const [logLevel, setLogLevel] = useState('')
   return <>
     <DrawerHead title="Admin" count="">
-      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users']]} value={tab} onChange={setTab} />
+      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
     </DrawerHead>
     <DrawerBody>
       {tab === 'status' && <StatusTab onShowLogs={lvl => { setLogLevel(lvl); setTab('logs') }} />}
       {tab === 'logs' && <LogsTab key={logLevel} initialLevel={logLevel} />}
       {tab === 'users' && <UsersTab />}
+      {tab === 'intros' && <IntroductionsTab />}
     </DrawerBody>
   </>
 }

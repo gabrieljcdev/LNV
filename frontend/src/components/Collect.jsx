@@ -6,7 +6,7 @@ import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink, useFavourites, favouritesApi,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -437,6 +437,7 @@ export function WallCard({ username, compact = false, friends }) {
           </span>
         </label>
       )}
+      {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
 
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
@@ -618,6 +619,193 @@ export function WallCard({ username, compact = false, friends }) {
   )
 
   return <div style={shell}>{identity}{taste}</div>
+}
+
+// An introduction (alpha, 2026-10-05, from the "LNV Introductions Mockup"
+// gabriel picked — the phone design, a narrower card on desktop): someone
+// my feed suggests you follow, always with the reason. × says no to them
+// for good (undo-able here and on your profile); "why?" spells the rules
+// out. Logged as seen once it's mostly on screen (the admin view).
+// `placeholder` cards (dev only, Feed.jsx) show the feel without an account
+// behind them: nothing is sent. `compact` is the phone slide.
+export function IntroCard({ intro, compact = false, placeholder = false }) {
+  const qc = useQueryClient()
+  const { jumpToPost } = useLayout() || {}
+  const [view, setView] = useState('card') // card | why | gone
+  const [following, setFollowing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const rootRef = useRef(null)
+  const name = intro.username
+
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el || placeholder) return
+    let done = false
+    const io = new IntersectionObserver(entries => {
+      if (done || !entries.some(e => e.isIntersecting)) return
+      done = true
+      io.disconnect()
+      introApi.seen(name).catch(() => {})
+    }, { threshold: 0.6 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [name, placeholder])
+
+  async function act(fn) {
+    if (placeholder) return
+    setBusy(true)
+    try { await fn() } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  const dismiss = () => { setView('gone'); act(async () => { await introApi.dismiss(name); qc.invalidateQueries({ queryKey: ['introductions', 'settings'] }) }) }
+  const undo = () => { setView('card'); act(async () => { await introApi.undismiss(name); qc.invalidateQueries({ queryKey: ['introductions', 'settings'] }) }) }
+  const follow = () => {
+    const next = !following
+    setFollowing(next)
+    act(async () => {
+      await (next ? wallsApi.follow(name) : wallsApi.unfollow(name))
+      qc.invalidateQueries({ queryKey: ['following'] })
+      qc.invalidateQueries({ queryKey: ['wall', name] })
+    })
+  }
+  const open = () => placeholder ? window.alert('A placeholder introduction — there’s no account behind it yet.') : openWall(name)
+
+  const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)', ter = 'var(--theme-text-ter)'
+  const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
+  const mono = { fontFamily: MONO, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter, whiteSpace: 'nowrap' }
+  const shell = compact
+    ? { minHeight: '100%', boxSizing: 'border-box', padding: '22px 20px 18px', display: 'flex', flexDirection: 'column', gap: 18, color: pri, fontFamily: SANS }
+    : { width: view === 'gone' ? 150 : 460, height: '100%', boxSizing: 'border-box', padding: view === 'gone' ? '90px 16px 32px' : '90px 36px 32px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s, width 0.3s', color: pri, fontFamily: SANS, display: 'flex', flexDirection: 'column', gap: 22 }
+
+  if (view === 'gone') return (
+    <div ref={rootRef} role="status" style={{ ...shell, alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', textAlign: 'center', gap: 12, fontSize: compact ? 17 : 14, lineHeight: 1.45 }}>
+      <span>Okay — we won't introduce <b>{name}</b> again.</span>
+      <button onClick={undo} disabled={busy} style={{ ...plain, color: pri, fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, padding: 8, fontSize: compact ? 16 : 14 }}>undo</button>
+      {compact && <span style={{ fontFamily: MONO, fontSize: 11, color: ter }}>swipe on for the next post ›</span>}
+    </div>
+  )
+
+  const since = (() => { try { return new Date(intro.member_since.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) } catch { return '' } })()
+  const s = intro.social, c = intro.common
+  const others = s.total - s.names.length
+  const who = s.names.length === 1 && !others ? s.names[0]
+    : others ? `${s.names.join(', ')} and ${others} other${others === 1 ? '' : 's'}` : s.names.join(' and ')
+  const nameLink = n => <button key={n} onClick={() => openWall(n)} style={{ ...plain, color: pri, fontWeight: 700 }}>{n}</button>
+  const reasonText = { fontSize: compact ? 18 : 20, lineHeight: 1.35 }
+  const reasonNote = { display: 'block', fontFamily: MONO, fontSize: 11, color: ter, marginTop: 2 }
+  const extra = [c.more ? `+ ${c.more} more` : '', c.records ? `${c.records} record${c.records === 1 ? '' : 's'} you both have` : ''].filter(Boolean).join(' · ')
+
+  return (
+    <section ref={rootRef} aria-label={`An introduction: ${name}`} style={shell}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '2px 7px', whiteSpace: 'nowrap' }}>α ALPHA</span>
+        <span style={{ ...mono, overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{compact ? 'Introduction' : 'An introduction'}</span>
+        {placeholder && <span title="Dev only — shows the feel until real matches exist" style={{ fontFamily: MONO, fontSize: 9.5, color: ter, border: `1px dashed ${fill(40)}`, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{compact ? 'demo' : 'placeholder'}</span>}
+        <span style={{ flex: 1 }} />
+        <button onClick={dismiss} aria-label={`Not for me — don't introduce ${name} again`} title={`Not for me — don't introduce ${name} again`}
+          style={{ ...plain, flexShrink: 0, width: compact ? 44 : 40, height: compact ? 44 : 40, borderRadius: '50%', border: `1px solid ${fill(30)}`, color: pri, fontSize: 19, lineHeight: 1 }}>×</button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 80, height: compact ? 64 : 80, borderRadius: '50%', background: pri, color: 'var(--theme-showcase)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 40, fontWeight: 900 }}>{name.charAt(0).toUpperCase()}</div>
+        <div style={{ minWidth: 0 }}>
+          <button onClick={open} style={{ ...plain, color: pri, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', overflowWrap: 'anywhere', textAlign: 'left' }}>{name}</button>
+          <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase', color: ter }}>
+            {intro.post_count} {intro.post_count === 1 ? 'post' : 'posts'}{since ? ` · since ${since}` : ''}
+          </div>
+        </div>
+      </div>
+      {intro.bio && <p style={{ margin: '-6px 0 0', fontSize: 15, lineHeight: 1.5, color: sec, overflowWrap: 'anywhere' }}>{intro.bio}</p>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {s.total > 0 && (
+          <div style={reasonText}>
+            {s.names.map((n, i) => <span key={n}>{i > 0 ? (i === s.names.length - 1 && !others ? ' and ' : ', ') : ''}{nameLink(n)}</span>)}
+            {others ? ` and ${others} other${others === 1 ? '' : 's'}` : ''} {s.total === 1 ? 'follows' : 'follow'} {name}
+            <span style={reasonNote}>you follow {who}</span>
+          </div>
+        )}
+        {(c.names.length > 0 || c.records > 0) && (
+          <div style={reasonText}>
+            {c.names.length > 0
+              ? <>you both post {c.names.map((n, i) => <span key={n.name}>{i > 0 ? ' and ' : ''}<b>{n.name}</b></span>)}</>
+              : <>you both have {c.records} of the same record{c.records === 1 ? '' : 's'}</>}
+            {c.names.length > 0 && extra && <span style={reasonNote}>{extra}</span>}
+          </div>
+        )}
+      </div>
+
+      {intro.latest?.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={mono}>Latest on {name}'s wall</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+            {intro.latest.map(r => (
+              <button key={r.id} onClick={() => jumpToPost?.(r.id)} title={r.title} aria-label={`Go to ${r.title}`}
+                style={{ ...plain, aspectRatio: '1', borderRadius: 8, background: r.cover ? `var(--theme-dark2) center/cover no-repeat url("${r.cover}")` : fill(20) }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === 'why' && (
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: sec }}>
+          Only from what you both chose to post, and who you follow — rarer names count for more. No likes, plays or replies are used, and your feed's order never changes: an introduction slots in at most once every eight cards. The rules, and the switch to turn these off, are on your profile and in About.
+        </p>
+      )}
+
+      <span style={{ flex: 1 }} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={follow} disabled={busy} style={{ flex: 1, height: 48, border: following ? `1px solid ${fill(50)}` : 0, borderRadius: 99, background: following ? 'transparent' : pri, color: following ? pri : 'var(--theme-showcase)', fontFamily: SANS, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
+          {following ? '✓ following' : '+ follow'}
+        </button>
+        <button onClick={open} style={{ flex: 1, height: 48, border: `1px solid ${fill(30)}`, borderRadius: 99, background: 'transparent', color: pri, fontFamily: SANS, fontSize: 16, cursor: 'pointer' }}>open wall</button>
+      </div>
+      <button onClick={() => setView(view === 'why' ? 'card' : 'why')} aria-expanded={view === 'why'}
+        style={{ ...plain, alignSelf: 'center', color: pri, fontFamily: MONO, fontSize: 11, textDecoration: 'underline', textUnderlineOffset: 3, padding: 8 }}>
+        {view === 'why' ? 'hide why' : `why ${name}?`}
+      </button>
+    </section>
+  )
+}
+
+// Your introductions setting (2026-10-05), on your profile under Friends'
+// posts: on/off, and the people you said no to, each with undo.
+function IntroSettings({ pri, ter, fill }) {
+  const qc = useQueryClient()
+  const st = useIntroSettings()
+  const [busy, setBusy] = useState(false)
+  if (!st) return null
+  const on = !st.off
+  async function act(fn) {
+    setBusy(true)
+    try { await fn() } catch (err) { window.alert(err.message) }
+    await qc.invalidateQueries({ queryKey: ['introductions'] })
+    setBusy(false)
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>Introductions
+            <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
+          <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{on ? 'Now and then, someone to follow — always with why' : 'Off — your feed is only posts'}</span>
+        </span>
+        <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={e => act(() => introApi.setOff(!e.target.checked))} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
+        <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
+          <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+        </span>
+      </label>
+      {st.dismissed.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', padding: '0 4px' }}>
+          <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>Said no to:</span>
+          {st.dismissed.map(n => (
+            <button key={n} disabled={busy} onClick={() => act(() => introApi.undismiss(n))} title={`Undo — ${n} can be introduced again`}
+              style={{ ...plain, fontSize: 12.5, color: pri, padding: '4px 10px', borderRadius: 99, background: fill(12) }}>{n} · undo</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // Which feed is showing: the main feed, a wall (yours or someone's), or a

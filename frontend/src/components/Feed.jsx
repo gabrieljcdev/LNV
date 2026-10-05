@@ -6,8 +6,8 @@ import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart } from './Collect'
+import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -2388,6 +2388,38 @@ function buildShelfItems(posts, prev = null) {
   return st
 }
 
+// ── Introductions (alpha, 2026-10-05) ─────────────────────────────────────────
+// My feed slots in an introduction (IntroCard, Collect.jsx) at most once
+// every INTRO_EVERY cards, never before the INTRO_EVERY-th, always after a
+// post. The cards around it keep their order — it's added, never mixed in.
+const INTRO_EVERY = 8
+function withIntros(items, intros) {
+  if (!intros?.length) return items
+  const out = []
+  let due = INTRO_EVERY, next = 0
+  items.forEach((it, n) => {
+    out.push(it)
+    if (n + 1 >= due && next < intros.length && it.kind === 'post') {
+      const intro = intros[next++]
+      out.push({ key: `intro-${intro.username}`, kind: 'intro', intro })
+      due = n + 1 + INTRO_EVERY
+    }
+  })
+  return out
+}
+// TEMP (dev only, gabriel 2026-10-05: "throw some placeholders in the feed
+// for the feel") — until real matches exist, these fill the slots. Marked
+// "placeholder" on the card; nothing is sent for them. Covers come from
+// the posts already loaded. Delete once there are real people to introduce.
+const PLACEHOLDER_INTROS = import.meta.env.DEV ? [
+  { username: 'mira', bio: 'Dub techno and the records that led to it.', post_count: 23, member_since: '2026-09-12 20:00:00',
+    social: { names: ['lnv_admin'], total: 1 }, common: { names: [{ name: 'Basic Channel', posters: 3 }, { name: 'Rhythm & Sound', posters: 4 }], more: 0, records: 2 } },
+  { username: 'dan', bio: 'Late-night digger. Deep house, Detroit, anything on Cocoon.', post_count: 42, member_since: '2026-08-30 20:00:00',
+    social: { names: [], total: 0 }, common: { names: [{ name: 'Degustibus Music', posters: 2 }, { name: 'Fango', posters: 3 }], more: 3, records: 0 } },
+  { username: 'rosa_b', bio: '', post_count: 9, member_since: '2026-10-01 20:00:00',
+    social: { names: ['lnv_admin', 'treebeast'], total: 4 }, common: { names: [], more: 0, records: 0 } },
+] : []
+
 // ── Theme Picker ──────────────────────────────────────────────────────────────
 
 function ThemePicker({ currentIdx, onSelect }) {
@@ -2916,13 +2948,17 @@ function PhoneSpotlight({ subject, onJump }) {
   )
 }
 
-function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar, header, latestPost }) {
+function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar, header, latestPost }) {
   const deckRef = useRef(null)
   const openingRef = useRef(null)
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(null) // key of the card whose player is open
   // The desktop's placeholder channel spotlight has nothing to show here.
-  const list = (shelf.current || []).filter(it => it.kind === 'post' || !it.subject?.isPlaceholder)
+  // Introductions slot in as their own slides (withIntros).
+  const list = withIntros((shelf.current || []).filter(it => it.kind === 'post' || !it.subject?.isPlaceholder), intros)
+  // Card colours by the shelf's own index, so introductions don't shift them.
+  let shelfIdx = -1
+  const bgs = list.map(it => it.kind === 'intro' ? cardBg(0, it) : cardBg(++shelfIdx, it))
   // A wall's card (WallCard) leads it; the posts follow.
   const head = header ? 1 : 0
 
@@ -2982,8 +3018,10 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
         {list.length === 0 ? (
           <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
         ) : list.map((it, i) => (
-          <Slide key={it.key} bg={cardBg(i, it)}>
-            {it.kind === 'spotlight'
+          <Slide key={it.key} bg={bgs[i]}>
+            {it.kind === 'intro'
+              ? <IntroCard intro={it.intro} compact placeholder={!!it.intro.placeholder} />
+              : it.kind === 'spotlight'
               ? <PhoneSpotlight subject={it.subject} onJump={jumpTo} />
               : <PhoneCard post={latestPost ? latestPost(it.post) : it.post} onEdit={onEdit}
                   playing={playing === it.key} onPlay={() => setPlaying(it.key)} onStop={() => setPlaying(null)} />}
@@ -3147,6 +3185,24 @@ export default function Feed() {
     const byId = new Map(posts.map(p => [p.id, p]))
     return post => byId.get(post.id) || post
   }, [posts])
+
+  // Introductions (alpha) — signed in, on my feed with friends' posts, not
+  // while searching. Dev builds fill empty slots with placeholders.
+  const introsOn = feedMode.type === 'home' && isLoggedIn() && !search && feedMode.friends !== false
+  const introData = useIntroductions(introsOn)
+  const coverPosts = posts.filter(p => coverSrc(p)).slice(0, 9)
+  const coverKey = coverPosts.map(p => p.id).join(',')
+  const intros = useMemo(() => {
+    if (!introsOn || !introData || introData.off) return []
+    const real = introData.items || []
+    const fill = PLACEHOLDER_INTROS.slice(0, Math.max(0, PLACEHOLDER_INTROS.length - real.length)).map((it, i) => ({
+      ...it, placeholder: true,
+      latest: coverPosts.slice(i * 3, i * 3 + 3).map(p => ({ id: p.id, title: p.title, cover: coverSrc(p) })),
+    }))
+    return [...real, ...fill]
+    // coverPosts is keyed by coverKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introsOn, introData, coverKey])
 
   const postsSignature = posts.map(p => p.id).join(',')
   if (postsSignature !== lastPostsSignature.current) {
@@ -3399,7 +3455,7 @@ export default function Feed() {
   // it — and take POST_BG_CYCLE (dark1/dark2/dark3) instead, the tint the
   // note above always meant for them. (White cards were tried briefly.)
   function getCardBg(idx, item) {
-    if (item?.kind === 'spotlight') return 'var(--theme-showcase)'
+    if (item?.kind === 'spotlight' || item?.kind === 'intro') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
     // Trial (gabriel, 2026-09-26): the first three match the surface —
     // lifted only by their shadow. POST_BG_CYCLE was:
@@ -3450,6 +3506,7 @@ export default function Feed() {
     <>
       <PhoneFeed
         shelf={shelfItems}
+        intros={intros}
         latestPost={latestPost}
         cardBg={getCardBg}
         emptyText={posts.length ? null : emptyText}
@@ -3499,9 +3556,14 @@ export default function Feed() {
           </div>
         )}
         {(() => {
-          const items = shelfItems.current
           const nodes = []
-          items.forEach((item, idx) => {
+          let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
+          withIntros(shelfItems.current, intros).forEach(item => {
+            if (item.kind === 'intro') {
+              nodes.push(<FloatSlot key={item.key}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
+              return
+            }
+            idx++
             const cardBg = getCardBg(idx, item)
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />

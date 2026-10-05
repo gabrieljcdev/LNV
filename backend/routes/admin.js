@@ -6,6 +6,7 @@ import db from '../db/database.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { readLog, logSummary, logEvent } from '../services/logService.js';
 import { quotaUsed } from '../services/youtubeService.js';
+import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
 } from '../services/authService.js';
@@ -74,6 +75,31 @@ router.get('/logs', (req, res, next) => {
   try {
     const { level, kind, q, before, limit } = req.query;
     res.json(readLog({ level, kind, q, before, limit }));
+  } catch (err) { next(err); }
+});
+
+// ── Introductions (alpha, 2026-10-05) ──
+// Who was introduced to whom and why, over the last 30 days, and what
+// came of it: followed since, said no (×), or nothing.
+router.get('/introductions', (req, res, next) => {
+  try {
+    const rows = db.prepare(`SELECT s.id, s.shown_at, s.reason, v.username AS viewer, t.username AS target,
+        EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = s.viewer_id AND f.followee_id = s.target_id AND f.created_at >= s.shown_at) AS followed,
+        EXISTS (SELECT 1 FROM intro_dismissals d WHERE d.user_id = s.viewer_id AND d.target_id = s.target_id) AS dismissed
+      FROM intro_shown s JOIN users v ON v.id = s.viewer_id JOIN users t ON t.id = s.target_id
+      WHERE s.shown_at > datetime('now', '-30 days') ORDER BY s.shown_at DESC, s.id DESC LIMIT 200`).all();
+    const most = db.prepare(`SELECT t.username, COUNT(DISTINCT s.viewer_id) AS people FROM intro_shown s JOIN users t ON t.id = s.target_id
+      WHERE s.shown_at > datetime('now', '-7 days') GROUP BY s.target_id ORDER BY people DESC LIMIT 8`).all();
+    res.json({
+      rows,
+      totals: {
+        shown: rows.length,
+        followed: rows.filter(r => r.followed).length,
+        dismissed: rows.filter(r => r.dismissed).length,
+        off: db.prepare('SELECT COUNT(*) c FROM users WHERE intros_off = 1').get().c,
+      },
+      most, weekCap: INTRO_WEEK_CAP,
+    });
   } catch (err) { next(err); }
 });
 
