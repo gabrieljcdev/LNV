@@ -1,7 +1,7 @@
 // Walls, following and playlists (2026-10-03) — the client side of
 // backend/routes/walls.js and playlists.js. Cached lists (['playlists'],
-// ['playlists','hearted'], ['following']) feed every heart and menu, so
-// they stay in step everywhere.
+// ['following'], ['favourites']) feed every heart and menu, so they stay in
+// step everywhere.
 //
 // The model: a main feed; everyone's wall (the posts they made, public);
 // following other users to keep their walls a click away; playlists of

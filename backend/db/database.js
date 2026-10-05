@@ -320,7 +320,8 @@ const migrations = [
   )`,
   // Shared playlists (2026-10-03): readable by anyone with the share link,
   // editable by friends who joined with the invite link (playlist_members).
-  // kind 'hearted' = the list your track hearts go into (one per user).
+  // kind 'hearted' was the list track hearts went into, until hearts moved
+  // to records (2026-10-06); those lists are ordinary playlists now.
   "ALTER TABLE playlists ADD COLUMN kind TEXT NOT NULL DEFAULT 'list'",
   'ALTER TABLE playlists ADD COLUMN share_token TEXT',
   'ALTER TABLE playlists ADD COLUMN invite_token TEXT',
@@ -352,7 +353,9 @@ const migrations = [
   // Favourites (2026-10-06): ♥ by an artist's, label's or channel's name —
   // three lists, shown on your profile. `name_key` (lower-cased) is the
   // identity, as the drawers group names. Pinned labels became favourites.
-  // (`favourite_names`: an older, dropped `favourites` table may still exist.)
+  // (`favourite_names`: the name `favourites` belonged to a dropped feature,
+  // whose table is removed here.)
+  'DROP TABLE IF EXISTS favourites',
   `CREATE TABLE IF NOT EXISTS favourite_names (
     user_id INTEGER NOT NULL,
     kind TEXT NOT NULL,
@@ -370,6 +373,9 @@ const migrations = [
   // The heart (2026-10-06): reposts and "post it too" became one act — ♥ a
   // record and it's on your wall. Old reposts count as hearts.
   "UPDATE post_joins SET kind = 'also' WHERE kind = 'repost'",
+  // Track hearts are gone (2026-10-06): a "Hearted tracks" list is an
+  // ordinary playlist now (same name and tracks, renamable, deletable).
+  "UPDATE playlists SET kind = 'list' WHERE kind = 'hearted'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

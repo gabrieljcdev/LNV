@@ -129,7 +129,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
           </>}
           <div style={MENU_HEAD}>{tracks.length > 1 ? `Add ${chosen.length} to` : `Add “${tracks[0].title}” to`}</div>
           {lists.length === 0 && <div style={{ padding: '4px 10px 6px', color: 'var(--theme-text-sec)' }}>No playlists yet.</div>}
-          {lists.map(p => <MenuItem key={p.id} onClick={() => addTo(p.id, p.name)}>{p.kind === 'hearted' ? '♥ ' : ''}{p.name} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {p.track_count}{p.role === 'member' ? ` · ${p.owner}’s` : ''}</span></MenuItem>)}
+          {lists.map(p => <MenuItem key={p.id} onClick={() => addTo(p.id, p.name)}>{p.name} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {p.track_count}{p.role === 'member' ? ` · ${p.owner}’s` : ''}</span></MenuItem>)}
           <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
           <MenuItem muted onClick={addToNew}>+ new playlist…</MenuItem>
           {note && <div style={{ padding: '6px 10px', color: 'var(--theme-accent)', fontFamily: MONO, fontSize: 11 }}>{note}</div>}
@@ -501,7 +501,7 @@ export function WallCard({ username, compact = false }) {
             <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, background: pl.shown ? fill(12) : 'transparent', border: pl.shown ? 0 : `1px dashed ${fill(30)}`, fontSize: 14, cursor: 'pointer' }}>
               <input type="checkbox" checked={pl.shown} disabled={busy} onChange={e => act(async () => { await profileApi.showPlaylist(pl.id, e.target.checked); qc.invalidateQueries({ queryKey: ['playlists'] }) })}
                 style={{ width: 18, height: 18, margin: 0, accentColor: 'var(--theme-text-pri)' }} />
-              <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.kind === 'hearted' ? '♥ ' : ''}{pl.name}</span>
+              <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
               <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks · {pl.shown ? 'shown' : 'private'}</span>
             </label>
           ))}
@@ -516,7 +516,7 @@ export function WallCard({ username, compact = false }) {
         {p.playlists.map(pl => (
           <button key={pl.id} onClick={() => openD3?.('playlists', { token: pl.share_token })}
             style={{ ...plain, display: 'flex', flexDirection: compact ? 'row' : 'column', justifyContent: 'space-between', alignItems: compact ? 'baseline' : 'flex-start', gap: 3, padding: compact ? '13px 14px' : 12, borderRadius: compact ? 14 : 16, background: fill(12), color: pri, textAlign: 'left' }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{pl.kind === 'hearted' ? '♥ ' : ''}{pl.name}</span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{pl.name}</span>
             <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.track_count} tracks · listen</span>
           </button>
         ))}
@@ -648,7 +648,7 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
             {following.map(f => <MenuItem key={f.id} checked={isOn({ type: 'wall', username: f.username })} onClick={() => pick({ type: 'wall', username: f.username })}>{f.username} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {f.post_count}</span></MenuItem>)}
             <div style={MENU_HEAD}>Playlists as a feed</div>
             {lists.length === 0 && <div style={{ padding: '4px 10px 6px', color: 'var(--theme-text-sec)' }}>None with tracks yet.</div>}
-            {lists.map(p => <MenuItem key={p.id} checked={isOn({ type: 'playlist', id: p.id })} onClick={() => { openPlaylistFeed(p); setOpen(false) }}>{p.kind === 'hearted' ? '♥ ' : ''}{p.name}</MenuItem>)}
+            {lists.map(p => <MenuItem key={p.id} checked={isOn({ type: 'playlist', id: p.id })} onClick={() => { openPlaylistFeed(p); setOpen(false) }}>{p.name}</MenuItem>)}
             <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('playlists') }}>playlists…</MenuItem>
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('walls') }}>walls & following…</MenuItem>

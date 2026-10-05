@@ -283,8 +283,7 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
-        {/* Favourites (2026-10-03) — your hearted records, artists and labels,
-            walls (CollectionDrawers.jsx). Signed in only;
+        {/* Playlists and walls (2026-10-03, CollectionDrawers.jsx). Signed in only;
             a round button like ▶ for the same height reason as admin below. */}
         {user && (() => {
           const active = d3Content === 'walls' || d3Content === 'playlists';

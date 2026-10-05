@@ -163,7 +163,7 @@ function PlaylistView({ id, token, onBack }) {
   const btn = { border: 0, background: 'none', color: TER, cursor: 'pointer', fontFamily: MONO, fontSize: 13, padding: '0 3px' }
   const fromPosts = new Set(tracks.map(t => t.post_id).filter(Boolean)).size
   return <>
-    <DrawerHead title={(data.kind === 'hearted' ? '♥ ' : '') + data.name} count={plural(tracks.length, 'track')} crumb={onBack ? 'Playlists' : undefined} onBack={onBack}>
+    <DrawerHead title={data.name} count={plural(tracks.length, 'track')} crumb={onBack ? 'Playlists' : undefined} onBack={onBack}>
       <div style={{ fontFamily: SANS, fontSize: 13.5, color: SEC }}>
         {owner ? 'yours' : `by ${data.owner}`}{data.member_count ? ` · ${plural(data.member_count, 'friend')} adding` : ''}{!canEdit ? ' · read-only' : ''}
       </div>
@@ -198,7 +198,7 @@ function PlaylistView({ id, token, onBack }) {
       )}
     </DrawerHead>
     <DrawerBody>
-      {!tracks.length && <Empty>{data.kind === 'hearted' ? 'Hit ♡ next to any track — on a card, in a spotlight — and it lands here.' : 'Empty for now — use “+ list” on a card, or + next to any track, to add some.'}</Empty>}
+      {!tracks.length && <Empty>Empty for now — use “+ list” on a card, or + next to any track, to add some.</Empty>}
       {tracks.map((t, i) => (
         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Row onClick={() => play(i)} style={{ flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px', padding: '6px 10px', background: t.id === playingId ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : undefined }}>
@@ -245,7 +245,7 @@ export function PlaylistsDrawer({ open: initialId, token }) {
         {(p.covers.length ? p.covers : [null]).slice(0, 3).map((c, i) => <span key={i} style={{ width: 30, height: 30, borderRadius: 8, marginLeft: i ? -10 : 0, border: '2px solid var(--theme-bg)', background: c ? `var(--theme-dark2) center/cover no-repeat url("${c}")` : 'var(--theme-dark2)' }} />)}
       </span>
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.kind === 'hearted' ? '♥ ' : ''}{p.name}</span>
+        <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
         <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>
           {p.role === 'member' ? `by ${p.owner}` : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
         </span>

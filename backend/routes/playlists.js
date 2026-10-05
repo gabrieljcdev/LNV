@@ -8,7 +8,6 @@ import { newShareToken } from '../services/collectionsService.js';
 //   listen, signed in or not, and view the playlist as a feed.
 // - The owner can invite friends with a second link (invite_token); whoever
 //   joins can add, remove and reorder tracks (playlist_members).
-// - kind 'hearted': the list your ♡ on a track goes into, made on first use.
 const router = express.Router();
 
 const MAX_NAME = 60;
@@ -87,12 +86,12 @@ function load(req, res, need = 'member') {
   return p;
 }
 
-// Yours and the ones you've been invited to; hearted first.
+// Yours and the ones you've been invited to, newest first.
 router.get('/', (req, res, next) => {
   try {
     const rows = db.prepare(`SELECT p.* FROM playlists p
       WHERE p.owner_id = ? OR EXISTS (SELECT 1 FROM playlist_members m WHERE m.playlist_id = p.id AND m.user_id = ?)
-      ORDER BY p.kind = 'hearted' DESC, p.id DESC`).all(req.user.id, req.user.id);
+      ORDER BY p.id DESC`).all(req.user.id, req.user.id);
     res.json({ playlists: rows.map(p => summary(p, req.user.id)) });
   } catch (err) { next(err); }
 });
@@ -103,38 +102,6 @@ router.post('/', (req, res, next) => {
     if (!name) return res.status(400).json({ error: 'Give the playlist a name.' });
     const r = db.prepare('INSERT INTO playlists (owner_id, name) VALUES (?, ?)').run(req.user.id, name);
     res.status(201).json(summary(db.prepare('SELECT * FROM playlists WHERE id = ?').get(r.lastInsertRowid), req.user.id));
-  } catch (err) { next(err); }
-});
-
-// ── hearted tracks ────────────────────────────────────────────────────────────
-function heartedList(userId, create = false) {
-  let p = db.prepare("SELECT * FROM playlists WHERE owner_id = ? AND kind = 'hearted'").get(userId);
-  if (!p && create) {
-    const r = db.prepare("INSERT INTO playlists (owner_id, name, kind) VALUES (?, 'Hearted tracks', 'hearted')").run(userId);
-    p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(r.lastInsertRowid);
-  }
-  return p;
-}
-
-router.get('/hearted', (req, res, next) => {
-  try {
-    const p = heartedList(req.user.id);
-    res.json({ id: p?.id || null, urls: p ? db.prepare('SELECT url FROM playlist_tracks WHERE playlist_id = ?').all(p.id).map(r => r.url) : [] });
-  } catch (err) { next(err); }
-});
-
-router.post('/hearted', (req, res, next) => {
-  try {
-    const p = heartedList(req.user.id, true);
-    res.status(201).json({ id: p.id, ...addTracks(p.id, [req.body?.track || {}]) });
-  } catch (err) { next(err); }
-});
-
-router.delete('/hearted', (req, res, next) => {
-  try {
-    const p = heartedList(req.user.id);
-    if (p) db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND url = ?').run(p.id, String(req.body?.url || ''));
-    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
