@@ -53,7 +53,7 @@ export const userByName = name => db.prepare('SELECT id, username FROM users WHE
 // than once in a feed shows once, at its first entry (your own first).
 // Paged by cursor "<at>|<post id>" (where the next page starts); each row
 // carries its number in that feed (1 = the oldest) and whose entry it is.
-// `kind`: 'post' (made it), 'also' (posted it too) or 'repost'.
+// `kind`: 'post' (made it) or 'also' (♥'d it onto their wall).
 const ENTRIES = `
   SELECT wall_user_id AS owner, id AS post_id, created_at AS at, 'post' AS kind FROM posts WHERE is_spotlight = 0
   UNION ALL
@@ -84,7 +84,7 @@ export const homePage = (userId, opts) => entryPage(
 
 // In common (alpha, 2026-10-05): what two people both post — the same
 // records, artists and labels — from what they chose to post themselves
-// (their posts + "post it too"; not reposts). Fixed, explainable rules, no
+// (their posts + the records they ♥'d). Fixed, explainable rules, no
 // learning and no engagement signals: an artist or label counts for more the
 // fewer people post it (Basic Channel says more than Columbia), so lists are
 // rarest first. "Various" is never an artist.
@@ -118,7 +118,7 @@ export function inCommon(a, b) {
 }
 
 // A profile (2026-10-05): the wall's card. Interests come from what the
-// owner chose to post (posts + "post it too", as inCommon): top styles,
+// owner chose to post (their posts + records they ♥'d, as inCommon): top styles,
 // artists, labels; plus their pinned labels and the playlists they show.
 // Signed-in visitors also get who connects them; the owner gets the pin
 // choices, every playlist, and numbers only they see (not a scoreboard).
@@ -175,8 +175,7 @@ export function profileOf(ownerId, viewerId) {
     out.pinChoices = labelsAll.slice(0, 40).map(l => l.name);
     out.pinsMax = PROFILE_PINS_MAX;
     out.private = {
-      reposted: db.prepare("SELECT COUNT(*) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ? AND j.kind = 'repost'").get(ownerId).c,
-      postedToo: db.prepare("SELECT COUNT(*) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ? AND j.kind = 'also'").get(ownerId).c,
+      hearted: db.prepare('SELECT COUNT(DISTINCT j.user_id) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ?').get(ownerId).c,
       replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,
     };
   } else if (viewerId) {

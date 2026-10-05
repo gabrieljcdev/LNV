@@ -32,11 +32,9 @@ function getFullPost(postId) {
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
-  // Everyone who reposted it (2026-10-05), first to latest.
-  const joinedBy = kind => db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? AND j.kind = ? ORDER BY j.created_at, j.user_id').all(postId, kind).map(r => r.username);
-  const alsoPostedBy = joinedBy('also');
-  const repostedBy = joinedBy('repost');
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, repostedBy };
+  // Everyone else who has it on their wall (♥'d it), first to latest.
+  const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -116,11 +114,9 @@ router.get('/', (req, res, next) => {
     // A wall (2026-10-03) — public: anyone can read anyone's wall. Each post
     // carries its number on that wall (feedNumber); the main-feed number is
     // still its id. `cursor` = where the next page starts.
-    // A post that's on a wall or in my feed because someone reposted it
-    // carries `viaRepost` (who), for the card's "↻ name" (2026-10-05).
     const names = new Map();
     const nameOf = id => { if (!names.has(id)) names.set(id, db.prepare('SELECT username FROM users WHERE id = ?').get(id)?.username || null); return names.get(id); };
-    const entryPost = r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num, viaRepost: r.kind === 'repost' ? nameOf(r.wall_user_id) : null }; };
+    const entryPost = r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; };
     if (req.query.wall) {
       const owner = userByName(req.query.wall);
       if (!owner) return res.status(404).json({ error: 'No such wall.' });
@@ -270,9 +266,9 @@ router.post('/', requireAuth, (req, res, next) => {
       channel || null, (post_title || '').trim() || null, wallUserId
     );
     if (!result.changes) {
-      // Already up: post it too with POST /posts/:id/join (the composer offers it).
+      // Already up: ♥ it instead, POST /posts/:id/join (the composer offers it).
       const existing = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').get(Number(resolvedDiscogsId));
-      return res.status(409).json({ error: 'This release is already posted — post it too to put it on your wall.', postId: existing?.id ?? null });
+      return res.status(409).json({ error: 'This release is already up — ♥ it to keep it on your wall.', postId: existing?.id ?? null });
     }
     const postId = result.lastInsertRowid;
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
@@ -367,16 +363,16 @@ router.delete('/:id', requireAuth, (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Also posted by (2026-10-04): post a release that's already up — it goes on
-// your wall and into your followers' feeds — or take it off again.
+// The heart (2026-10-04, one act since 2026-10-06): ♥ a record that's
+// already up and it's on your wall, and in your followers' feeds — or take
+// it off again. Every record is already here, so nobody reposts or re-posts:
+// they keep it. A feed never shows a record twice (collectionsService).
 router.post('/:id/join', requireAuth, (req, res, next) => {
   try {
     const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
     if (!post) return res.status(404).json({ error: 'Post not found' });
     if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already on your wall.' });
-    // Posting it too after reposting it makes it yours too.
-    const added = db.prepare(`INSERT INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'also')
-      ON CONFLICT (post_id, user_id) DO UPDATE SET kind = 'also' WHERE kind <> 'also'`).run(post.id, req.user.id).changes;
+    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'also')").run(post.id, req.user.id).changes;
     if (added) logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
     res.json(getFullPost(post.id));
   } catch (err) { next(err); }
@@ -385,29 +381,6 @@ router.post('/:id/join', requireAuth, (req, res, next) => {
 router.delete('/:id/join', requireAuth, (req, res, next) => {
   try {
     db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id);
-    res.json(getFullPost(Number(req.params.id)));
-  } catch (err) { next(err); }
-});
-
-// Reposts (2026-10-05): share someone's post — it goes on your wall and
-// into your followers' feeds with "↻ you" on the card — or undo it.
-router.post('/:id/repost', requireAuth, (req, res, next) => {
-  try {
-    const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (post.user_id === req.user.id) return res.status(400).json({ error: 'That’s your post — it’s already on your wall.' });
-    if (db.prepare("SELECT 1 FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").get(post.id, req.user.id)) {
-      return res.status(400).json({ error: 'You posted this too — it’s already on your wall.' });
-    }
-    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'repost')").run(post.id, req.user.id).changes;
-    if (added) logEvent('info', 'post', `Reposted #${post.id}: ${post.title}`, { req });
-    res.json(getFullPost(post.id));
-  } catch (err) { next(err); }
-});
-
-router.delete('/:id/repost', requireAuth, (req, res, next) => {
-  try {
-    db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'repost'").run(Number(req.params.id), req.user.id);
     res.json(getFullPost(Number(req.params.id)));
   } catch (err) { next(err); }
 });

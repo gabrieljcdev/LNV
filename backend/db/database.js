@@ -353,6 +353,9 @@ const migrations = [
   // record too) or a repost (you're sharing someone's post — the card says
   // "↻ you" in your followers' feeds). Same wall / feed entries either way.
   "ALTER TABLE post_joins ADD COLUMN kind TEXT NOT NULL DEFAULT 'also'",
+  // The heart (2026-10-06): reposts and "post it too" became one act — ♥ a
+  // record and it's on your wall. Old reposts count as hearts.
+  "UPDATE post_joins SET kind = 'also' WHERE kind = 'repost'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

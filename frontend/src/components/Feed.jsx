@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted, CommentAuthor, RepostButton, WallCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -883,10 +883,10 @@ function PostCard({ post, cardBg, d, onEdit }) {
               // Right-plate (currently live) and center: num/duration
               // lead, title trails — title ends up on the same side as
               // the plate's own text and numeral.
-              // ♡ (Hearted tracks) and + (a playlist) — 2026-10-03.
+              // + (a playlist) — 2026-10-03. The heart is the record's
+              // (byline), not each track's — 2026-10-06.
               const actEl = tUrl ? (
                 <span key="act" style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline', flexShrink: 0 }}>
-                  <TrackHeart track={trackFrom(post, t)} size={d.trackSize} offColor={textTer} />
                   <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align={d.plateAlign === 'left' ? 'left' : 'right'} style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: textTer }} />
                 </span>
               ) : null
@@ -927,7 +927,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
         <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
       </button>
       <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
-      <RepostButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
+      <HeartButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <FollowedTag post={post} />
       <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
       <AlsoPosted post={post} style={{ fontSize: d.handleSize, color: textPri, fontFamily: d.bodyFf }} />
@@ -1290,9 +1290,8 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
             <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
           </span>
         )}
-        <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={13} offColor="var(--lv-ter)" />
+        <HeartButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <AddToPlaylistButton post={post} style={{ color: 'var(--lv-ter)' }} />
-        <RepostButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
         </button>
@@ -1400,7 +1399,6 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
             <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400 }}>{t.title}</span>
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
-              {u && <TrackHeart track={trackFrom(post, t)} size={d.trackSize} offColor="var(--lv-ter)" />}
               {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
             </span>
           </div>
@@ -1488,7 +1486,7 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
-        <RepostButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
         <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
         <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
@@ -2200,7 +2198,6 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                               {url && (() => {
                                 const tr = { post_id: onSitePost?.id || (openRow?.kind === 'post' ? openRow.post.id : null), position: t.position || null, title: t.title, artist: (t.artists || []).map(a => a.name).join(', ') || (type === 'artist' ? name : openRow?.artist || ''), url, embed_url: t.embed || null, duration: t.duration || null, cover: openRow?.thumb || openRow?.post?.thumb_image || null }
                                 return <>
-                                  <TrackHeart track={tr} size={12} offColor={textTer} />
                                   <AddToPlaylistButton tracks={[tr]} label="+" align="right" style={{ ...monoText, color: textTer }} />
                                 </>
                               })()}
@@ -2830,7 +2827,6 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
                 <span style={{ flex: 1, minWidth: 0, fontFamily: P_SANS, fontSize: 15, color: on ? 'var(--theme-text-pri)' : 'var(--theme-text-sec)', fontWeight: on ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                 {t.duration && <span style={{ fontFamily: P_MONO, fontSize: 11, color: 'var(--theme-text-ter)', fontVariantNumeric: 'tabular-nums' }}>{t.duration}</span>}
                 {url && <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', gap: 12, alignItems: 'center', fontSize: 16 }}>
-                  <TrackHeart track={trackFrom(post, t)} size={16} offColor="var(--theme-text-ter)" />
                   <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: P_MONO, fontSize: 16, color: 'var(--theme-text-ter)' }} />
                 </span>}
               </div>
@@ -2867,9 +2863,8 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
           <button onClick={() => setCommentsOpen(v => !v)} style={pPlain}>
             <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
           </button>
-          {live || !tracks.length ? <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={16} offColor="var(--theme-text-ter)" /> : null}
+          <HeartButton post={post} size={16} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
           <AddToPlaylistButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
-          <RepostButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
           {canModify && (
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 14, fontFamily: P_MONO, fontSize: 11 }}>
               <button onClick={() => onEdit?.(post)} style={pPlain}>edit</button>
@@ -2916,7 +2911,7 @@ function PhoneSpotlight({ subject, onJump }) {
   )
 }
 
-function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar, header }) {
+function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar, header, latestPost }) {
   const deckRef = useRef(null)
   const openingRef = useRef(null)
   const [idx, setIdx] = useState(0)
@@ -2985,7 +2980,7 @@ function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKe
           <Slide key={it.key} bg={cardBg(i, it)}>
             {it.kind === 'spotlight'
               ? <PhoneSpotlight subject={it.subject} onJump={jumpTo} />
-              : <PhoneCard post={it.post} onEdit={onEdit}
+              : <PhoneCard post={latestPost ? latestPost(it.post) : it.post} onEdit={onEdit}
                   playing={playing === it.key} onPlay={() => setPlaying(it.key)} onStop={() => setPlaying(null)} />}
           </Slide>
         ))}
@@ -3140,6 +3135,13 @@ export default function Feed() {
     const seen = new Set()
     return (raw?.pages || []).flatMap(p => p.posts).filter(p => !seen.has(p.id) && seen.add(p.id))
   }, [raw])
+  // The shelf is only rebuilt when the list of posts changes (below), so a
+  // refresh with the same posts but fresher details — a ♥, a reply count,
+  // "& you" — gives cards the latest copy by id (2026-10-06).
+  const latestPost = useMemo(() => {
+    const byId = new Map(posts.map(p => [p.id, p]))
+    return post => byId.get(post.id) || post
+  }, [posts])
 
   const postsSignature = posts.map(p => p.id).join(',')
   if (postsSignature !== lastPostsSignature.current) {
@@ -3442,6 +3444,7 @@ export default function Feed() {
     <>
       <PhoneFeed
         shelf={shelfItems}
+        latestPost={latestPost}
         cardBg={getCardBg}
         emptyText={posts.length ? null : emptyText}
         onEdit={setEditingPost}
@@ -3494,10 +3497,10 @@ export default function Feed() {
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
-                ? <LiveSetCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
+                ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : isAlbumPost(item.post)
-                ? <AlbumCard key={item.key} post={item.post} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
-                : <PostCard key={item.key} post={item.post} cardBg={cardBg} onEdit={setEditingPost}
+                ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
+                : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
                     d={item.mirror ? { ...designFor(idx, false), mediaSide: 'left', plateAlign: 'left' } : designFor(idx, detectType(item.post) === 'livemix')} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
             nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)

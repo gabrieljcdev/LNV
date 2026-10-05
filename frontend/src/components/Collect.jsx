@@ -5,7 +5,7 @@ import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
-  usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi, joinApi, useInCommon,
+  usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
   useProfile, profileApi, wallLink,
 } from '../lib/collections'
 
@@ -50,19 +50,6 @@ function MenuItem({ onClick, children, checked, muted }) {
 }
 
 // ♡ / ♥ on a track — in or out of your "Hearted tracks" playlist.
-export function TrackHeart({ track, size = 13, offColor = 'inherit', style }) {
-  const { has, toggle } = useHearted()
-  if (!track?.url) return null
-  const on = has(track.url)
-  return (
-    <button onClick={e => { e.stopPropagation(); if (!isLoggedIn()) return askToSignIn('heart tracks'); toggle(track) }}
-      aria-pressed={on} title={on ? 'In Hearted tracks — click to remove' : 'Heart this track (adds it to Hearted tracks)'}
-      aria-label={on ? `Unheart ${track.title}` : `Heart ${track.title}`}
-      style={{ ...plain, display: 'inline-flex', alignItems: 'center', flexShrink: 0, ...style, color: on ? 'var(--theme-accent)' : offColor }}>
-      <span aria-hidden="true" style={{ fontSize: size, lineHeight: 1 }}>{on ? '♥' : '♡'}</span>
-    </button>
-  )
-}
 
 // "+ list" / "+" — add tracks to one of your playlists (yours or one you've
 // been invited to). With several tracks, tick which first (all ticked).
@@ -155,16 +142,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
 
 // On "my feed", a post from someone you follow: a small "following" tag
 // beside their name, so it's told apart from your own.
-// On a wall or in my feed, a post that's there because someone reposted it
-// says so instead (2026-10-05): "↻ dan" — dan opens their wall; the card's
-// own name is still who posted it, so you meet them through dan.
 export function FollowedTag({ post, style }) {
-  if (post.viaRepost) return (
-    <span title={`Reposted by ${post.viaRepost}`}
-      style={{ flexShrink: 0, display: 'inline-flex', gap: 4, alignItems: 'baseline', fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.06em', color: '#fff', background: 'var(--theme-accent)', borderRadius: 99, padding: '2px 8px', whiteSpace: 'nowrap', alignSelf: 'center', ...style }}>
-      ↻ <WallLink name={post.viaRepost} style={{ color: '#fff' }} />
-    </span>
-  )
   if (!post.followedFrom) return null
   return (
     <span title={`From ${post.followedFrom}, who you follow`}
@@ -172,24 +150,29 @@ export function FollowedTag({ post, style }) {
   )
 }
 
-// ↻ repost (2026-10-05): share someone else's post — onto your wall and
-// into your followers' feeds, with "↻ you" on the card. Tap again to undo.
-// Not on your own posts, nor ones you posted too (they're on your wall).
-export function RepostButton({ post, style }) {
+// ♥ (2026-10-06): keep a record — it goes on your wall and into your
+// followers' feeds; tap again to take it off. One act for what were
+// "post it too" and repost: every record is already here, so you keep it
+// rather than post it again. The count is how many people have it on their
+// wall; on your own post the heart is simply on. Who else has it shows as
+// "& dan" beside the poster (AlsoPosted).
+export function HeartButton({ post, size, style }) {
   const qc = useQueryClient()
   const me = getUser()
   const [mine, setMine] = useState(null) // local answer until the feed refreshes
   const [busy, setBusy] = useState(false)
-  const reposters = post.repostedBy || []
-  if (post.user?.username === me || (post.alsoPostedBy || []).includes(me)) return null
-  const on = mine ?? reposters.includes(me)
-  const count = reposters.length + (mine === true && !reposters.includes(me) ? 1 : 0) - (mine === false && reposters.includes(me) ? 1 : 0)
+  const others = post.alsoPostedBy || []
+  const own = !!me && post.user?.username === me
+  const had = others.includes(me)
+  const on = own || (mine ?? had)
+  const count = 1 + others.length + (mine === true && !had ? 1 : 0) - (mine === false && had ? 1 : 0)
   async function click(e) {
     e.stopPropagation()
-    if (!isLoggedIn()) return askToSignIn('repost this')
+    if (own) return
+    if (!isLoggedIn()) return askToSignIn('keep records on your wall')
     setBusy(true)
     try {
-      await (on ? joinApi.unrepost(post.id) : joinApi.repost(post.id))
+      await (on ? joinApi.leave(post.id) : joinApi.join(post.id))
       setMine(!on)
       qc.invalidateQueries({ queryKey: ['posts'] })
       qc.invalidateQueries({ queryKey: ['wall'] })
@@ -198,9 +181,9 @@ export function RepostButton({ post, style }) {
   }
   return (
     <button onClick={click} disabled={busy} aria-pressed={on}
-      title={on ? 'You reposted this — tap to undo' : 'Repost — share it with the people who follow you'}
-      style={{ ...plain, whiteSpace: 'nowrap', opacity: busy ? 0.5 : 1, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
-      ↻ {on ? 'reposted' : 'repost'}{count > 0 ? ` · ${count}` : ''}
+      title={own ? 'Your post — it’s on your wall' : on ? 'On your wall — tap to take it off' : 'Keep it — on your wall and in your followers’ feeds'}
+      style={{ ...plain, whiteSpace: 'nowrap', cursor: own ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
+      <span style={size ? { fontSize: size } : null}>{on ? '♥' : '♡'}</span>{count > 1 ? ` ${count}` : ''}
     </button>
   )
 }
@@ -426,8 +409,7 @@ export function WallCard({ username, compact = false }) {
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>Only you see this
           </div>
           <div style={{ fontSize: 13.5, lineHeight: 1.7 }}>
-            Reposted {p.private.reposted} {p.private.reposted === 1 ? 'time' : 'times'}<br />
-            Posted too by {p.private.postedToo} {p.private.postedToo === 1 ? 'person' : 'people'}<br />
+            ♥ by {p.private.hearted} {p.private.hearted === 1 ? 'person' : 'people'}<br />
             {p.private.replies} {p.private.replies === 1 ? 'reply' : 'replies'} on your posts
           </div>
         </div>

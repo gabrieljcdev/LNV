@@ -6,11 +6,11 @@
 // The model: a main feed; everyone's wall (the posts they made, public);
 // following other users to keep their walls a click away; playlists of
 // tracks — shareable read-only by link, editable by friends you invite, and
-// viewable as a feed of the posts their tracks come from. ♡ on a track puts
-// it in your "Hearted tracks" playlist.
+// viewable as a feed of the posts their tracks come from. ♥ on a record
+// keeps it on your wall (2026-10-06, joinApi).
 
 import { useSyncExternalStore } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { authHeaders, isLoggedIn, getUser } from './auth'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -72,9 +72,6 @@ export const openWall = username => setFeedMode({ type: 'wall', username })
 export const joinApi = {
   join: postId => call('POST', `/posts/${postId}/join`),
   leave: postId => call('DELETE', `/posts/${postId}/join`),
-  // Reposts (2026-10-05): share someone's post onto your wall, or undo it.
-  repost: postId => call('POST', `/posts/${postId}/repost`),
-  unrepost: postId => call('DELETE', `/posts/${postId}/repost`),
 }
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })
 
@@ -158,35 +155,6 @@ export const playlistsApi = {
 }
 export const playlistLink = token => `${window.location.origin}/?playlist=${token}`
 export const playlistInviteLink = token => `${window.location.origin}/?playlistinvite=${token}`
-
-// ♡ on a track: in / out of your "Hearted tracks" playlist (made on first use).
-export function useHearted() {
-  const signedIn = isLoggedIn()
-  const qc = useQueryClient()
-  const q = useQuery({
-    queryKey: ['playlists', 'hearted'],
-    queryFn: () => call('GET', '/playlists/hearted'),
-    enabled: signedIn,
-    staleTime: 60_000,
-  })
-  const urls = new Set(signedIn ? (q.data?.urls || []) : [])
-  async function toggle(track) {
-    const on = !urls.has(track.url)
-    const prev = qc.getQueryData(['playlists', 'hearted'])
-    qc.setQueryData(['playlists', 'hearted'], old => ({ ...(old || {}), urls: on ? [...(old?.urls || []), track.url] : (old?.urls || []).filter(u => u !== track.url) }))
-    try {
-      if (on) await call('POST', '/playlists/hearted', { track })
-      else await call('DELETE', '/playlists/hearted', { url: track.url })
-    } catch (err) {
-      qc.setQueryData(['playlists', 'hearted'], prev)
-      window.alert(`Couldn't save that: ${err.message}`)
-    } finally {
-      qc.invalidateQueries({ queryKey: ['playlists'] })
-      qc.invalidateQueries({ queryKey: ['playlist'] })
-    }
-  }
-  return { has: url => urls.has(url), toggle }
-}
 
 // A post's track as a playlist entry.
 export function trackFrom(post, t) {

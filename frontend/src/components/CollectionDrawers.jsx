@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, useWall, useFollowing, wallsApi, wallLink, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
-import { TrackHeart } from './Collect'
 import { queue, useQueue, currentTrack } from '../lib/queue'
 import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
 
@@ -211,7 +210,6 @@ function PlaylistView({ id, token, onBack }) {
             </span>
             <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{t.duration || ''}</span>
           </Row>
-          <TrackHeart track={t} size={15} offColor={TER} style={{ width: 20, justifyContent: 'center' }} />
           {t.post_id && <button onClick={() => jump(t.post_id)} title={`Go to post ${pad(t.post_id)}`} style={btn}>{pad(t.post_id)}</button>}
           {canEdit && <>
             <button onClick={() => run(() => playlistsApi.moveTrack(pid, t.id, -1))} disabled={i === 0} aria-label="Move up" style={{ ...btn, opacity: i === 0 ? 0.3 : 1 }}>↑</button>
