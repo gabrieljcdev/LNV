@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
@@ -8,6 +8,7 @@ import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, TrackHeart, FollowedTag, AlsoPosted } from './Collect'
+import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -285,6 +286,27 @@ function toEmbedSrc(streamUrl) {
   return null
 }
 
+// The player for a post, or for one of its tracks (trackUrl) — the same
+// platform rules as PostCard's inline version: a Bandcamp track's own
+// player, else YouTube > SoundCloud > Mixcloud > the post's Bandcamp player.
+// `ratio` is width / height for a box that scales with the screen; `h` a
+// fixed height for the bar players. Used by the phone card (2026-10-05).
+function postEmbed(post, trackUrl = null) {
+  const tracks = post.tracks || []
+  const url = trackUrl || post.stream_url || post.embed_url || tracks[0]?.youtube_url || tracks[0]?.stream_url || ''
+  const live = detectType(post) === 'livemix'
+  const track = trackUrl ? tracks.find(t => (t.stream_url || t.youtube_url) === trackUrl) : null
+  if (/bandcamp\.com\/EmbeddedPlayer/i.test(track?.embed_url || '')) return { src: track.embed_url, ratio: 1 }
+  const yt = url.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)?.[1]
+  if (yt) return { src: `https://www.youtube.com/embed/${yt}?rel=0&modestbranding=1&color=white&enablejsapi=1&playsinline=1`, ratio: 16 / 9 }
+  if (/soundcloud\.com/i.test(url)) return live
+    ? { src: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23e85d04&auto_play=true&hide_related=true&show_comments=false&show_user=true&visual=false`, h: 166 }
+    : { src: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23e85d04&auto_play=true&hide_related=true&show_comments=false&show_user=true&visual=true`, ratio: 1 }
+  if (/mixcloud\.com/i.test(url)) return { src: `https://www.mixcloud.com/widget/iframe/?hide_cover=1&autoplay=1&feed=${encodeURIComponent(url.replace('https://www.mixcloud.com', ''))}`, h: 120 }
+  if (/bandcamp\.com/i.test(url) && /bandcamp\.com\/EmbeddedPlayer/i.test(post.embed_url || '')) return { src: post.embed_url, ratio: 1 }
+  return null
+}
+
 function detectType(p) {
   if (p.post_type) return p.post_type
   const f = (p.format || '').toLowerCase()
@@ -441,7 +463,7 @@ function PostTitle({ post, labelStyle }) {
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
+function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -511,7 +533,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140 }) {
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submit() }}
             placeholder="reply…"
-            style={{ flex: 1, borderRadius: 20, border: '1px solid var(--theme-border)', padding: '5px 12px', fontFamily: 'Barlow, sans-serif', fontSize: 11, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', outline: 'none' }}
+            style={{ flex: 1, minWidth: 0, borderRadius: 20, border: '1px solid var(--theme-border)', padding: '5px 12px', fontFamily: 'Barlow, sans-serif', fontSize: inputSize, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', outline: 'none' }}
           />
           <button onClick={submit} disabled={!text.trim() || submitting}
             style={{ borderRadius: 20, border: 'none', padding: '5px 14px', fontFamily: 'VT323, monospace', fontSize: 11, background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', opacity: (!text.trim() || submitting) ? 0.5 : 1, flexShrink: 0 }}
@@ -2523,6 +2545,371 @@ function FeedIntro({ clockWrapRef, scrollCueRef }) {
 // MAIN FEED
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Phone layout (2026-10-05, from the handover's phone-app vision): one post
+// per screen, swiped sideways like flicking through records in a crate —
+// not yes / no, a swipe just moves on. Same feeds, posts, players, ♡ / +
+// list, names and replies as the desktop shelf; only the presentation
+// changes. Native scroll-snap does the swiping (touch momentum, and a
+// trackpad or arrow keys on a narrow desktop window).
+//
+// Music: tapping a cover or a track opens that card's player, and only that
+// card's — one player at a time. Swiping away keeps it playing; playing
+// another card replaces it. Most players need a second tap inside them on
+// phones (browsers only let sound start from a tap on the player itself).
+
+const D = DESIGN_BASE
+const P_MONO = D.monoFf, P_SANS = D.bodyFf
+const PHONE_RADIUS = 28
+const PHONE_GAP = 10
+
+// Light or dark text for a card from its actual colour, re-checked when the
+// palette changes (same rule as the desktop FloatSlot).
+function useInk(ref) {
+  const [ink, setInk] = useState(null)
+  useLayoutEffect(() => {
+    let t = null
+    const pick = () => { if (ref.current) setInk(bgIsDark(ref.current) ? INK_DARK_BG : INK_LIGHT_BG) }
+    pick()
+    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(pick, 850) })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    return () => { mo.disconnect(); clearTimeout(t) }
+  }, [ref])
+  return ink
+}
+
+// The top bar (feed switcher + search) floats over the deck; cards start under it.
+const PHONE_TOPBAR_H = 'calc(58px + env(safe-area-inset-top))'
+
+// The phone's opening (2026-10-05): the desktop's first scroll, played on
+// its own. The three colours — the nav strip (rail), the strip's second
+// zone, the intro panel — stand side by side from the left with rounded
+// right edges, at the desktop's proportions (320 / 530 px of 1440). After a
+// beat they collapse leftwards one after the other, panel first, strip last,
+// and the first card rides in from the right on the panel's edge, rolling in
+// under the strip as on desktop. Once per page load; skipped for reduced motion.
+const OPENING_HOLD_MS = 500
+const OPENING_CLOSE_MS = 1400
+const OPENING_LAYERS = [ // drawn bottom to top
+  { bg: 'var(--theme-showcase)', rest: 100, from: 0, to: 0.7 },
+  { bg: 'var(--theme-channel, var(--theme-dark2))', rest: 37, from: 0.2, to: 0.85 },
+  { bg: 'var(--theme-sidebar)', rest: 22, from: 0.35, to: 1 },
+]
+let phoneOpeningPlayed = false
+function PhoneOpening({ deckRef }) {
+  const [done, setDone] = useState(() => phoneOpeningPlayed || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+  const layerRefs = useRef([])
+  // The deck starts off to the right, behind the panel.
+  useLayoutEffect(() => {
+    if (!done && deckRef.current) deckRef.current.style.transform = 'translateX(100%)'
+  }, [done, deckRef])
+  useEffect(() => {
+    if (done) return
+    phoneOpeningPlayed = true
+    const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+    let raf = null, start = null
+    const tick = now => {
+      if (start === null) start = now
+      const t = Math.min(1, Math.max(0, now - start - OPENING_HOLD_MS) / OPENING_CLOSE_MS)
+      OPENING_LAYERS.forEach((l, i) => {
+        const k = ease(Math.min(1, Math.max(0, (t - l.from) / (l.to - l.from))))
+        const el = layerRefs.current[i]
+        if (el) el.style.width = `${l.rest * (1 - k)}%`
+        // the first card's left edge rides on the panel's right edge
+        if (i === 0 && deckRef.current) deckRef.current.style.transform = `translateX(${l.rest * (1 - k)}%)`
+      })
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else setDone(true)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); if (deckRef.current) deckRef.current.style.transform = '' }
+  }, [done, deckRef])
+  if (done) return null
+  return (
+    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, zIndex: 40, pointerEvents: 'none', overflow: 'hidden' }}>
+      {OPENING_LAYERS.map((l, i) => (
+        <div key={i} ref={el => { layerRefs.current[i] = el }}
+          style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${l.rest}%`, background: l.bg, borderTopRightRadius: STRIP_RADIUS, borderBottomRightRadius: STRIP_RADIUS }} />
+      ))}
+    </div>
+  )
+}
+
+function Slide({ bg, children }) {
+  const ref = useRef(null)
+  const ink = useInk(ref)
+  return (
+    <section style={{ position: 'relative', zIndex: 1, flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
+      <div ref={ref} data-inner-scroll=""
+        style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: PHONE_RADIUS, background: bg, boxShadow: '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
+        {children}
+      </div>
+    </section>
+  )
+}
+
+const pBadge = { fontSize: D.badgeSize, fontWeight: D.badgeWeight, letterSpacing: `${D.badgeLs}em`, textTransform: 'uppercase', padding: `${D.badgePy + 1}px ${D.badgePx}px`, borderRadius: D.badgeRadius, fontFamily: D.labelFf, textDecoration: 'none', whiteSpace: 'nowrap' }
+const pZlabel = { fontFamily: D.labelFf, fontWeight: 600, fontSize: D.zlabelSize, letterSpacing: `${D.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--theme-text-ter)', marginBottom: D.zlabelMb }
+const pPlain = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', letterSpacing: 'inherit' }
+
+function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
+  const { canModify, deleting, deletePost } = usePostActions(post)
+  const { openD3 } = useLayout() || {}
+  const [trackUrl, setTrackUrl] = useState(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+
+  const live = detectType(post) === 'livemix'
+  const type = detectType(post)
+  const artist = artistName(post)
+  const label = labelName(post)
+  const catNo = post.labels?.[0]?.catalogue_number || ''
+  const tracks = post.tracks || []
+  const note = cleanNote(post.notes || post.body)
+
+  // What the cover plays: the post's own player, else its first track with a
+  // link (desktop's "click the art = track A").
+  const firstTrackUrl = tracks.map(t => t.stream_url || t.youtube_url).find(Boolean) || null
+  const startUrl = postEmbed(post) ? null : firstTrackUrl
+  const canPlay = !!postEmbed(post, startUrl)
+  const embed = playing ? postEmbed(post, trackUrl) : null
+
+  function play(url) {
+    // A link with no player we can embed (Spotify, Apple Music…) opens there.
+    if (!postEmbed(post, url)) { const out = url || post.stream_url; if (out) window.open(out, '_blank', 'noopener'); return }
+    setTrackUrl(url); onPlay()
+  }
+  // An album plays through: at the end of a track, the next one with a link.
+  function next() {
+    const urls = tracks.map(t => t.stream_url || t.youtube_url).filter(Boolean)
+    const i = urls.indexOf(trackUrl)
+    if (i >= 0 && i + 1 < urls.length && postEmbed(post, urls[i + 1])) setTrackUrl(urls[i + 1])
+  }
+
+  const playingUrl = (playing && trackUrl) || post.stream_url || ''
+  const platform = platformOfUrl(playingUrl) || post.platform || ''
+  const ytId = platform === 'youtube' ? playingUrl.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] : null
+  const platformHref = ytId ? `https://www.youtube.com/watch?v=${ytId}` : (playingUrl || null)
+  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+  const discogsHref = discogsExact || (!live && (artist || post.title)
+    ? `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}` : null)
+  const buyHref = post.discogs_id ? `https://www.discogs.com/sell/release/${post.discogs_id}`
+    : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
+  const outline = { ...pBadge, background: 'none', border: '1px solid var(--theme-border)', color: 'var(--theme-text-sec)' }
+
+  const media = embed && !embed.h
+    ? <div style={{ width: '100%', aspectRatio: String(embed.ratio), borderRadius: 22, overflow: 'hidden', background: '#000' }}>
+        <TrackPlayer key={embed.src} src={embed.src} autoplay onEnded={next} title={post.title} />
+      </div>
+    : <CoverArt post={post} style={{ width: '100%', aspectRatio: live ? '16 / 9' : '1', borderRadius: 22 }}>
+        {(canPlay || post.stream_url) && !embed && (
+          <button onClick={() => play(startUrl)} aria-label={canPlay ? `Play ${post.title}` : `Open ${post.title}`}
+            style={{ ...pPlain, position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', color: '#fff', fontSize: canPlay ? 24 : 20, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingLeft: canPlay ? 4 : 0 }}>{canPlay ? '▶' : '↗'}</span>
+          </button>
+        )}
+      </CoverArt>
+
+  return (
+    <div style={{ padding: '18px 18px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        <span style={{ ...pBadge, background: live ? 'var(--theme-accent)' : 'var(--theme-showcase)', color: '#fff' }}>{live ? 'LIVE SET' : type === 'single' ? 'SINGLE' : 'ALBUM'}</span>
+        {platform && <a href={platformHref || undefined} target="_blank" rel="noopener noreferrer"
+          style={{ ...pBadge, background: PLATFORM_COLORS[platform] || 'var(--theme-accent)', color: platform === 'beatport' ? '#000' : '#fff' }}>{platform.toUpperCase()}</a>}
+        {discogsHref && <a href={discogsHref} target="_blank" rel="noopener noreferrer" style={outline}>◈ DISCOGS</a>}
+        {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={outline}>BUY ↗</a>}
+      </div>
+
+      {media}
+      {embed?.h && (
+        <div style={{ height: embed.h, borderRadius: 14, overflow: 'hidden', marginTop: -4 }}>
+          <TrackPlayer key={embed.src} src={embed.src} autoplay onEnded={next} title={post.title} />
+        </div>
+      )}
+      {playing && <button onClick={onStop} style={{ ...pPlain, alignSelf: 'flex-start', fontFamily: P_MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', marginTop: -6 }}>■ stop</button>}
+
+      <div>
+        <div style={{ fontFamily: D.artistFf, fontSize: 28, fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>
+          {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+        </div>
+        {artist && post.title && <div style={{ fontFamily: D.artistFf, fontSize: 24, fontStyle: 'italic', lineHeight: 1.08, letterSpacing: '-0.02em', color: 'var(--theme-text-sec)', overflowWrap: 'anywhere' }}>{post.title}</div>}
+        {(label || post.year || catNo) && (
+          <div style={{ marginTop: 10, fontFamily: P_MONO, fontSize: 11, fontWeight: 500, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', lineHeight: 1.5 }}>
+            {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+            {[catNo, post.year].filter(Boolean).map((x, i) => <span key={x}>{label || i ? ' · ' : ''}{x}</span>)}
+          </div>
+        )}
+        {live && post.channel && <div style={{ marginTop: 6, fontFamily: P_SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>
+          <DrawerLink kind="live" name={post.channel}>{post.channel}</DrawerLink>
+        </div>}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, borderBottom: '1px solid var(--theme-border)', paddingBottom: 10 }}>
+        <div aria-hidden="true" style={{ fontFamily: D.numeralFf, fontWeight: 900, fontSize: 96, lineHeight: 0.78, letterSpacing: '-0.055em', opacity: D.numeralOpacity, color: 'var(--theme-text-pri)', marginLeft: -4 }}>
+          {String(post.feedNumber ?? post.id).padStart(2, '0')}
+        </div>
+        <MainNumber post={post} style={{ fontFamily: P_MONO, fontSize: 11, color: 'var(--theme-text-ter)', marginLeft: 'auto' }} />
+      </div>
+
+      {!live && tracks.length > 0 && (
+        <div>
+          <div style={pZlabel}>Album listing</div>
+          {tracks.map((t, i) => {
+            const url = t.stream_url || t.youtube_url || null
+            const on = playing && url && trackUrl === url
+            return (
+              <div key={i} onClick={() => { if (url) (on ? onStop() : play(url)) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 40, padding: '0 6px', margin: '0 -6px', borderRadius: 10, cursor: url ? 'pointer' : 'default', background: on ? 'color-mix(in srgb, var(--theme-accent) 16%, transparent)' : 'transparent' }}>
+                <span style={{ fontFamily: P_MONO, fontSize: 11, minWidth: 18, color: on ? 'var(--theme-accent)' : 'var(--theme-text-ter)' }}>{url ? (on ? '▶' : '▷') : (t.position || i + 1)}</span>
+                <span style={{ flex: 1, minWidth: 0, fontFamily: P_SANS, fontSize: 15, color: on ? 'var(--theme-text-pri)' : 'var(--theme-text-sec)', fontWeight: on ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                {t.duration && <span style={{ fontFamily: P_MONO, fontSize: 11, color: 'var(--theme-text-ter)', fontVariantNumeric: 'tabular-nums' }}>{t.duration}</span>}
+                {url && <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', gap: 12, alignItems: 'center', fontSize: 16 }}>
+                  <TrackHeart track={trackFrom(post, t)} size={16} offColor="var(--theme-text-ter)" />
+                  <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: P_MONO, fontSize: 16, color: 'var(--theme-text-ter)' }} />
+                </span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {post.genres?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {post.genres.slice(0, 6).map(g => (
+            <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+              style={{ ...pPlain, fontFamily: P_SANS, fontSize: 13, background: 'var(--theme-dark3)', color: 'var(--theme-text-sec)', padding: '5px 12px', borderRadius: 99 }}>{g}</button>
+          ))}
+        </div>
+      )}
+
+      {(note || post.post_title) && (
+        <div>
+          <PostTitle post={post} labelStyle={{ ...pZlabel, fontSize: D.postLabelSize, marginBottom: D.postLabelMb }} />
+          {note && <div style={{ fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note}</div>}
+        </div>
+      )}
+
+      {/* byline — who posted it (and who else did), replies, keep it */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 8, fontFamily: P_SANS, fontSize: 13, color: 'var(--theme-text-ter)', borderTop: '1px solid var(--theme-border)', paddingTop: 12 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
+          <FollowedTag post={post} />
+          <WallLink name={post.user?.username || post.username} style={{ fontWeight: 600, fontSize: 14, color: 'var(--theme-text-pri)' }} />
+          <AlsoPosted post={post} style={{ fontSize: 14, color: 'var(--theme-text-pri)' }} />
+        </span>
+        <span style={{ fontFamily: P_MONO, fontSize: 11, marginLeft: 'auto' }}>{timeAgo(post.created_at)}</span>
+        <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 18, minHeight: 36 }}>
+          <button onClick={() => setCommentsOpen(v => !v)} style={pPlain}>
+            <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
+          </button>
+          {live || !tracks.length ? <TrackHeart track={trackFrom(post, { title: post.title, stream_url: post.stream_url, embed_url: post.embed_url })} size={16} offColor="var(--theme-text-ter)" /> : null}
+          <AddToPlaylistButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
+          {canModify && (
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 14, fontFamily: P_MONO, fontSize: 11 }}>
+              <button onClick={() => onEdit?.(post)} style={pPlain}>edit</button>
+              <button onClick={deletePost} disabled={deleting} style={pPlain}>{deleting ? '…' : 'delete'}</button>
+            </span>
+          )}
+        </div>
+      </div>
+      {commentsOpen && <div style={{ margin: '0 -18px' }}><CommentThread postId={post.id} onCountChange={setCommentCount} d={{ ...D, cmPx: 18, cmSize: 14 }} maxH={320} inputSize={16} /></div>}
+    </div>
+  )
+}
+
+// A spotlight between posts: who or what, a few of their posts here (tap one
+// to go to it), and their drawer for the rest.
+const SPOTLIGHT_DRAWER = { artist: 'artists', label: 'labels', channel: 'live' }
+const SPOTLIGHT_NAME = { artist: 'Artist', label: 'Label', channel: 'Channel' }
+function PhoneSpotlight({ subject, onJump }) {
+  const { openD3 } = useLayout() || {}
+  const kind = SPOTLIGHT_DRAWER[subject.type]
+  const posts = subject.posts.slice(0, 6)
+  return (
+    <div style={{ padding: '26px 20px 20px', display: 'flex', flexDirection: 'column', gap: 18, minHeight: '100%', boxSizing: 'border-box' }}>
+      <div style={{ transform: 'scale(0.6)', transformOrigin: 'left top', height: 66 }}>{SPOTLIGHT_MARK[subject.type]}</div>
+      <div>
+        <div style={pZlabel}>{SPOTLIGHT_NAME[subject.type]} spotlight</div>
+        <div style={{ fontFamily: D.artistFf, fontSize: 34, fontWeight: 800, lineHeight: 1.02, letterSpacing: '-0.025em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>{subject.name}</div>
+        <div style={{ marginTop: 8, fontFamily: P_MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>
+          {subject.posts.length} {subject.posts.length === 1 ? 'post' : 'posts'} here
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        {posts.map(p => (
+          <button key={p.id} onClick={() => onJump(p.id)} aria-label={`Go to ${p.title}`} style={{ ...pPlain, display: 'block' }}>
+            <CoverArt post={p} style={{ width: '100%', aspectRatio: '1', borderRadius: 12 }} />
+          </button>
+        ))}
+      </div>
+      <button onClick={() => openD3?.(kind, { filter: subject.name })}
+        style={{ ...pPlain, alignSelf: 'flex-start', marginTop: 'auto', fontFamily: P_SANS, fontWeight: 600, fontSize: 15, padding: '11px 20px', borderRadius: 99, background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)' }}>
+        Everything by {subject.name} →
+      </button>
+    </div>
+  )
+}
+
+function PhoneFeed({ shelf, cardBg, emptyText, onEdit, hasMore, loadMore, viewKey, jumpRef, topBar }) {
+  const deckRef = useRef(null)
+  const [idx, setIdx] = useState(0)
+  const [playing, setPlaying] = useState(null) // key of the card whose player is open
+  // The desktop's placeholder channel spotlight has nothing to show here.
+  const list = (shelf.current || []).filter(it => it.kind === 'post' || !it.subject?.isPlaceholder)
+  // A new feed or search starts at its first card.
+  const [shownKey, setShownKey] = useState(viewKey)
+  if (shownKey !== viewKey) { setShownKey(viewKey); setIdx(0) }
+  useEffect(() => { deckRef.current?.scrollTo({ left: 0 }) }, [viewKey])
+
+  // The next page when FEED_LOAD_AHEAD cards from the end.
+  useEffect(() => { if (hasMore && idx >= list.length - FEED_LOAD_AHEAD) loadMore() }, [idx, list.length, hasMore, loadMore])
+
+  function go(i, smooth = true) {
+    const el = deckRef.current
+    if (el) el.scrollTo({ left: Math.max(0, Math.min(i, list.length - 1)) * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
+  }
+  // Jumps (search, drawers, a spotlight's covers) land straight on the card.
+  const jumpTo = id => { const i = list.findIndex(it => it.post?.id === id); if (i < 0) return false; go(i, false); return true }
+  useEffect(() => { if (jumpRef) jumpRef.current = jumpTo })
+
+  // Arrow keys on a narrow desktop window.
+  useEffect(() => {
+    const h = e => {
+      if (e.target.closest?.('input, textarea, [contenteditable]')) return
+      if (e.key === 'ArrowRight') go(idx + 1)
+      else if (e.key === 'ArrowLeft') go(idx - 1)
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  })
+
+  const onScroll = e => {
+    const el = e.currentTarget
+    const i = Math.round(el.scrollLeft / el.clientWidth)
+    if (i !== idx) setIdx(i)
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'var(--theme-bg)' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 8, padding: `calc(10px + env(safe-area-inset-top)) ${PHONE_GAP}px 10px` }}>
+        {topBar}
+      </div>
+      <div ref={deckRef} onScroll={onScroll} aria-label="Posts — swipe for the next one"
+        style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', scrollbarWidth: 'none' }}>
+        {list.length === 0 ? (
+          <section style={{ position: 'relative', zIndex: 1, flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--theme-bg)', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
+        ) : list.map((it, i) => (
+          <Slide key={it.key} bg={cardBg(i, it)}>
+            {it.kind === 'spotlight'
+              ? <PhoneSpotlight subject={it.subject} onJump={jumpTo} />
+              : <PhoneCard post={it.post} onEdit={onEdit}
+                  playing={playing === it.key} onPlay={() => setPlaying(it.key)} onStop={() => setPlaying(null)} />}
+          </Slide>
+        ))}
+      </div>
+      <PhoneOpening deckRef={deckRef} />
+    </div>
+  )
+}
+
 export default function Feed() {
   // One player at a time across every card (lib/playerGuard).
   useEffect(() => installPlayerGuard(), [])
@@ -2545,7 +2932,13 @@ export default function Feed() {
   const clockWrapRef                  = useRef(null)
   const scrollCueRef                  = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, driveFeedScroll, composeBtnRef, scrollToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
+  const { feedRef, driveFeedScroll, composeBtnRef, scrollToPost: scrollShelfToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
+  // Phones get one post per screen, swiped sideways (PhoneFeed in Feed.jsx,
+  // 2026-10-05) — same posts, same feeds; a jump to a post moves that deck.
+  const phone = usePhone()
+  const phoneJumpRef = useRef(null)
+  const scrollToPost = useCallback(id => (phone ? phoneJumpRef.current?.(id) : scrollShelfToPost?.(id)), [phone, scrollShelfToPost])
+  const onPhoneDeck = id => phone && (shelfItems.current || []).some(it => it.post?.id === id)
 
   // Theme
   useEffect(() => { applyPalette(themeIdx === -1 ? getAutoIndex() : themeIdx) }, [themeIdx])
@@ -2560,7 +2953,7 @@ export default function Feed() {
   // and scrolled to once it lands (pendingJump).
   const pendingJump = useRef(null)
   function jumpToPost(id) {
-    if (postRefs?.current?.has(id)) { scrollToPost?.(id); return }
+    if (postRefs?.current?.has(id) || onPhoneDeck(id)) { scrollToPost(id); return }
     pendingJump.current = id
     setSearch(String(id))
   }
@@ -2727,9 +3120,9 @@ export default function Feed() {
     if (feedSel) return // still showing a wall / shared feed: wait for the main one
     // On the main feed but not among the loaded posts: fetch it by number.
     if (!search && posts.length && !posts.some(p => p.id === id)) { setSearch(String(id)); return }
-    if (!posts.some(p => p.id === id) || !postRefs?.current?.has(id)) return
+    if (!posts.some(p => p.id === id) || !(postRefs?.current?.has(id) || onPhoneDeck(id))) return
     pendingJump.current = null
-    const t = setTimeout(() => scrollToPost?.(id), 250)
+    const t = setTimeout(() => scrollToPost(id), 250)
     return () => clearTimeout(t)
   }, [searching, postsSignature, postRefs, scrollToPost, feedSel, search, posts])
 
@@ -2881,6 +3274,13 @@ export default function Feed() {
     return () => { if (raf) cancelAnimationFrame(raf) }
   }, [])
 
+  // The phone nav's + (PhoneNav.jsx) opens the composer.
+  useEffect(() => {
+    const h = () => setComposeOpen(true)
+    window.addEventListener('lnv:compose', h)
+    return () => window.removeEventListener('lnv:compose', h)
+  }, [])
+
   // Keyboard
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') setPickerOpen(false) }
@@ -2917,6 +3317,62 @@ export default function Feed() {
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
 
+  const emptyText = search ? `No results for "${search}"`
+    : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : isLoggedIn() ? 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.' : 'Nothing on the front page yet.')
+    : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing on ${feedMode.username}’s wall yet.`)
+    : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
+    : 'No posts yet — share the first record.'
+
+  const searchBox = (style) => (
+    <SearchBox
+      style={style}
+      onJump={jumpToPost}
+      onOpenDrawer={(kind, name) => openD3?.(kind, { filter: name })}
+      onShowAll={q => { pendingJump.current = null; setSearch(q) }}
+      onClear={() => { pendingJump.current = null; setSearch('') }}
+      filtering={!!search}
+      busy={searching}
+    />
+  )
+
+  const modals = (<>
+    {editingPost && (
+      <ComposeModal
+        key={`edit-${editingPost.id}`}
+        editPost={editingPost}
+        onClose={() => setEditingPost(null)}
+        onPosted={() => { setEditingPost(null); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
+      />
+    )}
+    {composeOpen && (
+      <ComposeModal
+        initialUrl={composeInitialUrl}
+        onClose={() => { setComposeOpen(false); setComposeInitialUrl('') }}
+        onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
+      />
+    )}
+  </>)
+
+  if (phone) return (
+    <>
+      <PhoneFeed
+        shelf={shelfItems}
+        cardBg={getCardBg}
+        emptyText={posts.length ? null : emptyText}
+        onEdit={setEditingPost}
+        hasMore={!!hasNextPage}
+        loadMore={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage() }}
+        viewKey={viewKey}
+        jumpRef={phoneJumpRef}
+        topBar={<>
+          <FeedSwitcher menuLeft style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
+          {searchBox({ position: 'static', top: 'auto', right: 'auto', width: 'auto', flex: 1, minWidth: 0 })}
+        </>}
+      />
+      {modals}
+    </>
+  )
+
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--theme-bg)', position: 'relative' }}>
 
@@ -2939,11 +3395,7 @@ export default function Feed() {
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: `0 0 ${DESIGN_BASE.cardW}px`, fontFamily: 'VT323, monospace', fontSize: 14, color: 'var(--theme-text-sec)' }}>
-            {search ? `No results for "${search}"`
-              : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : isLoggedIn() ? 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.' : 'Nothing on the front page yet.')
-              : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing on ${feedMode.username}’s wall yet.`)
-              : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
-              : 'No posts yet — share the first record.'}
+            {emptyText}
           </div>
         )}
         {(() => {
@@ -2970,14 +3422,7 @@ export default function Feed() {
       <FeedSwitcher />
 
       {/* Search — dropdown of post numbers, posts, artists/labels/genres */}
-      <SearchBox
-        onJump={jumpToPost}
-        onOpenDrawer={(kind, name) => openD3?.(kind, { filter: name })}
-        onShowAll={q => { pendingJump.current = null; setSearch(q) }}
-        onClear={() => { pendingJump.current = null; setSearch('') }}
-        filtering={!!search}
-        busy={searching}
-      />
+      {searchBox()}
 
       {/* Theme button */}
       <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 100 }}>
@@ -2998,22 +3443,8 @@ export default function Feed() {
           style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
       </div>
 
-      {editingPost && (
-        <ComposeModal
-          key={`edit-${editingPost.id}`}
-          editPost={editingPost}
-          onClose={() => setEditingPost(null)}
-          onPosted={() => { setEditingPost(null); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
-        />
-      )}
-
-      {composeOpen && (
-        <ComposeModal
-          initialUrl={composeInitialUrl}
-          onClose={() => { setComposeOpen(false); setComposeInitialUrl('') }}
-          onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
-        />
-      )}
+      {modals}
     </div>
   )
 }
+

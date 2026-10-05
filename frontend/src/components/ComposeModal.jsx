@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
+import { usePhone } from '../lib/usePhone'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -131,6 +132,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [fetchSource, setFetchSource] = useState(null)
  const [duplicate, setDuplicate] = useState(null)
  const [posting, setPosting] = useState(false)
+ // Phones (2026-10-05): one column, the cover full width, less padding.
+ const phone = usePhone()
+ const padX = phone ? 20 : CARD_PADX
  const [done, setDone] = useState(false)
  const [discogsVideos, setDiscogsVideos] = useState([])
  const [allReleases, setAllReleases] = useState(null)
@@ -497,10 +501,11 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  .lnvc-q { background: none; border: none; padding: 0; cursor: pointer; color: var(--theme-text-ter); font: 600 11px/1 Barlow, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
  .lnvc-q:hover { color: var(--theme-text-pri); }
  .lnvc-g:hover { text-decoration: line-through; }
+ @media (max-width: 767px), (pointer: coarse) and (max-height: 500px) { input.lnvc-f, textarea.lnvc-f { font-size: 16px !important; } }
  `}</style>
  <div style={{ ...INK_DARK_BG, width: CARD_W, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 64px)', background: 'var(--theme-showcase)', borderRadius: FLOAT_RADIUS, boxShadow: FLOAT_SHADOW, display: 'flex', flexDirection: 'column', overflow: 'hidden', color: 'var(--theme-text-pri)', transition: 'background 0.8s' }}>
 
- <div style={{ flex: 1, overflowY: 'auto', padding: `40px ${CARD_PADX}px 8px` }}>
+ <div style={{ flex: 1, overflowY: 'auto', padding: `${phone ? 24 : 40}px ${padX}px 8px` }}>
  {/* header — what this is, where it came from, how well it matched */}
  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
  <span style={{ ...badge, background: 'var(--theme-border)', color: 'var(--theme-text-sec)' }}>{editPost ? `Edit post #${editPost.id}` : 'New post'}</span>
@@ -533,10 +538,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  </div>
  )}
 
- <div style={{ display: 'grid', gridTemplateColumns: `${CARD_ART}px 1fr`, gap: 32 }}>
+ <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : `${CARD_ART}px 1fr`, gap: phone ? 20 : 32 }}>
  {/* cover — click it to paste a different image link */}
  <div>
- <div onClick={() => setCoverEdit(v => !v)} title="Change the cover" style={{ width: CARD_ART, height: CARD_ART, borderRadius: ART_RADIUS, background: coverArt ? `center/cover url("${coverArt}")` : CARD_FIELD, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--theme-text-ter)', fontSize: 40 }}>{coverArt ? '' : (isLiveMix ? '◉' : '◈')}</div>
+ <div onClick={() => setCoverEdit(v => !v)} title="Change the cover" style={{ width: phone ? '100%' : CARD_ART, height: phone ? 'auto' : CARD_ART, aspectRatio: '1', borderRadius: ART_RADIUS, background: coverArt ? `center/cover url("${coverArt}")` : CARD_FIELD, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--theme-text-ter)', fontSize: 40 }}>{coverArt ? '' : (isLiveMix ? '◉' : '◈')}</div>
  {(coverEdit || !coverArt) && <input className="lnvc-f" value={coverArt} onChange={e => setCoverArt(e.target.value)} placeholder="cover image link" style={{ ...mono, fontSize: 10, width: '100%', marginTop: 10 }} />}
  </div>
 
@@ -612,9 +617,9 @@ Click to edit`}
  </div>
 
  {/* byline row — who's posting, and the one action */}
- <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 20, padding: `18px ${CARD_PADX}px 22px`, borderTop: '1px solid var(--theme-border)' }}>
+ <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: phone ? 12 : 20, padding: `18px ${padX}px 22px`, borderTop: '1px solid var(--theme-border)' }}>
  <span style={{ fontFamily: 'Barlow, sans-serif', fontSize: 11.5, fontWeight: 600, color: 'var(--theme-text-sec)' }}>@{user}</span>
- <span style={{ ...mono, fontSize: 10, color: 'var(--theme-text-ter)' }}>{editPost ? 'editing' : 'posting as'}</span>
+ {!phone && <span style={{ ...mono, fontSize: 10, color: 'var(--theme-text-ter)' }}>{editPost ? 'editing' : 'posting as'}</span>}
  <span style={{ flex: 1 }} />
  {!editPost && <button className="lnvc-q" onClick={() => { setPhase('link'); clearForm(); setFetchStatus(''); setFetchError('') }}>different link</button>}
  <button onClick={handlePost} disabled={!title.trim() || posting || done} style={{ border: 'none', borderRadius: 99, height: 40, padding: '0 22px', cursor: 'pointer', background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)', fontFamily: 'Barlow, sans-serif', fontSize: 12, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: !title.trim() || posting ? 0.4 : 1 }}>

@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLayout } from '../context/LayoutContext';
 import { usePlayer } from '../context/PlayerContext';
+import { usePhone } from '../lib/usePhone';
+import { PHONE_NAV_H } from './PhoneNav';
 
 export default function OrangePlayer() {
   const { currentTrack, setCurrentTrack, scrollToPost } = useLayout();
   const { loadTrack, togglePlay, isPlaying, progress, seek } = usePlayer();
+  const phone = usePhone();
 
   const [visible, setVisible]   = useState(false);
   const [pos, setPos]           = useState({ x: null, y: null });
@@ -103,7 +106,8 @@ useEffect(() => {
     transition:   dragging ? 'none' : 'transform 0.45s cubic-bezier(0.34,1.3,0.64,1), opacity 0.3s ease',
     ...(pos.x !== null
       ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
-      : { right: '20px', bottom: '20px' }),
+      // Phones: above the bottom nav (2026-10-05).
+      : { right: phone ? '12px' : '20px', bottom: phone ? `calc(${PHONE_NAV_H + 12}px + env(safe-area-inset-bottom))` : '20px' }),
   };
 
   return (

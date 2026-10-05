@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { usePhone } from '../lib/usePhone'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -16,12 +17,16 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 const MONO = "'IBM Plex Mono', monospace", SANS = "'Barlow', sans-serif"
 
-export default function SearchBox({ onJump, onOpenDrawer, onShowAll, onClear, filtering, busy }) {
+// `style` moves the box (the phone top bar puts it in its row, 2026-10-05);
+// the results then drop under the nearest positioned parent, full width.
+export default function SearchBox({ onJump, onOpenDrawer, onShowAll, onClear, filtering, busy, style }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [data, setData] = useState(null)
   const [active, setActive] = useState(0)
   const [loading, setLoading] = useState(false)
+  // Phones: 16px input text (iOS zooms the page into anything smaller), no "/" hint.
+  const phone = usePhone()
   const boxRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -126,21 +131,21 @@ export default function SearchBox({ onJump, onOpenDrawer, onShowAll, onClear, fi
   </>)
 
   return (
-    <div ref={boxRef} style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, width: 320 }}>
+    <div ref={boxRef} style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, width: 320, ...style }}>
       <div style={{ display: 'flex', alignItems: 'center', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
         <span aria-hidden="true" style={{ color: 'var(--theme-text-ter)', fontSize: 13, marginRight: 8 }}>{loading || busy ? '◐' : '⌕'}</span>
         <input ref={inputRef} value={q} role="combobox" aria-expanded={!!show} aria-label="Search posts, artists, labels, genres, or a post number"
           onChange={e => { setQ(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)} onKeyDown={onKeyDown}
           placeholder="search, or a post number…"
-          style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: SANS, fontSize: 12.5 }} />
+          style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: SANS, fontSize: phone ? 16 : 12.5 }} />
         {filtering && <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--theme-accent)', marginLeft: 6 }}>filtered</span>}
         {(q || filtering) && <button onClick={clear} aria-label="Clear search" style={{ background: 'none', border: 'none', color: 'var(--theme-text-ter)', cursor: 'pointer', fontSize: 14, padding: 0, marginLeft: 8 }}>×</button>}
-        {!q && !filtering && <kbd style={{ fontFamily: MONO, fontSize: 10, color: 'var(--theme-text-ter)', border: '1px solid var(--theme-border)', borderRadius: 4, padding: '0 5px' }}>/</kbd>}
+        {!q && !filtering && !phone && <kbd style={{ fontFamily: MONO, fontSize: 10, color: 'var(--theme-text-ter)', border: '1px solid var(--theme-border)', borderRadius: 4, padding: '0 5px' }}>/</kbd>}
       </div>
 
       {show && (
-        <div role="listbox" style={{ marginTop: 8, maxHeight: '70vh', overflowY: 'auto', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 18, padding: 6, boxShadow: '0 18px 40px -10px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.15)' }}>
+        <div role="listbox" style={{ ...(style ? { position: 'absolute', left: 0, right: 0, top: '100%' } : null), marginTop: 8, maxHeight: '70vh', overflowY: 'auto', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 18, padding: 6, boxShadow: '0 18px 40px -10px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.15)' }}>
           {empty && <div style={{ padding: '14px 12px', fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>Nothing matches “{term}”.</div>}
           {data.goto && <>{head('Go to')}{row({ kind: 'goto', post: data.goto }, data.goto.missing
             ? <><span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--theme-text-ter)', minWidth: 34 }}>#{String(data.goto.id).padStart(2, '0')}</span><span style={{ fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>No post with that number yet</span></>

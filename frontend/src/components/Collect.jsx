@@ -201,8 +201,9 @@ export function FollowButton({ username }) {
 }
 
 // Which feed is showing: the main feed, a wall (yours or someone's), or a
-// playlist viewed as a feed. Sits beside the search box.
-export function FeedSwitcher() {
+// playlist viewed as a feed. Sits beside the search box. `style` moves it
+// (the phone top bar, 2026-10-05); `menuLeft` opens the menu from its left edge.
+export function FeedSwitcher({ style, menuLeft = false }) {
   const mode = useFeedMode()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -218,7 +219,7 @@ export function FeedSwitcher() {
   const lists = playlists.filter(p => p.track_count > 0).slice(0, 8)
   const atHome = mode.type === homeMode().type
   return (
-    <div ref={ref} style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div ref={ref} style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
       {otherWall && <FollowButton username={mode.username} />}
       <button onClick={() => setOpen(v => !v)} aria-haspopup="menu" aria-expanded={open} title="Choose a feed"
         style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 240, background: atHome ? 'var(--theme-dark3)' : 'var(--theme-accent)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', cursor: 'pointer',
@@ -227,7 +228,7 @@ export function FeedSwitcher() {
         <span aria-hidden="true" style={{ fontSize: 9, opacity: 0.8 }}>▼</span>
       </button>
       {open && (
-        <div role="menu" style={{ ...MENU, top: 'calc(100% + 8px)', right: 0, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div role="menu" style={{ ...MENU, top: 'calc(100% + 8px)', ...(menuLeft ? { left: 0 } : { right: 0 }), maxHeight: '70vh', overflowY: 'auto' }}>
           <MenuItem checked={isOn({ type: 'home' })} onClick={() => pick({ type: 'home' })}>{signedIn ? 'my feed' : 'front page'} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {signedIn ? 'you + who you follow' : 'start here'}</span></MenuItem>
           {signedIn ? <MenuItem checked={isOn({ type: 'wall', username: me })} onClick={() => pick({ type: 'wall', username: me })}>my wall <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· your posts</span></MenuItem>
             : <MenuItem muted onClick={() => askToSignIn('get your own wall')}>my wall — sign in</MenuItem>}

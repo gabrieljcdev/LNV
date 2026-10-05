@@ -5,6 +5,8 @@ import Logs from '../pages/Logs';
 import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, DrawerHead, DrawerBody } from './Drawers';
 import { AdminDrawer } from './AdminDrawer';
 import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
+import { usePhone } from '../lib/usePhone';
+import { PHONE_NAV_H } from './PhoneNav';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -55,6 +57,7 @@ export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
   const isOpen    = !!d3Content;
   const Component = COMPONENTS[d3Content];
+  const phone = usePhone();
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') closeD3(); };
@@ -67,8 +70,10 @@ export default function ContentPanel() {
       {/* Backdrop — dims the feed and catches outside clicks to close.
           `id="lnv-drawer-backdrop"` is what LayoutProvider's global wheel
           handler checks for so hovering it (or the panel below) doesn't
-          scroll the main feed while the drawer's open. */}
-      {isOpen && (
+          scroll the main feed while the drawer's open.
+          Phones: none — the sheet fills the screen, and the nav under it
+          stays tappable. */}
+      {isOpen && !phone && (
         <div id="lnv-drawer-backdrop" onClick={closeD3}
           style={{ position: 'fixed', inset: 0, zIndex: 39, background: 'rgba(0,0,0,0.30)' }} />
       )}
@@ -77,7 +82,17 @@ export default function ContentPanel() {
           behind it, rounded on the right like the cards and the strip.
           `id="lnv-drawer"`: index.css's overscroll rule and LayoutProvider's
           wheel handler both look for it. */}
-      <div id="lnv-drawer" role="dialog" aria-modal="true" aria-hidden={!isOpen} style={{
+      <div id="lnv-drawer" role="dialog" aria-modal="true" aria-hidden={!isOpen} style={phone ? {
+        // Phones (2026-10-05): a full-screen sheet that slides up, stopping
+        // above the bottom nav so the nav stays in reach.
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: `calc(${PHONE_NAV_H}px + env(safe-area-inset-bottom))`,
+        paddingTop: 'env(safe-area-inset-top)', boxSizing: 'border-box',
+        background: 'var(--theme-bg)', zIndex: 40,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        transform: isOpen ? 'translateY(0)' : 'translateY(100%)',
+        transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1), background 0.8s',
+        visibility: isOpen ? 'visible' : 'hidden',
+      } : {
         // Starts STRIP_RADIUS under the rail, so the rail's rounded corners
         // show the drawer behind them instead of the dimmed feed (gabriel,
         // 2026-10-01); paddingLeft keeps the content where it was.

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLayout } from '../context/LayoutContext'
+import { usePhone } from '../lib/usePhone'
+import { PHONE_NAV_H } from './PhoneNav'
 import { claimPlayback } from '../lib/playerGuard'
 import { useQueue, queue, currentTrack, platformOf, queueEmbed, seconds, loadYouTube, loadSoundCloud, loadMixcloud } from '../lib/queue'
 
@@ -96,6 +98,7 @@ export default function QueueBar() {
   const q = useQueue()
   const { setCurrentTrack, openD3 } = useLayout() || {}
   const [small, setSmall] = useState(false)
+  const phone = usePhone()
   const track = currentTrack(q)
   // Starting the queue closes the random-track player (one player at a time).
   useEffect(() => { if (track) setCurrentTrack?.(null) }, [track, setCurrentTrack])
@@ -107,7 +110,8 @@ export default function QueueBar() {
   const videoH = small ? 0 : (embed?.h || 0)
   return (
     <div role="region" aria-label="Playlist player"
-      style={{ position: 'fixed', right: 16, bottom: 64, zIndex: 60, width: 320, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 18, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', overflow: 'hidden', fontFamily: SANS, color: 'var(--theme-text-pri)' }}>
+      // Phones: full width, just above the bottom nav (2026-10-05).
+      style={{ position: 'fixed', right: 16, bottom: 64, zIndex: 60, width: 320, ...(phone ? { left: 8, right: 8, width: 'auto', bottom: `calc(${PHONE_NAV_H + 8}px + env(safe-area-inset-bottom))` } : null), background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 18, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', overflow: 'hidden', fontFamily: SANS, color: 'var(--theme-text-pri)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 12px 6px' }}>
         <button onClick={() => openD3?.('playlists', q.list.id ? { open: q.list.id } : { token: q.list.token })} title="Open the playlist"
           style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

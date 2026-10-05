@@ -6,6 +6,8 @@ import ContentPanel from './ContentPanel';
 import OrangePlayer from './OrangePlayer';
 import QueueBar from './QueueBar';
 import { LayoutProvider } from '../context/LayoutProvider';
+import PhoneNav from './PhoneNav';
+import { usePhone } from '../lib/usePhone';
 
 function LayoutInner() {
   const [view, setView] = useState('feed'); // feed | readme | about
@@ -14,6 +16,7 @@ function LayoutInner() {
   // beneath its rounded corners instead of being cut at a straight edge.
   // gabriel, 2026-09-30. Other pages keep the plain edge.
   const under = useLocation().pathname === '/' ? STRIP_RADIUS : 0;
+  const phone = usePhone();
 
   function navigate(v) {
     setView(v);
@@ -22,6 +25,23 @@ function LayoutInner() {
   // Expose on window for strip access
   window.lnvNavigate = navigate;
   window.lnvSelectFeed = () => navigate('feed');
+
+  // Phones (2026-10-05): no strip, no sideways-scrolling shelf — the feed
+  // fills the screen as a swipeable deck (PhoneFeed in Feed.jsx) over a bottom nav
+  // (PhoneNav.jsx); drawers open as full-screen sheets (ContentPanel).
+  if (phone) return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--theme-bg)', transition: 'background 0.8s' }}>
+        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+          <Outlet context={{ view, navigate }} />
+        </div>
+        <PhoneNav />
+      </div>
+      <ContentPanel />
+      <OrangePlayer />
+      <QueueBar />
+    </>
+  );
 
   return (
     <>
@@ -53,8 +73,12 @@ function LayoutInner() {
 }
 
 export default function Layout() {
+  // Switching between the phone and desktop layouts (a window resized past
+  // the breakpoint) starts the provider afresh: its scroll engine attaches to
+  // the desktop shelf's elements when it mounts.
+  const phone = usePhone();
   return (
-    <LayoutProvider>
+    <LayoutProvider key={phone ? 'phone' : 'desktop'}>
       <LayoutInner />
     </LayoutProvider>
   );
