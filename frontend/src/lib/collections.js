@@ -34,14 +34,23 @@ async function call(method, path, body) {
 // signing in or out starts again from the home view (lib/auth).
 const MODE_KEY = 'lnv_feed_mode'
 const MAIN = { type: 'main' }
-const HOME = { type: 'home' }
-export const homeMode = () => HOME
+// My feed is the one home (2026-10-06): it opens on your profile, whose
+// "Friends' posts" switch shows you + who you follow (on) or just your
+// posts (off) — what "my wall" was. The choice is remembered.
+const FRIENDS_KEY = 'lnv_home_friends'
+const friendsPref = () => { try { return localStorage.getItem(FRIENDS_KEY) !== '0' } catch { return true } }
+export const homeMode = () => ({ type: 'home', friends: friendsPref() })
+export function setHomeFriends(on) {
+  try { localStorage.setItem(FRIENDS_KEY, on ? '1' : '0') } catch { /* ignore */ }
+  setFeedMode(homeMode())
+}
 let mode = (() => {
   try {
     const m = JSON.parse(localStorage.getItem(MODE_KEY) || 'null')
     if (!m) return homeMode()
     if (m.type === 'main') return MAIN
-    if (m.type === 'home') return HOME
+    if (m.type === 'home') return homeMode()
+    if (m.type === 'wall' && m.username && m.username === getUser()) return homeMode()
     if (m.type === 'wall' && m.username) return m
     if (m.type === 'playlist' && (m.token || (m.id && isLoggedIn()))) return m
     return homeMode()
@@ -61,12 +70,13 @@ export function useFeedMode() {
 }
 
 export function feedModeLabel(m) {
-  if (m.type === 'wall') return m.username === getUser() ? 'my wall' : `${m.username}’s wall`
+  if (m.type === 'wall') return `${m.username}’s wall`
   if (m.type === 'playlist') return `▶ ${m.name || 'playlist'}`
   if (m.type === 'home') return isLoggedIn() ? 'my feed' : 'front page'
   return 'everything'
 }
-export const openWall = username => setFeedMode({ type: 'wall', username })
+// Your own name opens your feed (with your profile), not a separate wall.
+export const openWall = username => setFeedMode(username && username === getUser() ? homeMode() : { type: 'wall', username })
 // Also posted by (2026-10-04): put a release that's already up on your wall
 // too, or take it off again. Both return the updated post.
 export const joinApi = {

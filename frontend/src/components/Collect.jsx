@@ -10,7 +10,7 @@ import {
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
-// ♡ heart a track (→ Hearted tracks) ·
+// ♥ keep a record · ♥ favourite artists, labels, channels ·
 // "+ list" add tracks to a playlist · names that open walls · follow ·
 // "main #N" · the feed switcher.
 
@@ -49,7 +49,6 @@ function MenuItem({ onClick, children, checked, muted }) {
   )
 }
 
-// ♡ / ♥ on a track — in or out of your "Hearted tracks" playlist.
 
 // "+ list" / "+" — add tracks to one of your playlists (yours or one you've
 // been invited to). With several tracks, tick which first (all ticked).
@@ -327,7 +326,7 @@ export function FollowButton({ username }) {
 //   numbers only they see, and "View as visitor" to check the public card.
 // Everything about someone's taste comes from what they chose to post.
 // `compact` stacks it for phones.
-export function WallCard({ username, compact = false }) {
+export function WallCard({ username, compact = false, friends }) {
   const qc = useQueryClient()
   const { openD3, jumpToPost } = useLayout() || {}
   const { data: p } = useProfile(username)
@@ -425,6 +424,20 @@ export function WallCard({ username, compact = false }) {
           style={{ ...plain, alignSelf: 'flex-start', fontFamily: MONO, fontSize: 11, color: ter, textAlign: 'left' }}>{copied ? '✓ link copied' : 'Copy a link to this profile'}</button>
       </>)}
 
+      {owner && friends && (
+        // My feed's switch (2026-10-06): you + who you follow, or just you.
+        <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>Friends' posts</span>
+            <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{friends.on ? 'Your feed: you + who you follow' : 'Your feed: just your posts'}</span>
+          </span>
+          <input type="checkbox" role="switch" checked={friends.on} onChange={e => friends.set(e.target.checked)} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
+          <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: friends.on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
+            <span style={{ position: 'absolute', top: 3, left: friends.on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: friends.on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+          </span>
+        </label>
+      )}
+
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter, marginBottom: 8 }}>
@@ -494,7 +507,7 @@ export function WallCard({ username, compact = false }) {
     <section style={{ display: 'flex', flexDirection: 'column' }}>
       <h3 style={head}>Playlists — choose what's shown</h3>
       {(p.allPlaylists || []).length === 0 ? (
-        <div style={{ fontSize: 13, color: ter }}>No playlists yet — make one here, or ♡ a track to start your Hearted tracks.</div>
+        <div style={{ fontSize: 13, color: ter }}>No playlists yet — make one here, or use “+ list” on any card.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {p.allPlaylists.map(pl => (
@@ -616,7 +629,6 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   const { openD3 } = useLayout() || {}
-  const { following } = useFollowing()
   const { playlists } = usePlaylists()
   const signedIn = isLoggedIn()
   const me = getUser()
@@ -637,15 +649,10 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
       </button>
       {open && (
         <div role="menu" style={{ ...MENU, top: 'calc(100% + 8px)', ...(menuLeft ? { left: 0 } : { right: 0 }), maxHeight: '70vh', overflowY: 'auto' }}>
-          <MenuItem checked={isOn({ type: 'home' })} onClick={() => pick({ type: 'home' })}>{signedIn ? 'my feed' : 'front page'} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {signedIn ? 'you + who you follow' : 'start here'}</span></MenuItem>
-          {signedIn ? <MenuItem checked={isOn({ type: 'wall', username: me })} onClick={() => pick({ type: 'wall', username: me })}>my wall <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· your posts</span></MenuItem>
-            : <MenuItem muted onClick={() => askToSignIn('get your own wall')}>my wall — sign in</MenuItem>}
+          <MenuItem checked={isOn({ type: 'home' })} onClick={() => pick(homeMode())}>{signedIn ? 'my feed' : 'front page'} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {!signedIn ? 'start here' : mode.type === 'home' && mode.friends === false ? 'just your posts' : 'you + who you follow'}</span></MenuItem>
           {otherWall && <MenuItem checked onClick={() => setOpen(false)}>{feedModeLabel(mode)}</MenuItem>}
           {mode.type === 'playlist' && !mode.id && <MenuItem checked onClick={() => setOpen(false)}>{feedModeLabel(mode)}</MenuItem>}
           {signedIn && <>
-            <div style={MENU_HEAD}>Following</div>
-            {following.length === 0 && <div style={{ padding: '4px 10px 6px', color: 'var(--theme-text-sec)' }}>No one yet — open someone’s wall and follow them.</div>}
-            {following.map(f => <MenuItem key={f.id} checked={isOn({ type: 'wall', username: f.username })} onClick={() => pick({ type: 'wall', username: f.username })}>{f.username} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {f.post_count}</span></MenuItem>)}
             <div style={MENU_HEAD}>Playlists as a feed</div>
             {lists.length === 0 && <div style={{ padding: '4px 10px 6px', color: 'var(--theme-text-sec)' }}>None with tracks yet.</div>}
             {lists.map(p => <MenuItem key={p.id} checked={isOn({ type: 'playlist', id: p.id })} onClick={() => { openPlaylistFeed(p); setOpen(false) }}>{p.name}</MenuItem>)}

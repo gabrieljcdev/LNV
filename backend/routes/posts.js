@@ -134,6 +134,12 @@ router.get('/', (req, res, next) => {
         const posts = rows.map(entryPost).filter(Boolean);
         return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
       }
+      // Friends' posts off (the profile's switch, 2026-10-06): just yours.
+      if (req.query.friends === '0') {
+        const rows = wallPage(req.user.id, { before: entryBefore, limit: lim });
+        const posts = rows.map(entryPost).filter(Boolean);
+        return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
+      }
       const rows = homePage(req.user.id, { before: entryBefore, limit: lim });
       const posts = rows.map(r => {
         const p = entryPost(r);

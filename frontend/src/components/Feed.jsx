@@ -6,7 +6,7 @@ import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, setFeedMode, homeMode, openWall, playlistsApi, trackFrom } from '../lib/collections'
+import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom } from '../lib/collections'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
@@ -3059,7 +3059,7 @@ export default function Feed() {
   // always searches the main feed.
   const feedMode = useFeedMode()
   const feedSel = search || feedMode.type === 'main' ? null
-    : feedMode.type === 'home' ? ['home']
+    : feedMode.type === 'home' ? ['home', feedMode.friends === false ? 'mine' : 'all']
     : feedMode.type === 'wall' ? ['wall', feedMode.username]
     : ['playlist', feedMode.token ? `t:${feedMode.token}` : String(feedMode.id)]
   const { data: raw, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
@@ -3069,7 +3069,7 @@ export default function Feed() {
       const qs = new URLSearchParams({ limit: String(FEED_PAGE) })
       if (search) { qs.set('search', search); if (pageParam) qs.set('page', String(pageParam)) }
       else {
-        if (feedSel?.[0] === 'home') qs.set('feed', 'home')
+        if (feedSel?.[0] === 'home') { qs.set('feed', 'home'); if (feedSel[1] === 'mine') qs.set('friends', '0') }
         else if (feedSel?.[0] === 'wall') qs.set('wall', feedSel[1])
         else if (feedSel?.[0] === 'playlist') {
           if (feedSel[1].startsWith('t:')) qs.set('playlist_token', feedSel[1].slice(2))
@@ -3409,8 +3409,9 @@ export default function Feed() {
 
   const currentPalette = PALETTES[themeIdx === -1 ? getAutoIndex() : themeIdx]
 
+  const myFeedSwitch = { on: feedMode.friends !== false, set: setHomeFriends }
   const emptyText = search ? `No results for "${search}"`
-    : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : isLoggedIn() ? 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.' : 'Nothing on the front page yet.')
+    : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : !isLoggedIn() ? 'Nothing on the front page yet.' : feedSel[1] === 'mine' ? 'Nothing posted yet — post a link with +, or ♥ a record to keep it here.' : 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.')
     : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing on ${feedMode.username}’s wall yet.`)
     : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
     : 'No posts yet — share the first record.'
@@ -3457,7 +3458,8 @@ export default function Feed() {
         loadMore={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage() }}
         viewKey={viewKey}
         jumpRef={phoneJumpRef}
-        header={feedMode.type === 'wall' && !search ? <WallCard key={feedMode.username} username={feedMode.username} compact /> : null}
+        header={search ? null : feedMode.type === 'wall' ? <WallCard key={feedMode.username} username={feedMode.username} compact />
+          : feedMode.type === 'home' && isLoggedIn() ? <WallCard key="me" username={getUser()} compact friends={myFeedSwitch} /> : null}
         topBar={<>
           <FeedSwitcher menuLeft noFollow style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
           {searchBox({ position: 'static', top: 'auto', right: 'auto', width: 'auto', flex: 1, minWidth: 0 })}
@@ -3487,6 +3489,8 @@ export default function Feed() {
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {/* A wall opens on its owner's card (2026-10-05). */}
         {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
+        {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
+        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

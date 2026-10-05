@@ -8,7 +8,7 @@ import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from 
 
 // ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
 // Walls: your wall and the people you follow. Playlists: lists of tracks
-// (♡ fills "Hearted tracks"), shareable read-only, with friends you invite
+// shareable read-only, with friends you invite
 // adding to them, playable straight through (lib/queue) and viewable as a
 // feed. (Favourites were dropped the same day — playlists do that job.)
 
@@ -264,7 +264,7 @@ export function PlaylistsDrawer({ open: initialId, token }) {
         <button type="submit" disabled={!name.trim()} style={{ ...pillOn, opacity: name.trim() ? 1 : 0.5 }}>make it</button>
       </form>
       {isLoading ? <Loading /> : <>
-        {!mine.length && <Empty>No playlists yet. Make one here, hit ♡ on any track for “Hearted tracks”, or “+ list” on a card.</Empty>}
+        {!mine.length && <Empty>No playlists yet. Make one here, or use “+ list” on a card.</Empty>}
         {mine.map(rowOf)}
         {theirs.length > 0 && <><SectionHead left="Friends’ playlists you add to" />{theirs.map(rowOf)}</>}
       </>}
