@@ -1,6 +1,12 @@
-import { createContext, useContext, useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { PlayerContext } from './usePlayer';
 
-const PlayerContext = createContext(null);
+// Runs `create` once YouTube's player script is ready (now, or when it
+// calls back).
+function whenYouTubeReady(create) {
+  if (window.YT && window.YT.Player) create();
+  else window.onYouTubeIframeAPIReady = create;
+}
 
 export function PlayerProvider({ children }) {
   const [currentTrack, setCurrentTrack] = useState(null);
@@ -49,11 +55,7 @@ export function PlayerProvider({ children }) {
       });
     };
 
-    if (window.YT && window.YT.Player) {
-      create();
-    } else {
-      window.onYouTubeIframeAPIReady = create;
-    }
+    whenYouTubeReady(create);
   }
 
   function startTracking() {
@@ -110,8 +112,4 @@ export function PlayerProvider({ children }) {
       <div id="yt-player" style={{ position: 'fixed', bottom: 0, left: '-9999px', width: 1, height: 1 }} />
     </PlayerContext.Provider>
   );
-}
-
-export function usePlayer() {
-  return useContext(PlayerContext);
 }

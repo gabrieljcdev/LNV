@@ -77,7 +77,6 @@ export function LayoutProvider({ children }) {
      postEl.style.boxShadow = 'inset 0 0 0 4px var(--theme-accent)';
      setTimeout(() => { postEl.style.boxShadow = ''; }, 900);
    }, 500);
-   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [driveFeedScroll]);
 
  // Jump the feed to a post from anywhere (search box, drawers). Feed
@@ -203,7 +202,8 @@ export function LayoutProvider({ children }) {
    // Apply correct time-based theme on mount
    applyPalette(getAutoIndex());
    const themeInterval = setInterval(() => applyPalette(getAutoIndex()), 60000);
-   // (cleanup returned below)
+   // (cleared in the cleanup below — it used not to be, so every re-run
+   // of this effect left another timer going)
    // Expose for direct calls from non-React code
    window.lnvHandleFeedScroll = handleFeedScroll;
    const scrollSpacer = document.getElementById('scroll-spacer');
@@ -339,6 +339,7 @@ export function LayoutProvider({ children }) {
    raf = requestAnimationFrame(tick);
 
    return () => {
+     clearInterval(themeInterval);
      resizeObs.disconnect();
      if (so) so.removeEventListener('wheel', onWheel);
      if (raf) cancelAnimationFrame(raf);

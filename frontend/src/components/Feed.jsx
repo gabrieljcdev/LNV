@@ -3068,7 +3068,7 @@ export default function Feed() {
   const phone = usePhone()
   const phoneJumpRef = useRef(null)
   const scrollToPost = useCallback(id => (phone ? phoneJumpRef.current?.(id) : scrollShelfToPost?.(id)), [phone, scrollShelfToPost])
-  const onPhoneDeck = id => phone && (shelfItems.current || []).some(it => it.post?.id === id)
+  const onPhoneDeck = useCallback(id => phone && (shelfItems.current || []).some(it => it.post?.id === id), [phone])
 
   // Theme
   useEffect(() => { applyPalette(themeIdx === -1 ? getAutoIndex() : themeIdx) }, [themeIdx])
@@ -3103,10 +3103,13 @@ export default function Feed() {
   // wall, or a playlist as a feed — FeedSwitcher / lib/collections. A search
   // always searches the main feed.
   const feedMode = useFeedMode()
-  const feedSel = search || feedMode.type === 'main' ? null
-    : feedMode.type === 'home' ? ['home', feedMode.friends === false ? 'mine' : 'all']
-    : feedMode.type === 'wall' ? ['wall', feedMode.username]
-    : ['playlist', feedMode.token ? `t:${feedMode.token}` : String(feedMode.id)]
+  // Kept the same array while the feed doesn't change, so effects that
+  // watch it don't re-run on every render.
+  const feedSelKey = search || feedMode.type === 'main' ? ''
+    : feedMode.type === 'home' ? `home\n${feedMode.friends === false ? 'mine' : 'all'}`
+    : feedMode.type === 'wall' ? `wall\n${feedMode.username}`
+    : `playlist\n${feedMode.token ? `t:${feedMode.token}` : String(feedMode.id)}`
+  const feedSel = useMemo(() => feedSelKey ? feedSelKey.split('\n') : null, [feedSelKey])
   const { data: raw, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
     queryKey: feedSel ? ['posts', 'FEED', ...feedSel] : ['posts', search ? 'SEARCH' : 'LATEST', search],
     initialPageParam: null,
@@ -3279,7 +3282,7 @@ export default function Feed() {
     pendingJump.current = null
     const t = setTimeout(() => scrollToPost(id), 250)
     return () => clearTimeout(t)
-  }, [searching, postsSignature, postRefs, scrollToPost, feedSel, search, posts])
+  }, [searching, postsSignature, postRefs, scrollToPost, feedSel, search, posts, onPhoneDeck])
 
   // Scroll drag
   useEffect(() => {

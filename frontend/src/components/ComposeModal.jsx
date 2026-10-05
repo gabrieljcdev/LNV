@@ -59,11 +59,6 @@ function extractDiscogsId(url) {
  const m = (url || '').match(/release\/(\d+)/)
  return m ? m[1] : null
 }
-function extractYTId(url) {
- if (!url) return null
- const m = url.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
- return m ? m[1] : null
-}
 
 const ARTIST_SPLIT_RE = /\s+(?:b2b|b-2-b|feat\.?|ft\.?|vs\.?|&|x)\s+|\s*,\s+|\s+\/\s+/gi
 function splitArtists(str) {
