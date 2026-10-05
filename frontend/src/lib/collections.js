@@ -87,6 +87,22 @@ export function useWall(username) {
     staleTime: 60_000,
   })
 }
+// A profile (2026-10-05): the wall's card — public, with the owner's
+// editing choices when it's yours (backend routes/walls.js).
+export function useProfile(username) {
+  return useQuery({
+    queryKey: ['wall', username, 'profile'],
+    queryFn: () => call('GET', `/walls/${encodeURIComponent(username)}/profile`),
+    enabled: !!username,
+    staleTime: 60_000,
+  })
+}
+export const profileApi = {
+  bio: bio => call('PATCH', '/walls/me/profile', { bio }),
+  pins: labels => call('PUT', '/walls/me/pins', { labels }),
+  showPlaylist: (id, shown) => call('PUT', `/walls/me/playlists/${id}`, { shown }),
+}
+
 // What you and a wall's owner both post (alpha, 2026-10-05) — signed in only.
 export function useInCommon(username) {
   const signedIn = isLoggedIn()

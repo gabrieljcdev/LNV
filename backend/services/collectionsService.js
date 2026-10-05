@@ -117,6 +117,88 @@ export function inCommon(a, b) {
   };
 }
 
+// A profile (2026-10-05): the wall's card. Interests come from what the
+// owner chose to post (posts + "post it too", as inCommon): top styles,
+// artists, labels; plus their pinned labels and the playlists they show.
+// Signed-in visitors also get who connects them; the owner gets the pin
+// choices, every playlist, and numbers only they see (not a scoreboard).
+const PROFILE_PINS_MAX = 3;
+function tally(table, col, userId, limit) {
+  return db.prepare(`
+    WITH theirs AS (${THEIRS})
+    SELECT MIN(n.${col}) AS name, COUNT(DISTINCT t.p) AS count
+    FROM theirs t JOIN ${table} n ON n.post_id = t.p
+    WHERE t.u = ? AND trim(n.${col}) <> '' AND lower(trim(n.${col})) NOT IN ('various', 'various artists')
+    GROUP BY lower(n.${col}) ORDER BY count DESC, name LIMIT ?
+  `).all(userId, limit);
+}
+// Discogs files a record under a broad genre AND specific styles (both land
+// in post_genres). Styles say more about someone — Deep House, Jazz-Funk —
+// so they lead; the broad genres only fill in when there are few styles.
+const DISCOGS_GENRES = new Set(['electronic', 'rock', 'jazz', 'funk / soul', 'hip hop', 'pop', 'classical', 'reggae', 'latin', 'blues',
+  'folk, world, & country', 'stage & screen', 'non-music', "children's", 'brass & military']);
+function soundOf(userId) {
+  const all = tally('post_genres', 'genre', userId, 60);
+  const styles = all.filter(g => !DISCOGS_GENRES.has(g.name.toLowerCase()));
+  return [...styles, ...all.filter(g => DISCOGS_GENRES.has(g.name.toLowerCase()))].slice(0, 6);
+}
+export const profilePins = userId => db.prepare('SELECT label_name FROM profile_pins WHERE user_id = ? ORDER BY sort').all(userId).map(r => r.label_name);
+export const postedLabels = userId => tally('post_labels', 'label_name', userId, 500);
+export function profileOf(ownerId, viewerId) {
+  const u = db.prepare('SELECT id, username, bio, created_at FROM users WHERE id = ?').get(ownerId);
+  const own = viewerId === ownerId;
+  const labelsAll = postedLabels(ownerId);
+  const countOf = name => labelsAll.find(l => l.name.toLowerCase() === name.toLowerCase())?.count || 0;
+  const pins = profilePins(ownerId);
+  const pinnedSet = new Set(pins.map(n => n.toLowerCase()));
+  const playlistRow = p => ({ id: p.id, name: p.name, kind: p.kind, shown: !!p.on_profile, share_token: p.share_token,
+    track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c });
+  const out = {
+    username: u.username, bio: u.bio || '', member_since: u.created_at, is_owner: own,
+    post_count: wallStats(ownerId).post_count,
+    follower_count: db.prepare('SELECT COUNT(*) c FROM follows WHERE followee_id = ?').get(ownerId).c,
+    sound: soundOf(ownerId),
+    artists: tally('post_artists', 'artist_name', ownerId, 6),
+    labels: [
+      ...pins.map(name => ({ name, count: countOf(name), pinned: true })),
+      ...labelsAll.filter(l => !pinnedSet.has(l.name.toLowerCase())).slice(0, Math.max(0, 6 - pins.length)),
+    ],
+    playlists: db.prepare('SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 ORDER BY created_at').all(ownerId).map(playlistRow),
+    // Who they follow, newest first — a friends list to explore (2026-10-05).
+    follows: (() => {
+      const rows = db.prepare('SELECT u.username FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY f.created_at DESC, u.username').all(ownerId);
+      return { names: rows.slice(0, 24).map(r => r.username), total: rows.length };
+    })(),
+  };
+  if (own) {
+    out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY kind = \'hearted\' DESC, created_at').all(ownerId).map(playlistRow);
+    out.pinChoices = labelsAll.slice(0, 40).map(l => l.name);
+    out.pinsMax = PROFILE_PINS_MAX;
+    out.private = {
+      reposted: db.prepare("SELECT COUNT(*) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ? AND j.kind = 'repost'").get(ownerId).c,
+      postedToo: db.prepare("SELECT COUNT(*) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ? AND j.kind = 'also'").get(ownerId).c,
+      replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,
+    };
+  } else if (viewerId) {
+    out.following = !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(viewerId, ownerId);
+    // People you follow who follow them.
+    const via = db.prepare(`SELECT u.username FROM follows a JOIN follows b ON b.follower_id = a.followee_id JOIN users u ON u.id = a.followee_id
+      WHERE a.follower_id = ? AND b.followee_id = ? AND a.followee_id <> ? ORDER BY u.username`).all(viewerId, ownerId, ownerId).map(r => r.username);
+    out.followedBy = { names: via.slice(0, 2), total: via.length };
+  }
+  return out;
+}
+export function setProfilePins(userId, names) {
+  const mine = new Map(postedLabels(userId).map(l => [l.name.toLowerCase(), l.name]));
+  const clean = [...new Set((names || []).map(n => mine.get(String(n).toLowerCase())).filter(Boolean))].slice(0, PROFILE_PINS_MAX);
+  db.transaction(() => {
+    db.prepare('DELETE FROM profile_pins WHERE user_id = ?').run(userId);
+    const ins = db.prepare('INSERT INTO profile_pins (user_id, label_name, sort) VALUES (?, ?, ?)');
+    clean.forEach((n, i) => ins.run(userId, n, i));
+  })();
+  return clean;
+}
+
 // How many posts are on a wall (made or joined) and when the latest went up.
 export function wallStats(userId) {
   return db.prepare(`WITH e AS (${ENTRIES}) SELECT COUNT(DISTINCT post_id) AS post_count, MAX(at) AS latest FROM e WHERE owner = ?`).get(userId);

@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useHearted, useFollowing, useWall, wallsApi, joinApi, useInCommon,
+  useProfile, profileApi, wallLink,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -70,9 +72,39 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   const [picked, setPicked] = useState(null) // Set of track indexes; null = all
   const [note, setNote] = useState('')
   const ref = useRef(null)
+  const menuRef = useRef(null)
   const qc = useQueryClient()
   const { playlists } = usePlaylists()
-  useOutside(ref, open, () => { setOpen(false); setNote('') })
+  // The menu is drawn over the whole page (a portal), not inside the card:
+  // cards clip what spills past their edges, which cut it off (gabriel,
+  // 2026-10-06). It sits by the button, kept on screen — above unless
+  // there's no room — and closes if anything else scrolls or resizes.
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect(), m = menuRef.current
+    if (!open || !r || !m) return
+    const w = m.offsetWidth, h = m.offsetHeight, gap = 8, vw = window.innerWidth, vh = window.innerHeight
+    const left = Math.min(Math.max(gap, align === 'right' ? r.right - w : r.left), vw - w - gap)
+    const roomAbove = r.top - gap * 2, roomBelow = vh - r.bottom - gap * 2
+    const above = up ? (roomAbove >= Math.min(h, 240) || roomAbove > roomBelow) : roomBelow < Math.min(h, 240) && roomAbove > roomBelow
+    Object.assign(m.style, above
+      ? { left: `${left}px`, top: 'auto', bottom: `${vh - r.top + gap}px`, maxHeight: `${Math.min(420, roomAbove)}px` }
+      : { left: `${left}px`, bottom: 'auto', top: `${r.bottom + 6}px`, maxHeight: `${Math.min(420, roomBelow)}px` })
+    m.style.visibility = 'visible'
+  }, [open, align, up, note, picked])
+  useEffect(() => {
+    if (!open) return
+    const close = () => { setOpen(false); setNote('') }
+    const away = e => { if (!ref.current?.contains(e.target) && !menuRef.current?.contains(e.target)) close() }
+    const moved = e => { if (!menuRef.current?.contains(e.target)) close() }
+    document.addEventListener('pointerdown', away)
+    window.addEventListener('scroll', moved, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('pointerdown', away)
+      window.removeEventListener('scroll', moved, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open])
   const tracks = (given || (post ? playableTracks(post) : [])).filter(t => t?.url && t?.title)
   if (!tracks.length) return null
   const chosen = picked ? tracks.filter((_, i) => picked.has(i)) : tracks
@@ -97,8 +129,9 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
       <button onClick={e => { e.stopPropagation(); if (!isLoggedIn()) return askToSignIn('make playlists'); setOpen(v => !v) }}
         title={tracks.length > 1 ? 'Add tracks to a playlist' : 'Add to a playlist'} aria-haspopup="menu" aria-expanded={open}
         style={{ ...plain, color: open ? 'var(--theme-accent)' : 'inherit', ...style }}>{label}</button>
-      {open && (
-        <div role="menu" onClick={e => e.stopPropagation()} style={{ ...MENU, ...(up ? { bottom: 'calc(100% + 8px)' } : { top: 'calc(100% + 6px)' }), [align === 'right' ? 'right' : 'left']: 0, maxHeight: 420, overflowY: 'auto' }}>
+      {open && createPortal(
+        <div ref={menuRef} role="menu" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}
+          style={{ ...MENU, position: 'fixed', zIndex: 1100, overflowY: 'auto', left: 0, top: 0, visibility: 'hidden' }}>
           {tracks.length > 1 && <>
             <div style={MENU_HEAD}>Tracks</div>
             {tracks.map((t, i) => (
@@ -113,7 +146,8 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
           <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
           <MenuItem muted onClick={addToNew}>+ new playlist…</MenuItem>
           {note && <div style={{ padding: '6px 10px', color: 'var(--theme-accent)', fontFamily: MONO, fontSize: 11 }}>{note}</div>}
-        </div>
+        </div>,
+        document.body
       )}
     </span>
   )
@@ -271,71 +305,318 @@ export function FollowButton({ username }) {
   )
 }
 
-// The first card on a wall (2026-10-05): whose it is, posts and followers,
-// follow — and, for someone else's, what you both post (alpha): shared
-// artists and labels, rarest first, and records you've both posted. Each
-// name opens its drawer; a record goes to its post. `compact` for phones.
+// The profile (2026-10-05, from the "LNV Profile Mockup" gabriel picked) —
+// the first card on a wall. One card, three views:
+// - everyone: picture (an initial for now), name, member since, posts and
+//   followers, bio; their sound (top styles), favourite labels (pinned
+//   first), top artists, the playlists they chose to show;
+// - signed in: follow, who you follow that follows them, In common (alpha);
+// - the owner: edit the bio, pin up to 3 labels, tick which playlists show,
+//   numbers only they see, and "View as visitor" to check the public card.
+// Everything about someone's taste comes from what they chose to post.
+// `compact` stacks it for phones.
+const PIN_ICON = filled => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 17v5" /><path d="M9 10.8V5h6v5.8l3 3.2H6z" /></svg>
+)
 export function WallCard({ username, compact = false }) {
+  const qc = useQueryClient()
   const { openD3, jumpToPost } = useLayout() || {}
-  const { data: wall } = useWall(username)
-  const { data: common, isLoading } = useInCommon(username)
-  const own = !!wall?.is_owner
-  const head = { fontFamily: SANS, fontWeight: 600, fontSize: 9.5, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', margin: '0 0 8px' }
-  const chip = { ...plain, fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-pri)', background: 'color-mix(in srgb, var(--theme-text-pri) 10%, transparent)', padding: '5px 11px', borderRadius: 99 }
-  const names = (list, kind) => list.items.length > 0 && (
-    <div style={{ marginBottom: 16 }}>
-      <div style={head}>{kind} · {list.total}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {list.items.map(n => (
-          <button key={n.name} onClick={() => openD3?.(kind, { filter: n.name })} title={`${n.posters} ${n.posters === 1 ? 'person posts' : 'people post'} ${n.name} — open the drawer`} style={chip}>{n.name}</button>
-        ))}
-      </div>
+  const { data: p } = useProfile(username)
+  const { data: common, isLoading: commonLoading } = useInCommon(p && !p.is_owner ? username : null)
+  const [asVisitor, setAsVisitor] = useState(false)
+  const [bioDraft, setBioDraft] = useState(null) // null = not editing
+  const [pinMenu, setPinMenu] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [newList, setNewList] = useState(null) // null = closed; else the name being typed
+  const refresh = () => qc.invalidateQueries({ queryKey: ['wall', username, 'profile'] })
+  async function act(fn) {
+    setBusy(true)
+    try { await fn(); await refresh() } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+
+  const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)', ter = 'var(--theme-text-ter)'
+  const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
+  const head = { margin: '0 0 9px', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: ter }
+  const chip = { ...plain, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SANS, fontSize: compact ? 14 : 13, color: pri, padding: compact ? '8px 13px' : '6px 12px', borderRadius: 99, background: fill(12) }
+  const shell = compact
+    ? { padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20, color: pri, fontFamily: SANS }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '90px 48px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s', color: pri, fontFamily: SANS, display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 44, alignContent: 'start' }
+  if (!p) return <div style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
+
+  const owner = p.is_owner && !asVisitor
+  const preview = p.is_owner && asVisitor
+  const signedIn = isLoggedIn()
+  const since = (() => { try { return new Date(p.member_since.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) } catch { return '' } })()
+  const pins = p.labels.filter(l => l.pinned).map(l => l.name)
+  const pinsMax = p.pinsMax || 3
+  const setPins = list => act(() => profileApi.pins(list))
+  const max = Math.max(1, ...p.sound.map(x => x.count))
+  const sectionTitle = (t, note) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+      <h2 style={{ margin: 0, fontSize: compact ? 16 : 17, fontWeight: 700 }}>{t}</h2>
+      {note && <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{note}</span>}
     </div>
   )
-  const nothing = common && !common.self && !common.artists.total && !common.labels.total && !common.records.total
-  return (
-    <div style={compact ? { padding: '22px 20px' } : { width: 460, height: '100%', boxSizing: 'border-box', padding: '90px 44px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s' }}>
-      <div style={{ fontFamily: SANS, fontWeight: 900, fontSize: compact ? 34 : 44, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>{username}</div>
-      <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>
-        {wall ? `${wall.post_count} ${wall.post_count === 1 ? 'post' : 'posts'} · ${wall.follower_count} ${wall.follower_count === 1 ? 'follower' : 'followers'}` : '…'}
-      </div>
-      <div style={{ marginTop: 16, minHeight: 34 }}>
-        {own ? <span style={{ fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)' }}>Your wall — everything you post, numbered from 1.</span> : <FollowButton username={username} />}
-      </div>
-      {!own && (
-        <div style={{ marginTop: 28, borderTop: '1px solid var(--theme-border)', paddingTop: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, color: 'var(--theme-text-pri)' }}>In common with you</span>
-            <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: 'var(--theme-text-pri)', borderRadius: 99, padding: '2px 7px' }}>α ALPHA</span>
+
+  const identity = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {preview && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 12, background: fill(12), fontSize: 13 }}>
+          <span style={{ flex: 1 }}>How others see your profile</span>
+          <button onClick={() => setAsVisitor(false)} style={{ ...plain, fontWeight: 700, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>Back to editing</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: compact ? 'center' : 'flex-start', flexDirection: compact ? 'row' : 'column', gap: 14 }}>
+        <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 88, height: compact ? 64 : 88, borderRadius: '50%', background: pri, color: 'var(--theme-showcase)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 44, fontWeight: 900 }}>{p.username.charAt(0).toUpperCase()}</div>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: compact ? 38 : 52, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{p.username}</h1>
+          <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: ter, lineHeight: 1.6 }}>
+            {!compact && since && <>Member since {since}<br /></>}
+            {p.post_count} {p.post_count === 1 ? 'post' : 'posts'} · {p.follower_count} {p.follower_count === 1 ? 'follower' : 'followers'}
           </div>
-          {!isLoggedIn() ? (
-            <button onClick={() => askToSignIn('see what you have in common')} style={{ ...plain, fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-sec)', textDecoration: 'underline', textUnderlineOffset: 3 }}>Sign in to see what you both post</button>
-          ) : isLoading || !common ? (
-            <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--theme-text-ter)' }}>…</div>
-          ) : nothing ? (
-            <div style={{ fontFamily: SANS, fontSize: 13, lineHeight: 1.5, color: 'var(--theme-text-sec)' }}>Nothing in common yet — everything on this wall is new to you.</div>
-          ) : (<>
-            {names(common.artists, 'artists')}
-            {names(common.labels, 'labels')}
-            {common.records.items.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={head}>records you both posted · {common.records.total}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {common.records.items.map(r => (
-                    <button key={r.id} onClick={() => jumpToPost?.(r.id)} title={`${r.title} — go to it`}
-                      style={{ ...plain, width: 56, height: 56, borderRadius: 10, background: r.cover ? `var(--theme-dark2) center/cover no-repeat url("${r.cover}")` : 'var(--theme-dark2)' }} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </>)}
-          <p style={{ margin: '14px 0 0', fontFamily: SANS, fontSize: 11.5, lineHeight: 1.5, color: 'var(--theme-text-ter)' }}>
-            Matched only on what you both chose to post — records, artists and labels, the rarer the higher. No likes, plays or listening data.
-          </p>
+        </div>
+      </div>
+      {bioDraft != null ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter }} htmlFor={`bio-${username}`}>A line about your sound</label>
+          <textarea id={`bio-${username}`} value={bioDraft} maxLength={280} rows={3} autoFocus onChange={e => setBioDraft(e.target.value)}
+            style={{ resize: 'vertical', borderRadius: 12, border: `1px solid ${fill(30)}`, background: fill(8), color: pri, padding: '10px 12px', fontFamily: SANS, fontSize: 16, lineHeight: 1.45 }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button disabled={busy} onClick={() => act(async () => { await profileApi.bio(bioDraft); setBioDraft(null) })}
+              style={{ border: 0, borderRadius: 99, padding: '9px 18px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+            <button onClick={() => setBioDraft(null)} style={{ ...plain, color: sec, fontSize: 14 }}>Cancel</button>
+            <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: ter }}>{280 - bioDraft.length}</span>
+          </div>
+        </div>
+      ) : p.bio ? (
+        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: sec, overflowWrap: 'anywhere' }}>{p.bio}</p>
+      ) : owner ? (
+        <button onClick={() => setBioDraft('')} style={{ ...plain, textAlign: 'left', fontSize: 15, fontStyle: 'italic', color: ter }}>Add a line about your sound…</button>
+      ) : null}
+
+      {owner ? (bioDraft == null && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setBioDraft(p.bio || '')} style={{ border: 0, borderRadius: 99, padding: '11px 20px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Edit profile</button>
+          <button onClick={() => setAsVisitor(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${fill(40)}`, borderRadius: 99, padding: '10px 16px', background: 'transparent', color: pri, fontFamily: SANS, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>View as visitor
+          </button>
+        </div>
+      )) : preview ? (
+        <button disabled title="Visitors can follow you here" style={{ alignSelf: 'flex-start', border: 0, borderRadius: 99, padding: '11px 22px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, opacity: 0.7 }}>+ follow</button>
+      ) : signedIn ? (
+        <div style={{ display: 'flex', flexDirection: compact ? 'row' : 'column', alignItems: compact ? 'center' : 'flex-start', gap: 12 }}>
+          <FollowButton username={username} />
+          {p.followedBy?.total > 0 && (
+            <span style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.6, color: ter }}>
+              Followed by {p.followedBy.names.join(' and ')}{p.followedBy.total > p.followedBy.names.length ? ` and ${p.followedBy.total - p.followedBy.names.length} other${p.followedBy.total - p.followedBy.names.length === 1 ? '' : 's'}` : ''} you follow
+            </span>
+          )}
+        </div>
+      ) : (<>
+        <button onClick={() => askToSignIn(`follow ${username}`)} style={{ alignSelf: 'flex-start', border: `1px solid ${fill(50)}`, borderRadius: 99, padding: '10px 20px', background: 'transparent', color: pri, fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Sign in to follow</button>
+        <button onClick={() => { navigator.clipboard?.writeText(wallLink(username)).then(() => setCopied(true)).catch(() => {}) }}
+          style={{ ...plain, alignSelf: 'flex-start', fontFamily: MONO, fontSize: 11, color: ter, textAlign: 'left' }}>{copied ? '✓ link copied' : 'Copy a link to this profile'}</button>
+      </>)}
+
+      {owner && p.private && (
+        <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter, marginBottom: 8 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>Only you see this
+          </div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.7 }}>
+            Reposted {p.private.reposted} {p.private.reposted === 1 ? 'time' : 'times'}<br />
+            Posted too by {p.private.postedToo} {p.private.postedToo === 1 ? 'person' : 'people'}<br />
+            {p.private.replies} {p.private.replies === 1 ? 'reply' : 'replies'} on your posts
+          </div>
         </div>
       )}
     </div>
   )
+
+  const labelsSection = (p.labels.length > 0 || owner) && (
+    <section>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <h3 style={head}>Favourite labels</h3>
+        {owner && <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>pin up to {pinsMax}</span>}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, position: 'relative' }}>
+        {p.labels.map(l => owner ? (
+          <span key={l.name} style={{ ...chip, padding: 0, gap: 0, overflow: 'hidden', background: l.pinned ? pri : 'transparent', color: l.pinned ? 'var(--theme-showcase)' : pri, border: l.pinned ? 0 : `1px dashed ${fill(40)}` }}>
+            <button disabled={busy || (!l.pinned && pins.length >= pinsMax)} onClick={() => setPins(l.pinned ? pins.filter(n => n !== l.name) : [...pins, l.name])}
+              aria-label={l.pinned ? `Unpin ${l.name}` : `Pin ${l.name}`} title={!l.pinned && pins.length >= pinsMax ? `You can pin ${pinsMax}` : (l.pinned ? 'Unpin' : 'Pin to your profile')}
+              style={{ ...plain, color: 'inherit', padding: compact ? '8px 4px 8px 12px' : '6px 4px 6px 11px', display: 'inline-flex' }}>{PIN_ICON(l.pinned)}</button>
+            <button onClick={() => openD3?.('labels', { filter: l.name })} style={{ ...plain, color: 'inherit', padding: compact ? '8px 13px 8px 6px' : '6px 12px 6px 6px' }}>{l.name}{!l.pinned && l.count ? ` · ${l.count}` : ''}</button>
+          </span>
+        ) : (
+          <button key={l.name} onClick={() => openD3?.('labels', { filter: l.name })} style={{ ...chip, background: fill(l.pinned ? 18 : 12) }}>
+            {l.pinned && PIN_ICON(false)}{l.name}{!l.pinned && l.count ? ` · ${l.count}` : ''}
+          </button>
+        ))}
+        {owner && pins.length < pinsMax && (p.pinChoices || []).some(n => !p.labels.some(l => l.name === n)) && (
+          <button onClick={() => setPinMenu(v => !v)} aria-expanded={pinMenu} style={{ ...chip }}>+ pin another label</button>
+        )}
+        {owner && pinMenu && (
+          <div role="menu" style={{ ...MENU, top: 'calc(100% + 6px)', left: 0, maxHeight: 260, overflowY: 'auto' }}>
+            {(p.pinChoices || []).filter(n => !p.labels.some(l => l.name === n)).map(n => (
+              <MenuItem key={n} onClick={() => { setPinMenu(false); setPins([...pins, n]) }}>{n}</MenuItem>
+            ))}
+          </div>
+        )}
+        {owner && p.labels.length === 0 && <span style={{ fontSize: 13, color: ter }}>Labels you post show up here.</span>}
+      </div>
+    </section>
+  )
+
+  // A new playlist from the profile (2026-10-05): made, shown on the
+  // profile (untick to keep it private), then opened to add tracks.
+  async function createList(e) {
+    e.preventDefault()
+    const name = (newList || '').trim()
+    if (!name) return
+    await act(async () => {
+      const made = await playlistsApi.create(name)
+      await profileApi.showPlaylist(made.id, true)
+      setNewList(null)
+      qc.invalidateQueries({ queryKey: ['playlists'] })
+      openD3?.('playlists', { open: made.id })
+    })
+  }
+  const newListForm = newList == null ? (
+    <button onClick={() => setNewList('')} style={{ ...chip, alignSelf: 'flex-start', marginTop: 8 }}>+ new playlist</button>
+  ) : (
+    <form onSubmit={createList} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+      <label htmlFor={`newlist-${username}`} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>New playlist name</label>
+      <input id={`newlist-${username}`} autoFocus value={newList} maxLength={80} placeholder="Name it — e.g. Sunday sides" onChange={e => setNewList(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Escape') setNewList(null) }}
+        style={{ flex: 1, minWidth: 0, borderRadius: 99, border: `1px solid ${fill(30)}`, background: fill(8), color: pri, padding: '8px 14px', fontFamily: SANS, fontSize: 16 }} />
+      <button type="submit" disabled={busy || !newList.trim()} style={{ border: 0, borderRadius: 99, padding: '9px 16px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: newList.trim() ? 1 : 0.5 }}>Create</button>
+      <button type="button" onClick={() => setNewList(null)} style={{ ...plain, color: sec, fontSize: 14 }}>Cancel</button>
+    </form>
+  )
+
+  const playlistsSection = owner ? (
+    <section style={{ display: 'flex', flexDirection: 'column' }}>
+      <h3 style={head}>Playlists — choose what's shown</h3>
+      {(p.allPlaylists || []).length === 0 ? (
+        <div style={{ fontSize: 13, color: ter }}>No playlists yet — make one here, or ♡ a track to start your Hearted tracks.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {p.allPlaylists.map(pl => (
+            <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, background: pl.shown ? fill(12) : 'transparent', border: pl.shown ? 0 : `1px dashed ${fill(30)}`, fontSize: 14, cursor: 'pointer' }}>
+              <input type="checkbox" checked={pl.shown} disabled={busy} onChange={e => act(async () => { await profileApi.showPlaylist(pl.id, e.target.checked); qc.invalidateQueries({ queryKey: ['playlists'] }) })}
+                style={{ width: 18, height: 18, margin: 0, accentColor: 'var(--theme-text-pri)' }} />
+              <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.kind === 'hearted' ? '♥ ' : ''}{pl.name}</span>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks · {pl.shown ? 'shown' : 'private'}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      {newListForm}
+    </section>
+  ) : p.playlists.length > 0 && (
+    <section>
+      <h3 style={head}>Playlists</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+        {p.playlists.map(pl => (
+          <button key={pl.id} onClick={() => openD3?.('playlists', { token: pl.share_token })}
+            style={{ ...plain, display: 'flex', flexDirection: compact ? 'row' : 'column', justifyContent: 'space-between', alignItems: compact ? 'baseline' : 'flex-start', gap: 3, padding: compact ? '13px 14px' : 12, borderRadius: compact ? 14 : 16, background: fill(12), color: pri, textAlign: 'left' }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{pl.kind === 'hearted' ? '♥ ' : ''}{pl.name}</span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.track_count} tracks · listen</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+
+  // Who they follow (2026-10-05): like someone's wall, explore who they
+  // follow — each name opens that wall. Public, like a friends list.
+  const followsSection = (
+    <section>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <h3 style={head}>Following · {p.follows.total}</h3>
+        {owner && <button onClick={() => openD3?.('walls')} style={{ ...plain, fontFamily: MONO, fontSize: 10.5, color: ter, textDecoration: 'underline', textUnderlineOffset: 3 }}>manage</button>}
+      </div>
+      {p.follows.total === 0 ? (
+        <div style={{ fontSize: 13, color: ter }}>{owner ? 'Nobody yet — open a wall you like and follow them.' : 'Not following anyone yet.'}</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {p.follows.names.map(n => (
+            <button key={n} onClick={() => openWall(n)} title={`Open ${n}’s wall`} style={chip}>
+              <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', background: fill(30), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>{n.charAt(0).toUpperCase()}</span>{n}
+            </button>
+          ))}
+          {p.follows.total > p.follows.names.length && <span style={{ fontFamily: MONO, fontSize: 11, color: ter, alignSelf: 'center' }}>+ {p.follows.total - p.follows.names.length} more</span>}
+        </div>
+      )}
+    </section>
+  )
+
+  const commonSection = !p.is_owner ? (
+    <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>In common with you</h2>
+        <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '2px 7px' }}>α ALPHA</span>
+      </div>
+      {!signedIn ? (
+        <button onClick={() => askToSignIn('see what you have in common')} style={{ ...plain, fontSize: 14, color: sec, textDecoration: 'underline', textUnderlineOffset: 3 }}>Sign in to see what you both post</button>
+      ) : commonLoading || !common ? (
+        <div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div>
+      ) : !common.artists.total && !common.labels.total && !common.records.total ? (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: sec }}>Nothing in common yet — everything on this wall is new to you.</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {common.labels.items.map(n => <button key={'l' + n.name} onClick={() => openD3?.('labels', { filter: n.name })} title={`${n.posters} ${n.posters === 1 ? 'person posts' : 'people post'} ${n.name}`} style={chip}>{n.name}</button>)}
+          {common.artists.items.map(n => <button key={'a' + n.name} onClick={() => openD3?.('artists', { filter: n.name })} title={`${n.posters} ${n.posters === 1 ? 'person posts' : 'people post'} ${n.name}`} style={chip}>{n.name}</button>)}
+          {common.records.items.map(r => (
+            <button key={'r' + r.id} onClick={() => jumpToPost?.(r.id)} title={`${r.title} — you both posted it`} aria-label={`${r.title} — you both posted it`}
+              style={{ ...plain, width: 40, height: 40, borderRadius: 8, background: r.cover ? `var(--theme-dark2) center/cover no-repeat url("${r.cover}")` : 'var(--theme-dark2)' }} />
+          ))}
+        </div>
+      )}
+      <p style={{ margin: '12px 0 0', fontSize: 11.5, lineHeight: 1.5, color: ter }}>Matched only on what you both chose to post — the rarer, the higher. No likes, plays or listening data.</p>
+    </section>
+  ) : preview ? (
+    <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16, fontSize: 13, color: ter }}>Signed-in visitors see what they have in common with you here.</section>
+  ) : (
+    <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16 }}>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: ter }}>Your sound and top artists come from what you post — they update as you go. Pins and the playlists you tick are your choice; everything else here is just your posting.</p>
+    </section>
+  )
+
+  const taste = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
+      <section>
+        {sectionTitle(owner ? 'Your sound' : 'Their sound', owner ? 'worked out from what you post' : 'from what they post')}
+        {p.sound.length === 0 ? (
+          <div style={{ fontSize: 13, color: ter }}>{owner ? 'Post a few records and your sound shows up here.' : 'Nothing posted yet.'}</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: `${compact ? 96 : 110}px minmax(0, 1fr) 28px`, gap: '7px 12px', alignItems: 'center', fontSize: 14 }}>
+            {p.sound.map(g => [
+              <button key={g.name + 'n'} onClick={() => openD3?.('genres', { filter: g.name })} style={{ ...plain, color: pri, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</button>,
+              <div key={g.name + 'b'} aria-hidden="true" style={{ height: 8, borderRadius: 99, background: fill(55), width: `${Math.max(8, (g.count / max) * 100)}%` }} />,
+              <span key={g.name + 'c'} style={{ fontFamily: MONO, fontSize: 11, textAlign: 'right' }}>{g.count}</span>,
+            ])}
+          </div>
+        )}
+      </section>
+      {labelsSection}
+      {p.artists.length > 0 && (
+        <section>
+          <h3 style={head}>Top artists</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {p.artists.map(a => <button key={a.name} onClick={() => openD3?.('artists', { filter: a.name })} style={chip}>{a.name}{a.count > 1 ? ` · ${a.count}` : ''}</button>)}
+          </div>
+        </section>
+      )}
+      {playlistsSection}
+      {followsSection}
+      {commonSection}
+    </div>
+  )
+
+  return <div style={shell}>{identity}{taste}</div>
 }
 
 // Which feed is showing: the main feed, a wall (yours or someone's), or a

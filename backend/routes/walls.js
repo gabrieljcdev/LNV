@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
-import { userByName, wallStats, inCommon } from '../services/collectionsService.js';
+import { userByName, wallStats, inCommon, profileOf, setProfilePins, newShareToken } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -49,6 +49,44 @@ router.get('/:username/common', requireAuth, (req, res, next) => {
     if (!owner) return res.status(404).json({ error: 'No such wall.' });
     if (owner.id === req.user.id) return res.json({ self: true });
     res.json(inCommon(req.user.id, owner.id));
+  } catch (err) { next(err); }
+});
+
+// Profiles (2026-10-05) — the wall's card (collectionsService profileOf).
+// Public; signed in you also get who connects you, or, on your own, the
+// editing choices and your private numbers.
+router.get('/:username/profile', (req, res, next) => {
+  try {
+    const owner = userByName(req.params.username);
+    if (!owner) return res.status(404).json({ error: 'No such wall.' });
+    res.json(profileOf(owner.id, req.user?.id || null));
+  } catch (err) { next(err); }
+});
+
+// Your bio (up to 280 characters).
+router.patch('/me/profile', requireAuth, (req, res, next) => {
+  try {
+    const bio = String(req.body?.bio ?? '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(bio || null, req.user.id);
+    res.json({ bio });
+  } catch (err) { next(err); }
+});
+
+// Your pinned labels — up to 3, from labels you've posted.
+router.put('/me/pins', requireAuth, (req, res, next) => {
+  try { res.json({ labels: setProfilePins(req.user.id, req.body?.labels) }); } catch (err) { next(err); }
+});
+
+// Show one of your playlists on your profile, or hide it. Shown means
+// readable by its share link, so one is made if it has none.
+router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
+  try {
+    const p = db.prepare('SELECT * FROM playlists WHERE id = ? AND owner_id = ?').get(Number(req.params.id), req.user.id);
+    if (!p) return res.status(404).json({ error: 'Playlist not found.' });
+    const shown = !!req.body?.shown;
+    if (shown && !p.share_token) db.prepare('UPDATE playlists SET share_token = ? WHERE id = ?').run(newShareToken(), p.id);
+    db.prepare('UPDATE playlists SET on_profile = ? WHERE id = ?').run(shown ? 1 : 0, p.id);
+    res.json({ shown });
   } catch (err) { next(err); }
 });
 

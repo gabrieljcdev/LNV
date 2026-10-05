@@ -340,6 +340,15 @@ const migrations = [
     PRIMARY KEY (post_id, user_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_post_joins_user ON post_joins(user_id)',
+  // Profiles (2026-10-05): up to 3 labels a user pins as favourites, and the
+  // playlists they choose to show (shown = readable by its share link).
+  `CREATE TABLE IF NOT EXISTS profile_pins (
+    user_id INTEGER NOT NULL,
+    label_name TEXT NOT NULL,
+    sort INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, label_name)
+  )`,
+  'ALTER TABLE playlists ADD COLUMN on_profile INTEGER NOT NULL DEFAULT 0',
   // Reposts (2026-10-05): a join is either "also posted" (you have the
   // record too) or a repost (you're sharing someone's post — the card says
   // "↻ you" in your followers' feeds). Same wall / feed entries either way.
