@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { LayoutContext } from './LayoutContext';
 import { applyPalette, getAutoIndex } from '../services/themeService';
-import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH } from '../components/Strip';
+import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from '../components/Strip';
+import { applyFBarLayout, BARS_OUT_RANGE, TEXT_IN_RANGE } from '../lib/fbars';
 
 // Horizontal feed px moved per vertical wheel/trackpad px that #scroll-outer
 // receives. #scroll-outer's scrollTop is the SINGLE source of truth for feed
@@ -12,108 +13,11 @@ import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH } from '../components/Str
 // undone on the very next animation frame by the ticker.
 const PX_PER_SCROLL = 1.5;
 
-// ── ROUND 19 (2026-08-22) — F-bars logomark, ported from canvas ─────────
-// gabriel corrected round 18: the F-bars badge does NOT replace the FADE
-// text wordmark, it sits alongside it (see Strip.jsx's own round-19
-// comment), and the "jump like a live EQ, rotate 90deg into the settled F"
-// animation designed and verified in the ScrollReveal.dc.html canvas
-// prototype (claude/2026-08-21-fade-logomark-and-reveal-animation.md) is
-// now wired to REAL scroll instead of being canvas-only.
-//
-// Each bar is a fixed rectangle (width = its final horizontal F-stroke
-// length, height = a fixed thickness) that never changes shape — only
-// ROTATION (90deg -> 0deg) and CENTER POSITION (idle vertical-EQ columns ->
-// settled left-aligned F stack) animate as `t` (aka `revealT` below) goes
-// 0 -> 1. Rotating a wide-short rect 90deg makes it read as a tall-narrow
-// EQ column "for free," exactly like the canvas prototype.
-//
-// Numbers below are the canvas prototype's, rescaled to this graphic's
-// 200x200 footprint (vs. the canvas's 280x300 bar area) — thickness
-// 40->29, gap 14->7, etc. (ROUND 22, 2026-08-22: sized up again from the
-// round-21 168x168 pass per gabriel's "increase the size" ask. 200 is also
-// the largest this can safely get at its current position — see Strip.jsx
-// round 22 comment on why the graphic moved out of zone 2's own clipping
-// box — without risking getting clipped by the outer strip's own
-// overflow:hidden at raw=0, where the strip is at its widest.)
-const F_BAR_LENGTHS = [133, 50, 90, 50];
-const F_BAR_THICKNESS = 29;
-const F_BAR_GAP = 7;
-const F_BADGE_SIZE = 200;
-const F_LEFT_PAD = 33;
-const F_FINAL_CENTER_X = F_BAR_LENGTHS.map((len) => F_LEFT_PAD + len / 2);
-const F_CONTENT_HEIGHT = F_BAR_LENGTHS.length * F_BAR_THICKNESS + (F_BAR_LENGTHS.length - 1) * F_BAR_GAP;
-const F_TOP_PAD = (F_BADGE_SIZE - F_CONTENT_HEIGHT) / 2;
-const F_FINAL_CENTER_Y = (() => {
-  const ys = [];
-  let cursor = F_TOP_PAD;
-  for (let i = 0; i < F_BAR_LENGTHS.length; i++) {
-    ys.push(cursor + F_BAR_THICKNESS / 2);
-    cursor += F_BAR_THICKNESS + F_BAR_GAP;
-  }
-  return ys;
-})();
-// Idle (live-EQ) layout — evenly spaced vertical columns, bottom-aligned to
-// a shared baseline; each column's on-screen height is that bar's own
-// `length`, which is what gives the idle columns their varied heights.
-const F_BASELINE_Y = 167;
-const F_INIT_CENTER_X = [50, 83, 117, 150];
-const F_INIT_CENTER_Y = F_BAR_LENGTHS.map((len) => F_BASELINE_Y - len / 2);
-// ROUND 25 (2026-08-22): gabriel wants the F-bars fade-OUT and the FADE
-// fade-IN to run at DIFFERENT speeds, not the same shared window — F-bars
-// disappearing quickly/abruptly, FADE appearing slowly/gradually. Split the
-// old single `REVEAL_RANGE` into two independent ranges. `barsT` (F-bars
-// rotation + opacity) and `textT` (FADE opacity) are each their own 0->1
-// ramp over `raw`, with no requirement that they reach 1 at the same time —
-// they're visually independent now, just both still driven off the same
-// `raw` (nothing new starts its own separate scroll-tracking).
-const BARS_OUT_RANGE = 0.04; // short - F-bars rotates/fades out fast
-const TEXT_IN_RANGE = 0.4;   // long - FADE fades in slowly
 // Gap kept between the rail's own right edge and the F-bars graphic's own
 // left edge (the graphic sits just past the rail, at the start of zone 2)
 // - see Strip.jsx round 22 comment for why it's positioned relative to the
 // whole strip now instead of nested inside zone 2.
 const F_BARS_LEFT_GAP = 8;
-
-function computeFBarLayout(t) {
-  const rotation = Math.round(90 * (1 - t) * 100) / 100;
-  const bounceActive = t < 0.08; // only near the very start of the reveal window
-  return F_BAR_LENGTHS.map((len, i) => {
-    const cx = F_INIT_CENTER_X[i] + (F_FINAL_CENTER_X[i] - F_INIT_CENTER_X[i]) * t;
-    const cy = F_INIT_CENTER_Y[i] + (F_FINAL_CENTER_Y[i] - F_INIT_CENTER_Y[i]) * t;
-    return {
-      left: cx - len / 2,
-      top: cy - F_BAR_THICKNESS / 2,
-      w: len,
-      h: F_BAR_THICKNESS,
-      rotation,
-      bounceActive,
-      delay: [0, 0.15, 0.3, 0.45][i],
-    };
-  });
-}
-
-// Writes computeFBarLayout(t) onto the 4 bar-outer children of `container`
-// (fBarsRef.current — see Strip.jsx). Kept as a plain function of its
-// container arg (not a closure over the ref) so it can be called identically
-// from both handleFeedScroll (per-frame) and the mount effect (initial
-// paint), without either needing to depend on the other's closure.
-function applyFBarLayout(container, t) {
-  if (!container) return;
-  computeFBarLayout(t).forEach((bar, i) => {
-    const outer = container.children[i];
-    if (!outer) return;
-    outer.style.left = `${bar.left}px`;
-    outer.style.top = `${bar.top}px`;
-    outer.style.width = `${bar.w}px`;
-    outer.style.height = `${bar.h}px`;
-    outer.style.transform = `rotate(${bar.rotation}deg)`;
-    const inner = outer.firstElementChild;
-    if (inner) {
-      inner.style.animation = bar.bounceActive ? 'eqBounce 0.9s ease-in-out infinite' : 'none';
-      inner.style.animationDelay = `${bar.delay}s`;
-    }
-  });
-}
 
 export function LayoutProvider({ children }) {
  const [d3Content, setD3Content] = useState(null);
@@ -133,6 +37,9 @@ export function LayoutProvider({ children }) {
  const railWordmarkRef = useRef(null); // FADE text wordmark — flush bottom-left of the rail (zone 1), see Strip.jsx
  const fBarsRef = useRef(null); // F-bars logomark graphic — zone 2, near zone 1's edge (round 20), see Strip.jsx
  const navTabsRef = useRef(null);
+ // Feed's compose (+) button — shown only once the strip has fully
+ // collapsed, i.e. you're on the main feed (gabriel, 2026-10-01).
+ const composeBtnRef = useRef(null);
  const postRefs = useRef(new Map());
 
  function openD3(content, props = {}) { setD3Content(content); setD3Props(props); setD3Width(null); }
@@ -158,17 +65,29 @@ export function LayoutProvider({ children }) {
    const feedRect = feed.getBoundingClientRect();
    const postRect = postEl.getBoundingClientRect();
    const maxFeed = Math.max(0, feed.scrollWidth - feed.clientWidth);
-   const target = Math.max(0, Math.min(feed.scrollLeft + (postRect.left - feedRect.left), maxFeed));
+   // - STRIP_RADIUS: the feed's left edge sits that far under the strip (Layout.jsx)
+   const target = Math.max(0, Math.min(feed.scrollLeft + (postRect.left - feedRect.left) - STRIP_RADIUS, maxFeed));
    driveFeedScroll(target);
    // Highlight once the damped scroll (DAMPING=15, settles in ~150-200ms
    // per scroll-distance step, capped well under a second here) has landed.
    setTimeout(() => {
-     postEl.style.transition = 'box-shadow 0.15s';
-     postEl.style.boxShadow = '0 0 0 3px #e85d04';
-     setTimeout(() => { postEl.style.boxShadow = ''; }, 600);
+     // Inset: cards sit in a rounded, overflow:hidden frame (Feed's
+     // FloatSlot), which clipped the old outer ring to nothing.
+     postEl.style.transition = 'box-shadow 0.2s';
+     postEl.style.boxShadow = 'inset 0 0 0 4px var(--theme-accent)';
+     setTimeout(() => { postEl.style.boxShadow = ''; }, 900);
    }, 500);
    // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [driveFeedScroll]);
+
+ // Jump the feed to a post from anywhere (search box, drawers). Feed
+ // registers its own handler in jumpHandlerRef — it can fetch a post that
+ // isn't loaded yet; until it has, this falls back to scrollToPost.
+ const jumpHandlerRef = useRef(null);
+ const jumpToPost = useCallback((postId) => {
+   closeD3();
+   (jumpHandlerRef.current || scrollToPost)(postId);
+ }, [scrollToPost]);
 
  // ── ROUND 17 (2026-08-21) — merged strip, single collapse curve ────────
  // Rounds 9-16 tried to make TWO separately-animated elements (the icon
@@ -220,7 +139,12 @@ export function LayoutProvider({ children }) {
    if (stripRef.current) stripRef.current.style.width = `${outerWidth}px`;
    const railZoneWidth = RAIL_OPEN_WIDTH - (RAIL_OPEN_WIDTH - RAIL_WIDTH) * raw; // 320 → 108, same formula as the pre-round-17 rail
    if (railZoneRef.current) railZoneRef.current.style.width = `${railZoneWidth}px`;
-   if (secondaryStripRef.current) secondaryStripRef.current.style.left = `${railZoneWidth}px`; // zone 2 always starts exactly where zone 1 ends
+   // Zone 2 now runs UNDER zone 1 from left 0 (Strip.jsx, gabriel 2026-09-30)
+   // so it reads as a card sliding beneath the rail, like the feed does: only
+   // its right edge (the outer box's) moves. Hidden once it's fully under, so
+   // no anti-aliased sliver shows round the shared rounded corners.
+   if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = raw >= 1 ? 'hidden' : '';
+   if (composeBtnRef.current) composeBtnRef.current.dataset.show = raw >= 1 ? '1' : '';
    // Nav tabs (#lnv-tabs — the rail's own icon/directory buttons) start
    // invisible at rest (raw=0) and fade in over the LAST 20% of the
    // collapse, landing fully visible right as the rail finishes narrowing
@@ -268,7 +192,7 @@ export function LayoutProvider({ children }) {
  useEffect(() => {
    if (stripRef.current) stripRef.current.style.width = `${STRIP_OPEN_WIDTH}px`;
    if (railZoneRef.current) railZoneRef.current.style.width = `${RAIL_OPEN_WIDTH}px`;
-   if (secondaryStripRef.current) secondaryStripRef.current.style.left = `${RAIL_OPEN_WIDTH}px`;
+   if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = '';
    if (navTabsRef.current) navTabsRef.current.style.opacity = '0'; // hidden at rest, before the first handleFeedScroll frame runs
    if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = '0'; // FADE text - fixed position (Strip.jsx), only opacity animates
    if (fBarsRef.current) {
@@ -333,6 +257,17 @@ export function LayoutProvider({ children }) {
      // scroll instead of doing nothing (preventDefault'd) while ALSO
      // driving the feed underneath, which is what happened before this.
      if (e.target.closest?.('#lnv-drawer, #lnv-drawer-backdrop')) return;
+     // 2026-09-25: boxes inside a card that scroll on their own (post
+     // description, long tracklists, the comment list) opt in with
+     // data-inner-scroll. They get the wheel while they can still move in
+     // that direction; at their top/bottom edge the wheel falls through to
+     // the feed as before, so the feed never feels "stuck" on a card.
+     const inner = e.target.closest?.('[data-inner-scroll]');
+     if (inner && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+       const canDown = inner.scrollTop + inner.clientHeight < inner.scrollHeight - 1;
+       const canUp = inner.scrollTop > 0;
+       if ((e.deltaY > 0 && canDown) || (e.deltaY < 0 && canUp)) return;
+     }
      e.preventDefault();
      if (!so) return;
      let dy = e.deltaY;
@@ -412,10 +347,10 @@ export function LayoutProvider({ children }) {
 
  return (
    <LayoutContext.Provider value={{
-     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef,
+     stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, composeBtnRef,
      d3Content, d3Props, d3Width, setD3Width, openD3, closeD3,
      currentTrack, setCurrentTrack,
-     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll,
+     feedRef, postRefs, registerPostRef, scrollToPost, handleFeedScroll, driveFeedScroll, jumpToPost, jumpHandlerRef,
    }}>
      {children}
    </LayoutContext.Provider>

@@ -1,5 +1,9 @@
+import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
-import { getUser, logout } from '../lib/auth';
+import Clock from './Clock';
+import { getUser, logout, isAdmin } from '../lib/auth';
+import { goHome, homeMode, useFeedMode } from '../lib/collections';
+import { queue } from '../lib/queue';
 
 const BASE = import.meta.env.VITE_API_URL;
 
@@ -7,14 +11,16 @@ const BASE = import.meta.env.VITE_API_URL;
 // they browse the auto-collected artists/genres/labels data. Tabs without
 // it swap the feed-zone content itself (Layout's `view` state).
 const TABS = [
-  { id: 'feed',        label: 'main feed' },
+  { id: 'feed',        label: 'home' },
   null,
   { id: 'artists',     label: 'artists',   panel: true },
   { id: 'genres',      label: 'genres',    panel: true },
   { id: 'labels',      label: 'labels',    panel: true },
   null,
-  { id: 'readme',      label: 'readme' },
-  { id: 'about',       label: 'about' },
+  // 2026-10-01: readme → live sets (its content moved into About), and
+  // About opens as a drawer like the rest instead of replacing the feed.
+  { id: 'live',        label: 'live sets', panel: true },
+  { id: 'about',       label: 'about',     panel: true },
 ];
 
 // ── ROUND 17 (2026-08-21) — merged strip ────────────────────────────────
@@ -79,8 +85,13 @@ export const SECONDARY_STRIP_WIDTH = 210;  // secondary zone's width at full res
                                             // own overlay animation references it to mimic this
                                             // resting state, it no longer sizes a separate real element.
 export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 — combined resting width
+// Right-hand corner radius of both strip zones (2026-09-30, = DESIGN_BASE.artRadius).
+// The feed runs this far UNDER the strip (Layout.jsx) so its rounded corners
+// show the feed passing beneath — never the page background.
+export const STRIP_RADIUS = 40;
 
 export default function Strip({ activeView }) {
+  const onFeed = useLocation().pathname === '/' && activeView === 'feed';
   const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
 
   // Non-panel tabs (main feed / readme / about) swap the feed-zone content
@@ -91,12 +102,16 @@ export default function Strip({ activeView }) {
   function handleTabClick(tab) {
     if (tab.panel) { openD3(tab.id); return; }
     closeD3();
+    // The first tab always brings back the home view — "my feed" once
+    // signed in, the main feed for visitors (2026-10-03).
+    if (tab.id === 'feed') goHome();
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+  const feedMode = useFeedMode();
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     window.location.href = '/';
   }
 
@@ -105,17 +120,23 @@ export default function Strip({ activeView }) {
       const res = await fetch(BASE + '/tracks/random');
       const data = await res.json();
       if (!data.youtube_url) return;
+      queue.close(); // one player at a time: the random track replaces the playlist
       setCurrentTrack({ title: data.title, artist: data.artist + ' — ' + data.album, youtubeUrl: data.youtube_url, postId: data.post_id, albumArt: data.cover_image || data.thumb_image || null });
     } catch (err) { console.error('Random error:', err); }
   }
 
   return (
-    <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', borderRight:'1px solid var(--theme-border)', overflow:'hidden', background:'var(--theme-dark2)', transition:'background 0.8s, border-color 0.8s' }}>
+    <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
           down to RAIL_WIDTH (108px), written every frame by
           LayoutProvider's handleFeedScroll from the same `raw` that drives
           the outer box — same formula the pre-round-17 rail always used. */}
-      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s', overflow:'hidden' }}>
+      <div ref={railZoneRef} style={{ position:'absolute', left:0, top:0, bottom:0, width:`${RAIL_OPEN_WIDTH}px`, background:'var(--theme-sidebar)', transition:'background 0.8s', overflow:'hidden',
+        // Right-hand corners rounded, open / collapsing / collapsed alike —
+        // gabriel, 2026-09-30. 40 = DESIGN_BASE.artRadius in Feed.jsx (the
+        // covers' radius); was 14, too subtle at this height. Feed.jsx's
+        // FLOAT_RADIUS (cards, intro) is set from STRIP_RADIUS so all match.
+        borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS }}>
         {/* FADE text wordmark. FIXED position (round 23) — never moves as
             the rail collapses, only opacity animates (fadeTextOpacity,
             LayoutProvider). ROUND 24: gabriel wants this centered for the
@@ -160,7 +181,23 @@ export default function Strip({ activeView }) {
           moved out to be a direct sibling below (see ROUND 22 comment
           there) so its bigger size can't be clipped by this zone's own
           overflow:hidden as it narrows during the reveal window. */}
-      <div ref={secondaryStripRef} style={{ position:'absolute', left:`${RAIL_OPEN_WIDTH}px`, right:0, top:0, bottom:0, background:'var(--theme-dark2)', transition:'background 0.8s', overflow:'hidden' }} />
+      {/* 2026-09-30 (gabriel): zone 2 now starts at left 0, UNDER zone 1
+          (zIndex -1 inside the strip's own stacking context), with the
+          rail's rounded right corners — so as the strip collapses it looks
+          like a card rolling in beneath the rail, like the feed does, and
+          fills the rail's corner cut-outs. LayoutProvider no longer moves
+          its left; it hides it once fully under (raw = 1). The old 1px
+          edge line is gone (the feed cards have none either). */}
+      <div ref={secondaryStripRef} style={{ position:'absolute', left:0, right:0, top:0, bottom:0, zIndex:-1, background:'var(--theme-channel, var(--theme-dark2))', borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS, transition:'background 0.8s', overflow:'hidden' }}>
+        {/* The landing clock's twin (gabriel, 2026-09-30: the clock should
+            stay visible until it goes under the WHITE rail). The real clock
+            (FeedIntro) is covered by this zone as it scrolls left; this copy
+            is drawn in the same spot, clipped to this zone, so the clock
+            reads as riding over the green and tucking under the rail. Its
+            `right` and opacity are written every frame by Feed()'s
+            landing-clock loop, alongside the real clock's. */}
+        {onFeed && <div id="lnv-strip-clock" aria-hidden="true" style={{ position:'absolute', top:28, right:0, textAlign:'right', opacity:0, pointerEvents:'none' }}><Clock /></div>}
+      </div>
 
       {/* F-bars logomark — the animated equalizer-to-F graphic. ROUND 22
           (2026-08-22): moved OUT of zone 2 to be a direct child of the
@@ -229,14 +266,14 @@ export default function Strip({ activeView }) {
       <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
-          const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id;
+          const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);
           return (
             <button key={tab.id} data-tab={tab.id}
               onClick={() => handleTabClick(tab)}
-              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:'VT323, monospace', fontSize:'13px', letterSpacing:'2px', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 11px', width:'34px', textAlign:'center', whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
+              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
-            >{tab.label}</button>
+            >{tab.id === 'feed' && user ? 'my feed' : tab.label}</button>
           );
         })}
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
@@ -246,14 +283,40 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
-        {/* Identity — username only, no password (see lib/auth.js). Click
-            when logged in to log out; when logged out, links to /login. */}
+        {/* Playlists and walls (2026-10-03, CollectionDrawers.jsx). Signed in only;
+            a round button like ▶ for the same height reason as admin below. */}
+        {user && (() => {
+          const active = d3Content === 'walls' || d3Content === 'playlists';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('playlists'))} title="Playlists and walls" aria-label="Playlists and walls"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >♥</button>
+          );
+        })()}
+        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
+            (status, logs, users). A round button like ▶ and the identity
+            one, not a vertical pill: the tab stack is ~680px already and a
+            pill would push the identity button off a 768px-tall screen. */}
+        {user && isAdmin() && (() => {
+          const active = d3Content === 'admin';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >⚙</button>
+          );
+        })()}
+        {/* Identity — your initial when signed in (click to sign out);
+            otherwise a link to /login (see lib/auth.js). */}
         {user ? (
           <button onClick={handleLogout} title={`${user} — click to log out`}
             style={{ color:'var(--theme-text-pri)', fontSize:'13px', fontWeight:700, fontFamily:'Barlow, sans-serif', background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}
           >{user.charAt(0).toUpperCase()}</button>
         ) : (
-          <a href="/login" title="Choose a username"
+          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}

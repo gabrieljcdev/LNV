@@ -5,9 +5,14 @@ const router = express.Router();
 
 router.get('/', (req, res) => {
   try {
+    // "Various" / "Various Artists" (Discogs artist 194) is Discogs'
+    // compilation credit, not a person — kept on the post, left out of the
+    // artist index.
     const artists = db.prepare(`
       SELECT DISTINCT artist_name, COUNT(*) as record_count
       FROM post_artists
+      WHERE LOWER(TRIM(artist_name)) NOT IN ('various', 'various artists')
+        AND COALESCE(discogs_artist_id, 0) != 194
       GROUP BY artist_name
       ORDER BY artist_name ASC
     `).all();
