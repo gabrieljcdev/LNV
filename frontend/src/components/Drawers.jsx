@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 import { FavHeart } from './Collect'
@@ -252,13 +252,19 @@ function Discography({ kind, id, name, allPosts }) {
   const [q, setQ] = useState('')
   useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t) }, [query])
 
+  const qc = useQueryClient()
   const pages = useInfiniteQuery({
     queryKey: ['drawer-discography', kind, id, q],
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q })
       const r = await fetch(`${API}/discogs/${kind}/${id}/releases?${qs}`)
-      return r.ok ? r.json() : null
+      if (!r.ok) throw new Error(`Discogs catalogue: ${r.status}`)
+      return r.json()
     },
+    // A failed load (Discogs down, a network blip) retries once by itself,
+    // then offers "Try again" (2026-10-06).
+    retry: 1,
+    retryDelay: 2000,
     initialPageParam: 0,
     getNextPageParam: last => {
       if (!last) return undefined
@@ -307,7 +313,14 @@ function Discography({ kind, id, name, allPosts }) {
         {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
       </label>
     )}
-    {!first ? <Empty>{pages.isLoading ? 'Pulling the Discogs catalogue…' : 'Couldn’t load the catalogue.'}</Empty>
+    {!first ? (pages.isLoading || pages.isFetching ? <Empty>Pulling the Discogs catalogue…</Empty> : (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '20px 0' }}>
+        <span style={{ fontFamily: SANS, fontSize: 15, color: SEC }}>Couldn’t load the catalogue — Discogs didn’t answer.</span>
+        {/* A fresh start, not refetch(): a retry paused while the tab was hidden would just keep waiting. */}
+        <button onClick={() => qc.resetQueries({ queryKey: ['drawer-discography', kind, id, q] })}
+          style={{ border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 16px', background: FILL, color: PRI, fontFamily: SANS, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Try again</button>
+      </div>
+    ))
       : !rows.length ? <Empty>{q ? `No releases match “${q}”.` : 'Nothing found on Discogs.'}</Empty>
       : rows.map(r => {
           const mi = r.type === 'master' ? info?.info?.[r.mainRelease] : null

@@ -6,7 +6,7 @@ import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -354,7 +354,8 @@ export function WallCard({ username, compact = false, friends }) {
   const shell = compact
     ? { padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20, color: pri, fontFamily: SANS }
     : { width: 800, height: '100%', boxSizing: 'border-box', padding: '90px 48px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s', color: pri, fontFamily: SANS, display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 44, alignContent: 'start' }
-  if (!p) return <div style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
+  const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
+  if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
   const owner = p.is_owner && !asVisitor
   const preview = p.is_owner && asVisitor
@@ -622,7 +623,69 @@ export function WallCard({ username, compact = false, friends }) {
     </div>
   )
 
-  return <div style={shell}>{identity}{taste}</div>
+  return <div {...cardTag} style={shell}>{identity}{taste}</div>
+}
+
+// The welcome (2026-10-05, gabriel): signed out, the front page opens on
+// this card where your profile would be — what the site is, how it works,
+// what an account adds, and the way in (create an account / log in).
+// Same shell as WallCard; `compact` is the phone slide.
+export function WelcomeCard({ compact = false }) {
+  const { openD3 } = useLayout() || {}
+  const owner = useFrontPageOwner()
+  const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)', ter = 'var(--theme-text-ter)'
+  const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
+  const head = { margin: '0 0 10px', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: ter }
+  const list = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, fontSize: compact ? 15 : 14.5, lineHeight: 1.45, color: sec }
+  const b = t => <b style={{ color: pri, fontWeight: 700 }}>{t}</b>
+  const kbd = { fontFamily: MONO, fontSize: 12, border: `1px solid ${fill(35)}`, borderRadius: 4, padding: '0 5px', color: pri }
+  const shell = compact
+    ? { padding: '26px 20px 24px', display: 'flex', flexDirection: 'column', gap: 24, color: pri, fontFamily: SANS }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '90px 48px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s', color: pri, fontFamily: SANS, display: 'grid', gridTemplateColumns: '270px minmax(0, 1fr)', gap: 44, alignContent: 'start' }
+
+  const intro = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <span style={head}>Welcome</span>
+      <h1 style={{ margin: 0, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 0.95, letterSpacing: '-0.02em' }}>Late Night Vibes</h1>
+      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+        <a href="/login?tab=create" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, background: pri, color: 'var(--theme-showcase)', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Create an account</a>
+        <a href="/login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, border: `1px solid ${fill(45)}`, color: pri, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>Log in</a>
+      </div>
+    </div>
+  )
+
+  // The front page is someone's own wall (the first friend's) — say so.
+  const wall = (
+    <section style={{ padding: compact ? '14px 16px' : '16px 18px', borderRadius: 16, background: fill(12), fontSize: compact ? 15 : 15.5, lineHeight: 1.5, color: sec }}>
+      You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700 }}>{owner}'s</button> : 'my'} wall — the records I've posted and kept. Make an account and you get a wall of your own.
+    </section>
+  )
+
+  const how = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
+      {wall}
+      <section>
+        <h2 style={head}>How it works</h2>
+        <ul style={list}>
+          <li>{compact ? b('Swipe') : b('Scroll sideways')} through the posts.</li>
+          <li>{b(compact ? 'Tap a cover' : 'Click a cover')} to play it.</li>
+          <li>{b('Every post has a number')} — {compact ? 'search it to jump there.' : <>press <kbd style={kbd}>/</kbd> and type it to jump there.</>}</li>
+        </ul>
+      </section>
+      <section>
+        <h2 style={head}>With an account</h2>
+        <ul style={list}>
+          <li>{b('Post')} a record from a link.</li>
+          <li>{b('♥ a record')} to keep it on your wall.</li>
+          <li>{b('Follow people')} to see what they're posting — your feed is newest first, no algorithm.</li>
+        </ul>
+      </section>
+      <button onClick={() => openD3?.('about')} style={{ ...plain, alignSelf: 'flex-start', fontSize: 14, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>More in About →</button>
+    </div>
+  )
+
+  return <div data-profile-card="welcome" style={shell}>{intro}{how}</div>
 }
 
 // An introduction (alpha, 2026-10-05, from the "LNV Introductions Mockup"

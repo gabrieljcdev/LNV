@@ -1,9 +1,60 @@
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
 import { getUser, logout, isAdmin } from '../lib/auth';
-import { goHome, homeMode, useFeedMode } from '../lib/collections';
+import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
+
+// Your initial on the strip (2026-10-05): a small menu — your profile, a
+// link to it, sign out. (Clicking the initial used to sign you out.)
+// Drawn in a portal beside the button: the strip clips what overflows it.
+function ProfileMenu({ user, onProfile, onSignOut }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [at, setAt] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = e => { if (!menuRef.current?.contains(e.target) && !btnRef.current?.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  function toggle() {
+    const r = btnRef.current.getBoundingClientRect();
+    setAt({ left: r.right + 12, bottom: window.innerHeight - r.bottom });
+    setCopied(false);
+    setOpen(v => !v);
+  }
+  const item = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 12px', border: 0, borderRadius: 10, background: 'transparent', color: 'var(--theme-text-pri)', fontFamily: "'Barlow', sans-serif", fontSize: 14, textAlign: 'left', cursor: 'pointer' };
+  const hover = { onMouseEnter: e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 16%, transparent)'; }, onMouseLeave: e => { e.currentTarget.style.background = 'transparent'; } };
+  return <>
+    <button ref={btnRef} onClick={toggle} title={`${user} — your profile and account`} aria-label={`${user} — your profile and account`} aria-haspopup="menu" aria-expanded={open}
+      style={{ color: open ? '#fff' : 'var(--theme-text-pri)', fontSize:'13px', fontWeight:700, fontFamily:'Barlow, sans-serif', background: open ? 'var(--theme-accent)' : 'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', transition:'background 0.2s' }}
+    >{user.charAt(0).toUpperCase()}</button>
+    {open && at && createPortal(
+      <div ref={menuRef} role="menu" aria-label="Your account"
+        style={{ position: 'fixed', left: at.left, bottom: at.bottom, zIndex: 400, width: 230, padding: 6, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 16, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', fontFamily: "'Barlow', sans-serif" }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px 10px' }}>
+          <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--theme-text-pri)', color: 'var(--theme-dark3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14 }}>{user.charAt(0).toUpperCase()}</span>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontWeight: 700, fontSize: 15, color: 'var(--theme-text-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user}</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--theme-text-ter)' }}>signed in</span>
+          </span>
+        </div>
+        <button role="menuitem" autoFocus style={item} {...hover} onClick={() => { setOpen(false); onProfile(); }}>My profile</button>
+        <button role="menuitem" style={item} {...hover} onClick={() => { navigator.clipboard?.writeText(wallLink(user)).then(() => setCopied(true)).catch(() => {}); }}>{copied ? '✓ Link copied' : 'Copy a link to my profile'}</button>
+        <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 8px' }} />
+        <button role="menuitem" style={{ ...item, color: 'var(--theme-text-sec)' }} {...hover} onClick={onSignOut}>Sign out</button>
+      </div>,
+      document.body
+    )}
+  </>;
+}
 
 const BASE = import.meta.env.VITE_API_URL;
 
@@ -309,12 +360,12 @@ export default function Strip({ activeView }) {
             >⚙</button>
           );
         })()}
-        {/* Identity — your initial when signed in (click to sign out);
-            otherwise a link to /login (see lib/auth.js). */}
+        {/* Identity — your initial when signed in (a menu: your profile,
+            its link, sign out — ProfileMenu above); otherwise a link to
+            /login (see lib/auth.js). */}
         {user ? (
-          <button onClick={handleLogout} title={`${user} — click to log out`}
-            style={{ color:'var(--theme-text-pri)', fontSize:'13px', fontWeight:700, fontFamily:'Barlow, sans-serif', background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}
-          >{user.charAt(0).toUpperCase()}</button>
+          <ProfileMenu user={user} onSignOut={handleLogout}
+            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }} />
         ) : (
           <a href="/login" title="Sign in or create an account" aria-label="Sign in"
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}

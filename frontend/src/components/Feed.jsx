@@ -7,7 +7,7 @@ import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
@@ -422,7 +422,7 @@ function FloatSlot({ children }) {
     return () => { mo.disconnect(); clearTimeout(t) }
   }, [])
   return (
-    <div style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
+    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
       <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW, ...ink }}>
         {children}
       </div>
@@ -1175,7 +1175,7 @@ function isLiveSetPost(p) {
 
 
 function LiveSetCard({ post, cardBg, d, onEdit }) {
-  const { registerPostRef } = useLayout() || {}
+  const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [playing, setPlaying] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -1288,6 +1288,16 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         <div style={{ flexShrink: 0, width: T.artSize, height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
       </div>
 
+      {/* Genre pills (2026-10-05, gabriel) — as on single cards. */}
+      {post.genres?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: T.pillGap, flexShrink: 0 }}>
+          {post.genres.slice(0, 6).map(g => (
+            <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+              style={{ fontSize: T.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${T.pillPy}px ${T.pillPx}px`, borderRadius: T.pillRadius, fontFamily: T.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+          ))}
+        </div>
+      )}
+
       {/* byline — kept quiet at the bottom. edit/delete on the left, replies
           on the right, clear of the number's line (gabriel, 2026-10-02). */}
       <div style={{ marginTop: 'auto', paddingTop: T.bylineMt, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, lineHeight: '15px' /* = the album byline's height, so the numbers sit level */, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
@@ -1339,7 +1349,7 @@ function isAlbumPost(p) {
 }
 
 function AlbumCard({ post, cardBg, d, onEdit }) {
-  const { registerPostRef } = useLayout() || {}
+  const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [activeUrl, setActiveUrl] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -1486,6 +1496,16 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           {trackCol(indexed.slice(half))}
         </div>
       </div>
+
+      {/* Genre pills (2026-10-05, gabriel) — as on single cards. */}
+      {post.genres?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 10, flexShrink: 0 }}>
+          {post.genres.slice(0, 6).map(g => (
+            <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+              style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+          ))}
+        </div>
+      )}
 
       {/* byline — the regular card's byline sizes */}
       <div style={{ marginTop: d.bylineMt, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
@@ -2997,6 +3017,14 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
   }
   useEffect(() => { if (jumpRef) jumpRef.current = jumpTo })
 
+  // "My profile" (lib/collections showMyProfile): back to the first slide —
+  // your profile, on my feed — with the opening out of the way.
+  useEffect(() => {
+    const h = () => { openingRef.current?.close(); deckRef.current?.scrollTo({ left: 0 }) }
+    window.addEventListener('lnv:show-profile', h)
+    return () => window.removeEventListener('lnv:show-profile', h)
+  }, [])
+
   // Arrow keys on a narrow desktop window.
   useEffect(() => {
     const h = e => {
@@ -3271,6 +3299,24 @@ export default function Feed() {
     return () => window.removeEventListener('lnv:jump-main', h)
   }, [])
 
+  // "My profile" (2026-10-05, lib/collections showMyProfile): my feed is
+  // already switched to; clear any search and bring your profile card into
+  // view once it's drawn. Phones go back to the deck's first slide
+  // (PhoneFeed listens too).
+  useEffect(() => {
+    let tries = 0, t = null
+    const scrollToCard = () => {
+      const feed = feedRef?.current
+      const card = feed?.querySelector('[data-profile-card="me"]')
+      if (!card) { if (++tries < 30) t = setTimeout(scrollToCard, 100); return }
+      const slot = card.closest('[data-float-slot]') || card
+      driveFeedScroll?.(Math.max(0, feed.scrollLeft + (slot.getBoundingClientRect().left - feed.getBoundingClientRect().left) - STRIP_RADIUS))
+    }
+    const h = () => { pendingJump.current = null; setSearch(''); tries = 0; clearTimeout(t); if (!phone) t = setTimeout(scrollToCard, 50) }
+    window.addEventListener('lnv:show-profile', h)
+    return () => { window.removeEventListener('lnv:show-profile', h); clearTimeout(t) }
+  }, [phone, feedRef, driveFeedScroll])
+
   // Finish a jump to a post that had to be fetched first (jumpToPost).
   useEffect(() => {
     const id = pendingJump.current
@@ -3526,7 +3572,8 @@ export default function Feed() {
         viewKey={viewKey}
         jumpRef={phoneJumpRef}
         header={search ? null : feedMode.type === 'wall' ? <WallCard key={feedMode.username} username={feedMode.username} compact />
-          : feedMode.type === 'home' && isLoggedIn() ? <WallCard key="me" username={getUser()} compact friends={myFeedSwitch} /> : null}
+          : feedMode.type === 'home' && isLoggedIn() ? <WallCard key="me" username={getUser()} compact friends={myFeedSwitch} />
+          : feedMode.type === 'home' ? <WelcomeCard key="welcome" compact /> : null}
         topBar={<>
           <FeedSwitcher menuLeft noFollow style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0, maxWidth: '45%' }} />
           {searchBox({ position: 'static', top: 'auto', right: 'auto', width: 'auto', flex: 1, minWidth: 0 })}
@@ -3558,6 +3605,8 @@ export default function Feed() {
         {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
         {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
+        {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot key="welcome"><WelcomeCard /></FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

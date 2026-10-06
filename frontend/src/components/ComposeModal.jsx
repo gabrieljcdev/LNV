@@ -440,7 +440,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const isError = naming ? false : !!fetchError
  const cameBackEmpty = !naming && !fetching && !duplicate && (!!fetchError || !!fetchStatus)
  return (
- <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={scrim}>
+ <div data-overlay="" onClick={e => { if (e.target === e.currentTarget) onClose() }} style={scrim}>
  <div style={{ position: 'absolute', left: '50%', top: '34%', width: BAR_W, maxWidth: 'calc(100vw - 32px)', transform: 'translate(-50%, -50%)' }}>
  <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 64, padding: '0 12px 0 24px', borderRadius: 99, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', boxShadow: `${FLOAT_SHADOW}, 0 2px 8px rgba(0,0,0,0.2)` }}>
  <span style={{ fontFamily: 'Barlow, sans-serif', fontWeight: 300, fontSize: 26, lineHeight: 1, color: 'var(--theme-text-ter)', width: 18, textAlign: 'center' }}>{naming ? '@' : '+'}</span>
@@ -488,7 +488,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const linkCount = tracks.filter(t => t.stream_url).length
 
  return (
- <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{ ...scrim, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+ <div data-overlay="" onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{ ...scrim, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
  <style>{`
  .lnvc-f { background: transparent; border: none; outline: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 2px 4px; margin: -2px -4px; border-radius: 4px; min-width: 0; transition: background .15s; }
  .lnvc-f:hover, .lnvc-f:focus { background: ${CARD_FIELD}; }
@@ -500,7 +500,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  `}</style>
  <div style={{ ...INK_DARK_BG, width: CARD_W, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 64px)', background: 'var(--theme-showcase)', borderRadius: FLOAT_RADIUS, boxShadow: FLOAT_SHADOW, display: 'flex', flexDirection: 'column', overflow: 'hidden', color: 'var(--theme-text-pri)', transition: 'background 0.8s' }}>
 
- <div style={{ flex: 1, overflowY: 'auto', padding: `${phone ? 24 : 40}px ${padX}px 8px` }}>
+ {/* minHeight 0: lets this middle section shrink to the window and scroll (2026-10-06 — a long release list pushed the description out of reach) */}
+ <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: `${phone ? 24 : 40}px ${padX}px 8px` }}>
  {/* header — what this is, where it came from, how well it matched */}
  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
  <span style={{ ...badge, background: 'var(--theme-border)', color: 'var(--theme-text-sec)' }}>{editPost ? `Edit post #${editPost.id}` : 'New post'}</span>
