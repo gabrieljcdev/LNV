@@ -90,6 +90,27 @@ router.get('/logs', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Reports (2026-10-06) ──
+// Reports and takedown requests, newest open first; close one, or remove
+// the post it's about (DELETE /api/posts/:id does the removing).
+router.get('/reports', (req, res, next) => {
+  try {
+    const rows = db.prepare(`SELECT r.*, p.title AS post_title, u.username AS reporter
+      FROM reports r LEFT JOIN posts p ON p.id = r.post_id LEFT JOIN users u ON u.id = r.reporter_user_id
+      ORDER BY (r.status = 'open') DESC, r.id DESC LIMIT 200`).all();
+    res.json({ reports: rows, open: rows.filter(r => r.status === 'open').length });
+  } catch (err) { next(err); }
+});
+router.post('/reports/:id', (req, res, next) => {
+  try {
+    const status = ['open', 'resolved', 'dismissed'].includes(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'open, resolved or dismissed' });
+    db.prepare(`UPDATE reports SET status = ?, handled_at = CASE WHEN ? = 'open' THEN NULL ELSE datetime('now') END WHERE id = ?`).run(status, status, Number(req.params.id));
+    logEvent('info', 'report', `Report #${req.params.id} → ${status}`, { req });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 // ── Gaps (2026-10-06) ──
 // What's still missing in the DB, and the gap sweep run on demand (it also
 // runs every 6 hours by itself — services/gapSweeper.js).

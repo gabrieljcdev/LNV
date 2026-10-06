@@ -9,6 +9,7 @@ import {
   USERNAME_RE, EMAIL_RE, PASSWORD_MIN, befriend,
 } from '../services/authService.js';
 import { logEvent } from '../services/logService.js';
+import { exportAccount, deleteAccount } from '../services/accountService.js';
 
 // /api/auth — create account, confirm email, sign in / out, reset a
 // forgotten password, who am I. Every outcome is written to the admin log.
@@ -135,5 +136,31 @@ router.post('/reset', strict, (req, res, next) => {
 });
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: publicUser(req.user) }));
+
+// ── Your data (2026-10-06, the legal pass) ──
+// Download everything LNV holds about you, as a JSON file.
+router.get('/me/export', requireAuth, (req, res, next) => {
+  try {
+    const data = exportAccount(req.user.id);
+    logEvent('info', 'auth', 'Downloaded their data', { req });
+    res.setHeader('Content-Disposition', `attachment; filename="late-night-vibes-${req.user.username}.json"`);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Delete your account and everything it made. Needs your password (and
+// your username typed out, checked on the page); the last admin can't.
+router.delete('/me', requireAuth, (req, res, next) => {
+  try {
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (u.password_hash && !checkPassword(String(req.body?.password || ''), u.password_hash)) return res.status(403).json({ error: 'That password isn’t right.' });
+    if (u.is_admin && db.prepare('SELECT COUNT(*) c FROM users WHERE is_admin = 1').get().c <= 1) {
+      return res.status(400).json({ error: 'You’re the only admin — make someone else an admin first.' });
+    }
+    const gone = deleteAccount(u.id);
+    logEvent('warn', 'auth', `An account was deleted (${gone.posts} posts, ${gone.playlists} playlists)`, { req: null });
+    res.json({ deleted: true });
+  } catch (err) { next(err); }
+});
 
 export default router;

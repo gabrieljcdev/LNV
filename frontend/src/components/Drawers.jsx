@@ -610,6 +610,12 @@ export function AboutDrawer() {
       </ol>
       <h3 style={h3}>Contact</h3>
       <p style={p}>hello@latenightvibes.com · @latenightvibes</p>
+      {/* Credits the data providers' terms ask for (2026-10-06, the legal pass). */}
+      <h3 style={h3}>Credits</h3>
+      <p style={p}>Record details come from <a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer" style={{ color: PRI }}>Discogs</a>, Spotify, <a href="https://www.last.fm" target="_blank" rel="noopener noreferrer" style={{ color: PRI }}>Last.fm</a>, YouTube and the platforms themselves. This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. “Discogs” is a trademark of Zink Media, LLC.</p>
+      <p style={p}>YouTube players and data are provided under the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={{ color: PRI }}>YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: PRI }}>Google’s privacy policy</a>.</p>
+      <h3 style={h3}>Privacy and terms</h3>
+      <p style={p}><a href="/privacy" style={{ color: PRI }}>Privacy</a> · <a href="/terms" style={{ color: PRI }}>Terms</a> · <a href="/terms" style={{ color: PRI }}>Copyright and takedowns</a></p>
       <h3 style={h3}>Built with</h3>
       <p style={{ ...p, fontFamily: MONO, fontSize: 14 }}>React · Node · SQLite · Discogs API · YouTube Data API</p>
     </DrawerBody>

@@ -11,6 +11,7 @@ import Donate from './pages/Donate';
 import Contact from './pages/Contact';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
+import { Privacy, Terms } from './pages/Legal';
 import PageNotFound from './utils/PageNotFound';
 
 const queryClient = new QueryClient({
@@ -24,6 +25,8 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="/" element={<Layout />}>
               <Route index                    element={<Home />} />
               <Route path="artists"           element={<Artists />} />

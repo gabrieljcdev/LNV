@@ -391,6 +391,55 @@ function ChannelsTab() {
 
 // Introductions (alpha, 2026-10-05): who was introduced to whom and why,
 // over 30 days, and what came of it — so the rules can be checked by eye.
+// Reports (2026-10-06, the legal pass): reports and takedown requests from
+// the "report" link on posts. Remove the post (it's deleted for everyone),
+// or mark the report resolved / dismissed. Copyright requests carry an
+// email to answer.
+const REASON_LABEL = { copyright: 'Copyright / takedown', spam: 'Spam', offensive: 'Offensive', 'wrong-info': 'Wrong details', other: 'Other' }
+function ReportsTab() {
+  const qc = useQueryClient()
+  const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'reports'], queryFn: () => getJson('/reports') })
+  const [busy, setBusy] = useState(null)
+  if (isLoading) return <Note>Loading…</Note>
+  if (error) return <Note tone="error">{error.message}</Note>
+  const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'reports'] })
+  const setStatus = async (r, status) => { setBusy(r.id); try { await postJson(`/reports/${r.id}`, { status }) } catch (e) { window.alert(e.message) } await refresh(); setBusy(null) }
+  const removePost = async r => {
+    if (!window.confirm(`Remove post #${r.post_id} (“${r.post_title}”) for everyone?`)) return
+    setBusy(r.id)
+    try {
+      const res = await fetch(`${API}/posts/${r.post_id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Couldn’t remove it (${res.status})`)
+      await postJson(`/reports/${r.id}`, { status: 'resolved' })
+      qc.invalidateQueries({ queryKey: ['posts'] })
+    } catch (e) { window.alert(e.message) }
+    await refresh(); setBusy(null)
+  }
+  return <>
+    <Section title="Reports" right={`${n(data.open)} open`}>
+      {data.reports.length === 0 ? <Note>No reports yet.</Note> : data.reports.map(r => (
+        <div key={r.id} style={{ borderBottom: `1px solid ${LINE}`, padding: '10px 0', opacity: r.status === 'open' ? 1 : 0.6 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15.5, color: r.reason === 'copyright' ? LEVEL.error : PRI }}>{REASON_LABEL[r.reason] || r.reason}</span>
+            <span style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>{r.post_id ? (r.post_title ? `#${r.post_id} · ${r.post_title}` : `#${r.post_id} · already removed`) : 'no post'}</span>
+            <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11.5, color: TER }}>{r.status} · {ago(r.created_at)}</span>
+          </div>
+          {r.details && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, marginTop: 4, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.details}</div>}
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER, marginTop: 4 }}>
+            {r.reporter ? `from ${r.reporter}` : 'from a visitor'}{r.contact_email ? ` · reply to ` : ''}{r.contact_email && <a href={`mailto:${r.contact_email}`} style={{ color: PRI }}>{r.contact_email}</a>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            {r.post_id && r.post_title && <Btn onClick={() => removePost(r)} disabled={busy === r.id}>Remove the post</Btn>}
+            {r.status === 'open'
+              ? <><Btn onClick={() => setStatus(r, 'resolved')} disabled={busy === r.id}>Mark resolved</Btn><Btn onClick={() => setStatus(r, 'dismissed')} disabled={busy === r.id}>Dismiss</Btn></>
+              : <Btn onClick={() => setStatus(r, 'open')} disabled={busy === r.id}>Reopen</Btn>}
+          </div>
+        </div>
+      ))}
+    </Section>
+  </>
+}
+
 function IntroductionsTab() {
   const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'introductions'], queryFn: () => getJson('/introductions') })
   if (isLoading) return <Note>Loading…</Note>
@@ -434,13 +483,14 @@ export function AdminDrawer({ tab: initialTab }) {
   const [logLevel, setLogLevel] = useState('')
   return <>
     <DrawerHead title="Admin" count="">
-      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['channels', 'Channels'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
+      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['reports', 'Reports'], ['channels', 'Channels'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
     </DrawerHead>
     <DrawerBody>
       {tab === 'status' && <StatusTab onShowLogs={lvl => { setLogLevel(lvl); setTab('logs') }} />}
       {tab === 'logs' && <LogsTab key={logLevel} initialLevel={logLevel} />}
       {tab === 'users' && <UsersTab />}
       {tab === 'channels' && <ChannelsTab />}
+      {tab === 'reports' && <ReportsTab />}
       {tab === 'intros' && <IntroductionsTab />}
     </DrawerBody>
   </>

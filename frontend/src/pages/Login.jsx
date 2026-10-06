@@ -195,6 +195,7 @@ export default function Login() {
           <label style={label}>Password {errFor('password')}<input style={field} type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required minLength={8} /></label>
           <p style={{ margin: 0, fontFamily: SANS, fontSize: 13, color: 'var(--theme-text-ter)' }}>At least 8 characters. We'll email you a link to confirm your address.</p>
           {error && !error.field && <Notice tone="error">{error.message}</Notice>}
+          <p style={{ margin: 0, fontFamily: SANS, fontSize: 13, lineHeight: 1.5, color: 'var(--theme-text-ter)' }}>By creating an account you agree to the <Link to="/terms" style={{ color: 'var(--theme-text-pri)' }}>Terms</Link> and that you’re 13 or over. What we keep and why: <Link to="/privacy" style={{ color: 'var(--theme-text-pri)' }}>Privacy</Link>.</p>
           <div><button type="submit" style={{ ...primary, opacity: busy ? 0.5 : 1 }} disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button></div>
         </form>
       )}

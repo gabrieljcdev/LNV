@@ -184,6 +184,14 @@ export function useIntroSettings(enabled = true) {
   const q = useQuery({ queryKey: ['introductions', 'settings'], queryFn: () => call('GET', '/walls/me/introductions/settings'), enabled: enabled && isLoggedIn(), staleTime: 60_000 })
   return q.data || null
 }
+// Reports and takedowns (2026-10-06) — anyone can send one.
+export const reportsApi = {
+  send: report => call('POST', '/reports', report),
+}
+// Your data (2026-10-06): delete your account (the download is a plain link).
+export const accountApi = {
+  remove: password => call('DELETE', '/auth/me', { password }),
+}
 // Community boards (alpha, 2026-10-06): your on/off choice.
 export const communityApi = {
   me: () => call('GET', '/community/me'),

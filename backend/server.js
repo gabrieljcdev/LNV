@@ -17,6 +17,7 @@ import feedRoutes from './routes/feeds.js';
 import wallRoutes from './routes/walls.js';
 import playlistRoutes from './routes/playlists.js';
 import communityRoutes from './routes/community.js';
+import reportRoutes from './routes/reports.js';
 import { requestLogger, startLogPruning, logEvent } from './services/logService.js';
 import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
@@ -48,6 +49,7 @@ app.use('/api/feeds',   feedRoutes);
 app.use('/api/walls',   wallRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/community', communityRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Late Night Vibes API is running 🌙' });

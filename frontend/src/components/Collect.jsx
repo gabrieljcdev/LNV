@@ -2,11 +2,11 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
-import { isLoggedIn, getUser } from '../lib/auth'
+import { isLoggedIn, getUser, authHeaders, logout } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner, communityApi,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner, communityApi, reportsApi, accountApi,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -152,6 +152,79 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
       )}
     </span>
   )
+}
+
+// report (2026-10-06, the legal pass): on every post — a copyright /
+// takedown request, spam, something offensive, or wrong details. Anyone can
+// send one; it lands in Admin → Reports. Copyright needs a reply address.
+const REPORT_REASONS = [
+  ['copyright', 'Copyright / takedown', 'It uses my work (or my client’s) without permission'],
+  ['spam', 'Spam', 'Advertising, junk or a scam'],
+  ['offensive', 'Offensive', 'Hateful, harassing or explicit'],
+  ['wrong-info', 'Wrong details', 'The artist, label or record is wrong'],
+  ['other', 'Something else', ''],
+]
+export function ReportButton({ post, style }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [details, setDetails] = useState('')
+  const [email, setEmail] = useState('')
+  const [state, setState] = useState(null) // null | 'busy' | 'sent' | an error
+  const close = () => { setOpen(false); setReason(''); setDetails(''); setEmail(''); setState(null) }
+  async function send(e) {
+    e.preventDefault()
+    if (!reason) return setState('Pick a reason.')
+    setState('busy')
+    try { await reportsApi.send({ post_id: post.id, reason, details, contact_email: email }); setState('sent') } catch (err) { setState(err.message) }
+  }
+  const field = { width: '100%', boxSizing: 'border-box', borderRadius: 12, border: '1px solid var(--theme-border)', background: 'color-mix(in srgb, var(--theme-text-pri) 6%, transparent)', color: 'var(--theme-text-pri)', padding: '10px 12px', fontFamily: SANS, fontSize: 16 }
+  const needEmail = !isLoggedIn() || reason === 'copyright'
+  return <>
+    <button onClick={e => { e.stopPropagation(); setOpen(true) }} title="Report this post" style={{ ...plain, color: 'inherit', ...style }}>report</button>
+    {open && createPortal(
+      <div data-overlay="" onClick={e => { if (e.target === e.currentTarget) close() }}
+        style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(20,20,24,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <form onSubmit={send} role="dialog" aria-modal="true" aria-label="Report this post"
+          style={{ width: 460, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', boxSizing: 'border-box', padding: '24px 24px 20px', borderRadius: 24, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', fontFamily: SANS, boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 900, flex: 1 }}>Report this post</h2>
+            <button type="button" onClick={close} aria-label="Close" style={{ ...plain, fontSize: 20, color: 'var(--theme-text-sec)' }}>×</button>
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--theme-text-ter)' }}>#{post.id} · {post.title}</div>
+          {state === 'sent' ? (<>
+            <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.5 }}>Thanks — it’s with us. {reason === 'copyright' ? 'We’ll reply to the address you gave.' : 'We look at every report.'}</p>
+            <button type="button" onClick={close} style={{ alignSelf: 'flex-start', border: 0, borderRadius: 99, padding: '10px 20px', background: 'var(--theme-accent)', color: '#fff', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+          </>) : (<>
+            <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <legend style={{ fontSize: 13, color: 'var(--theme-text-sec)', marginBottom: 6 }}>What’s wrong?</legend>
+              {REPORT_REASONS.map(([id, label, hint]) => (
+                <label key={id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 12, cursor: 'pointer', background: reason === id ? 'color-mix(in srgb, var(--theme-accent) 16%, transparent)' : 'transparent' }}>
+                  <input type="radio" name={`report-${post.id}`} value={id} checked={reason === id} onChange={() => setReason(id)} style={{ marginTop: 3, accentColor: 'var(--theme-accent)' }} />
+                  <span><b style={{ fontSize: 15 }}>{label}</b>{hint && <span style={{ display: 'block', fontSize: 12.5, color: 'var(--theme-text-ter)' }}>{hint}</span>}</span>
+                </label>
+              ))}
+            </fieldset>
+            <label style={{ display: 'grid', gap: 6, fontSize: 13, color: 'var(--theme-text-sec)' }}>
+              {reason === 'copyright' ? 'Who you are, what you own, and your right to it' : 'Anything we should know (optional)'}
+              <textarea value={details} onChange={e => setDetails(e.target.value)} rows={reason === 'copyright' ? 5 : 3} maxLength={2000} style={{ ...field, resize: 'vertical' }} />
+            </label>
+            {needEmail && (
+              <label style={{ display: 'grid', gap: 6, fontSize: 13, color: 'var(--theme-text-sec)' }}>
+                {reason === 'copyright' ? 'Your email, for our reply' : 'Your email, if you’d like a reply (optional)'}
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} maxLength={200} style={field} />
+              </label>
+            )}
+            {state && state !== 'busy' && <div role="alert" style={{ fontSize: 13.5, color: 'var(--theme-accent)' }}>{state}</div>}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button type="submit" disabled={state === 'busy'} style={{ border: 0, borderRadius: 99, padding: '10px 20px', background: 'var(--theme-accent)', color: '#fff', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: state === 'busy' ? 0.6 : 1 }}>{state === 'busy' ? 'Sending…' : 'Send report'}</button>
+              <a href="/terms" target="_blank" rel="noopener" style={{ fontSize: 12.5, color: 'var(--theme-text-ter)' }}>How takedowns work</a>
+            </div>
+          </>)}
+        </form>
+      </div>,
+      document.body
+    )}
+  </>
 }
 
 // On "my feed", a post from someone you follow: a small "following" tag
@@ -335,6 +408,64 @@ export function FollowButton({ username }) {
   )
 }
 
+// Your data (2026-10-06, the legal pass): on your own profile — download
+// everything LNV holds about you (a JSON file), or delete your account and
+// all of it (your password, and your username typed out, to be sure).
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+function YourData({ username, pri, sec, ter, fill }) {
+  const [busy, setBusy] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState(null)
+  async function download() {
+    setBusy('download')
+    try {
+      const r = await fetch(`${API_BASE}/auth/me/export`, { headers: authHeaders() })
+      if (!r.ok) throw new Error('Couldn’t make the file — try again.')
+      const url = URL.createObjectURL(await r.blob())
+      const a = document.createElement('a')
+      a.href = url; a.download = `late-night-vibes-${username}.json`; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch (err) { window.alert(err.message) }
+    setBusy(null)
+  }
+  async function remove(e) {
+    e.preventDefault()
+    if (typed.trim() !== username) return setError(`Type ${username} to confirm.`)
+    setBusy('delete'); setError(null)
+    try {
+      await accountApi.remove(password)
+      await logout()
+      window.location.href = '/'
+    } catch (err) { setError(err.message); setBusy(null) }
+  }
+  const btn = { border: `1px solid ${fill(40)}`, borderRadius: 99, padding: '8px 14px', background: 'transparent', color: pri, fontFamily: SANS, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }
+  const field = { width: '100%', boxSizing: 'border-box', borderRadius: 10, border: `1px solid ${fill(30)}`, background: fill(8), color: pri, padding: '9px 12px', fontFamily: SANS, fontSize: 16 }
+  return (
+    <div style={{ padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter }}>Your data</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button onClick={download} disabled={!!busy} style={btn}>{busy === 'download' ? 'Making the file…' : 'Download my data'}</button>
+        {!deleting && <button onClick={() => setDeleting(true)} style={{ ...btn, color: 'var(--theme-accent)', borderColor: 'var(--theme-accent)' }}>Delete my account</button>}
+      </div>
+      {deleting && (
+        <form onSubmit={remove} style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13.5, color: sec }}>
+          <span>This deletes your account and everything you made — posts, ♥s, replies, playlists, follows — straight away. It can’t be undone. Download your data first if you want a copy.</span>
+          <label style={{ display: 'grid', gap: 4 }}>Type <b style={{ color: pri }}>{username}</b> to confirm<input value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" style={field} /></label>
+          <label style={{ display: 'grid', gap: 4 }}>Your password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" style={field} /></label>
+          {error && <span role="alert" style={{ color: 'var(--theme-accent)' }}>{error}</span>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="submit" disabled={busy === 'delete'} style={{ ...btn, background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }}>{busy === 'delete' ? 'Deleting…' : 'Delete everything'}</button>
+            <button type="button" onClick={() => { setDeleting(false); setTyped(''); setPassword(''); setError(null) }} style={{ ...btn, border: 0 }}>Cancel</button>
+          </div>
+        </form>
+      )}
+      <span style={{ fontSize: 12, color: ter }}>What we keep and why: <a href="/privacy" style={{ color: pri }}>Privacy</a> · <a href="/terms" style={{ color: pri }}>Terms</a></span>
+    </div>
+  )
+}
+
 // The profile (2026-10-05, from the "LNV Profile Mockup" gabriel picked) —
 // the first card on a wall. One card, three views:
 // - everyone: picture (an initial for now), name, member since, posts and
@@ -460,6 +591,7 @@ export function WallCard({ username, compact = false, friends }) {
       {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
       {owner && friends && <BoardsSetting pri={pri} ter={ter} fill={fill} />}
 
+      {owner && <YourData username={p.username} pri={pri} sec={sec} ter={ter} fill={fill} />}
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: ter, marginBottom: 8 }}>
@@ -699,6 +831,7 @@ export function WelcomeCard({ compact = false }) {
         </ul>
       </section>
       <button onClick={() => openD3?.('about')} style={{ ...plain, alignSelf: 'flex-start', fontSize: 14, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>More in About →</button>
+      <span style={{ fontSize: 12.5, color: ter }}><a href="/privacy" style={{ color: ter }}>Privacy</a> · <a href="/terms" style={{ color: ter }}>Terms</a></span>
     </div>
   )
 
