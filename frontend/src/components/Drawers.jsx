@@ -3,6 +3,7 @@ import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-quer
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 import { FavHeart } from './Collect'
+import ReleasePreview from './ReleasePreview'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -248,6 +249,7 @@ function rolePillStyle(group) {
 
 function Discography({ kind, id, name, allPosts }) {
   const { jump } = useDrawerNav()
+  const [openRel, setOpenRel] = useState(null) // 'type:id' of the release open in place
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
   useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t) }, [query])
@@ -329,9 +331,12 @@ function Discography({ kind, id, name, allPosts }) {
           const sub = kind === 'label'
             ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : ''].filter(Boolean).join(' · ')
             : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || '')].filter(Boolean).join(' · ')
-          const open = () => onSite ? jump(onSite.id) : window.open(`https://www.discogs.com/${r.type === 'master' ? 'master' : 'release'}/${r.id}`, '_blank', 'noopener')
-          return (
-            <Row key={`${r.type}:${r.id}`} onClick={open} style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '7px 10px' }}>
+          // On LNV: go to the post. Otherwise open it here — tracklist and
+          // players, like the spotlights (2026-10-06; it used to open Discogs).
+          const rk = `${r.type}:${r.id}`, isOpen = openRel === rk
+          const open = () => onSite ? jump(onSite.id) : setOpenRel(isOpen ? null : rk)
+          return (<div key={rk}>
+            <Row onClick={open} style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '7px 10px', ...(isOpen ? { background: HOVER } : null) }}>
               <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center', border: `1px solid ${TER}`, borderRadius: 5, padding: '2px 0', color: PRI }}>{releaseTag(r.format || mi?.format || '', r.title)}</span>
               <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -343,7 +348,8 @@ function Discography({ kind, id, name, allPosts }) {
               {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
               <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
             </Row>
-          )
+            {isOpen && <ReleasePreview release={r} artistName={kind === 'artist' ? name : r.artist || ''} />}
+          </div>)
         })}
     {pages.hasNextPage && (
       <button onClick={() => pages.fetchNextPage()} disabled={pages.isFetchingNextPage}
