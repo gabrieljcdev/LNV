@@ -11,7 +11,9 @@ import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, A
 import { usePhone } from '../lib/usePhone'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
-import { claimPlayback, installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
+import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
+import TrackPlayer from './TrackPlayer'
+import { toEmbedSrc } from '../lib/embeds'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -225,67 +227,6 @@ function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image |
 function postStreamUrl(p) {
   return p.stream_url || p.embed_url || p.tracks?.[0]?.youtube_url || p.tracks?.[0]?.stream_url || ''
 }
-// ── TrackPlayer (2026-09-25) ─────────────────────────────────────────────────
-// An embed iframe that can say when its track has finished, so an album
-// plays through. YouTube only — via the official IFrame Player API
-// (loaded once, on first use), attached to our own iframe (enablejsapi=1),
-// which needs no DOM swap. Other platforms render as a plain iframe:
-// SoundCloud's widget API could do the same later; Bandcamp's embed gives no
-// end signal. The player is never destroy()ed here — React owns the iframe
-// and removes it itself (destroy() would pull it out from under React).
-let ytApiPromise = null
-function loadYouTubeApi() {
-  if (window.YT?.Player) return Promise.resolve(window.YT)
-  if (!ytApiPromise) {
-    ytApiPromise = new Promise(resolve => {
-      const prev = window.onYouTubeIframeAPIReady
-      window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT) }
-      const s = document.createElement('script')
-      s.src = 'https://www.youtube.com/iframe_api'
-      document.head.appendChild(s)
-    })
-  }
-  return ytApiPromise
-}
-function TrackPlayer({ src, onEnded, title, autoplay = false }) {
-  const ref = useRef(null)
-  const endedRef = useRef(onEnded)
-  useEffect(() => { endedRef.current = onEnded })
-  const isYT = /youtube\.com\/embed\//.test(src)
-  const finalSrc = isYT
-    ? `${src}${src.includes('?') ? '&' : '?'}enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}${autoplay ? '&autoplay=1' : ''}`
-    : src
-  // A player started by a click (autoplay) stops every other one on the page.
-  useEffect(() => { if (autoplay) claimPlayback(ref.current) }, [finalSrc, autoplay])
-  useEffect(() => {
-    if (!isYT) return
-    let cancelled = false
-    loadYouTubeApi().then(YT => {
-      if (cancelled || !ref.current) return
-      new YT.Player(ref.current, {
-        events: { onStateChange: e => { if (e.data === YT.PlayerState.ENDED) endedRef.current?.() } },
-      })
-    })
-    return () => { cancelled = true }
-  }, [finalSrc, isYT])
-  return (
-    <iframe ref={ref} src={finalSrc}
-      style={{ width: '100%', height: '100%', border: 'none' }}
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowFullScreen title={title} />
-  )
-}
-
-function toEmbedSrc(streamUrl) {
-  if (!streamUrl) return null
-  const ytMatch = streamUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&\s?]{11})/)
-  // enablejsapi: lets playerGuard pause it when another player starts.
-  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0&modestbranding=1&color=white&enablejsapi=1`
-  if (/soundcloud\.com/i.test(streamUrl)) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(streamUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true`
-  if (/mixcloud\.com/i.test(streamUrl)) return `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(streamUrl.replace('https://www.mixcloud.com',''))}`
-  return null
-}
-
 // The player for a post, or for one of its tracks (trackUrl) — the same
 // platform rules as PostCard's inline version: a Bandcamp track's own
 // player, else YouTube > SoundCloud > Mixcloud > the post's Bandcamp player.
@@ -3478,9 +3419,10 @@ export default function Feed() {
     return () => { if (raf) cancelAnimationFrame(raf) }
   }, [])
 
-  // The phone nav's + (PhoneNav.jsx) opens the composer.
+  // The phone nav's + (PhoneNav.jsx) opens the composer; with a url
+  // (the drawers' release preview, "+ add to my feed") it starts from it.
   useEffect(() => {
-    const h = () => setComposeOpen(true)
+    const h = e => { if (e.detail?.url) openComposeWithUrl(e.detail.url); else setComposeOpen(true) }
     window.addEventListener('lnv:compose', h)
     return () => window.removeEventListener('lnv:compose', h)
   }, [])
