@@ -106,7 +106,7 @@ router.get('/front', (req, res, next) => {
 router.get('/:username/common', requireAuth, (req, res, next) => {
   try {
     const owner = userByName(req.params.username);
-    if (!owner) return res.status(404).json({ error: 'No such wall.' });
+    if (!owner) return res.status(404).json({ error: 'No such person.' });
     if (owner.id === req.user.id) return res.json({ self: true });
     res.json(inCommon(req.user.id, owner.id));
   } catch (err) { next(err); }
@@ -118,7 +118,7 @@ router.get('/:username/common', requireAuth, (req, res, next) => {
 router.get('/:username/profile', (req, res, next) => {
   try {
     const owner = userByName(req.params.username);
-    if (!owner) return res.status(404).json({ error: 'No such wall.' });
+    if (!owner) return res.status(404).json({ error: 'No such person.' });
     res.json(profileOf(owner.id, req.user?.id || null));
   } catch (err) { next(err); }
 });
@@ -161,7 +161,7 @@ router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
 router.get('/:username', (req, res, next) => {
   try {
     const owner = userByName(req.params.username);
-    if (!owner) return res.status(404).json({ error: 'No such wall.' });
+    if (!owner) return res.status(404).json({ error: 'No such person.' });
     const me = req.user?.id || null;
     const isOwner = me === owner.id;
     res.json({

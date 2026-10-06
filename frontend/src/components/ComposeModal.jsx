@@ -418,7 +418,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const dupMine = !!duplicate && (duplicate.user_id === getUserId() || (duplicate.alsoPostedBy || []).includes(getUser()))
  async function postItToo() {
  setFetching(true); setFetchError('')
- try { await joinApi.join(duplicate.id); setDuplicate(null); setFetchStatus('ON YOUR WALL ✓'); setTimeout(() => { onPosted?.({ postId: duplicate.id }); onClose() }, 800) }
+ try { await joinApi.join(duplicate.id); setDuplicate(null); setFetchStatus('IN YOUR FEED ✓'); setTimeout(() => { onPosted?.({ postId: duplicate.id }); onClose() }, 800) }
  catch (err) { setFetchError(String(err.message).toUpperCase()) }
  finally { setFetching(false) }
  }
@@ -458,14 +458,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  </div>
  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, padding: '12px 24px 0', ...mono }}>
  {duplicate
- ? <span style={{ color: 'rgba(255,255,255,0.85)' }}>{dupMine ? `Already on your wall — ${duplicate.title}` : `Already up, posted by @${dupBy} — ${duplicate.title}. ♥ it to keep it on your wall.`}</span>
+ ? <span style={{ color: 'rgba(255,255,255,0.85)' }}>{dupMine ? `Already in your feed — ${duplicate.title}` : `Already up, posted by @${dupBy} — ${duplicate.title}. ♥ it to keep it in your feed.`}</span>
  : status
  ? <span style={{ color: isError ? '#ff8a65' : 'rgba(255,255,255,0.75)' }}>{status}</span>
  : naming
  ? <span style={{ color: 'rgba(255,255,255,0.55)' }}>Posts are signed with your account.</span>
  : <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', maxWidth: 480, fontSize: 10, letterSpacing: '0.08em' }}>{PLATFORMS.map(p => <span key={p.id} style={{ color: activePlatform?.id === p.id ? '#fff' : 'rgba(255,255,255,0.45)' }}>{p.label}</span>)}</span>}
  <span style={{ display: 'flex', gap: 16, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }}>
- {duplicate && !dupMine && <button onClick={postItToo} disabled={fetching} style={{ ...quietBtn, color: '#fff' }}>♥ add to my wall</button>}
+ {duplicate && !dupMine && <button onClick={postItToo} disabled={fetching} style={{ ...quietBtn, color: '#fff' }}>♥ add to my feed</button>}
  {cameBackEmpty && <button onClick={() => setPhase('form')} style={{ ...quietBtn, color: '#fff' }}>fill it in yourself</button>}
  <span>ENTER ↵ · ESC</span>
  </span>

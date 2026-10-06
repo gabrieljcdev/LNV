@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
-import { isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, useWall, useFollowing, wallsApi, wallLink, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
+import { isLoggedIn } from '../lib/auth'
+import { useFeedMode, useFollowing, wallsApi, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
 import { queue, useQueue, currentTrack } from '../lib/queue'
 import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
 
@@ -28,7 +28,7 @@ function useDrawerNav() {
 // Walls · Playlists — hop between the two drawers.
 function CollectNav({ current }) {
   const { openD3 } = useLayout() || {}
-  const items = [['playlists', 'Playlists'], ['walls', 'Walls']]
+  const items = [['playlists', 'Playlists'], ['walls', 'Following']]
   return (
     <div style={{ display: 'flex', gap: 14, fontFamily: SANS, fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
       {items.map(([k, l]) => (
@@ -57,45 +57,26 @@ function SignedOut({ title, children }) {
   </>
 }
 
-// ── Walls & following ─────────────────────────────────────────────────────────
+// ── Following (was "Walls" — there are only feeds now, 2026-10-06) ─────────────────────────────────────────────────────────
 
 export function WallsDrawer() {
-  const me = getUser()
   const qc = useQueryClient()
   const { closeD3 } = useLayout() || {}
   const mode = useFeedMode()
-  const { data: wall } = useWall(me)
   const { following, isLoading } = useFollowing()
-  const [copied, setCopied] = useState(false)
-  if (!isLoggedIn()) return <SignedOut title="Walls">Sign in for your own wall — everything you post, numbered from 1 — and to follow other people’s.</SignedOut>
-  const showing = mode.type === 'wall' && mode.username === me
-  const copy = () => navigator.clipboard?.writeText(wallLink(me)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) }, () => window.prompt('Copy this link:', wallLink(me)))
+  if (!isLoggedIn()) return <SignedOut title="Following">Sign in for your own feed — everything you post, numbered from 1 — and to follow other people’s.</SignedOut>
   async function unfollow(f) {
     try { await wallsApi.unfollow(f.username) } catch (err) { window.alert(err.message) }
     qc.invalidateQueries({ queryKey: ['following'] })
     qc.invalidateQueries({ queryKey: ['wall', f.username] })
   }
   return <>
-    <DrawerHead title="Walls" count={`following ${following.length}`}><CollectNav current="walls" /></DrawerHead>
+    <DrawerHead title="Following" count={`${following.length} ${following.length === 1 ? 'person' : 'people'}`}><CollectNav current="walls" /></DrawerHead>
     <DrawerBody>
-      <SectionHead left="Your wall" right={`signed in as ${me}`} />
-      <div style={{ border: `1px solid ${LINE}`, borderRadius: 16, padding: '14px 16px', background: showing ? FILL : 'none' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{ fontFamily: SANS, fontWeight: 800, fontSize: 19, flex: 1 }}>my wall</span>
-          <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{wall ? `${plural(wall.post_count, 'post')} · ${plural(wall.follower_count, 'follower')}` : ''}</span>
-        </div>
-        <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, margin: '2px 0 10px', lineHeight: 1.45 }}>
-          Everything you post, numbered from 1 — anyone can read it. To post, hit + and paste a link; it goes on your wall, and into the feeds of everyone who follows you.
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button onClick={() => { openWall(me); closeD3?.() }} style={showing ? pillOn : pill}>{showing ? 'showing' : 'open'}</button>
-          <button onClick={copy} style={pill}>{copied ? 'link copied ✓' : 'copy wall link'}</button>
-        </div>
-      </div>
-
-      <SectionHead left="Following" right={following.length ? 'latest post first' : ''} />
+      {/* Just the people you follow (2026-10-06): your own feed is home, so no "my wall" box. */}
+      <SectionHead left="People you follow" right={following.length ? 'latest post first' : ''} />
       {isLoading ? <Loading />
-        : !following.length ? <Empty>You’re not following anyone yet. Click a name on any card to open their wall, then hit “+ follow”.</Empty>
+        : !following.length ? <Empty>You’re not following anyone yet. Click a name on any card to open their feed, then hit “+ follow”.</Empty>
         : following.map(f => {
           const on = mode.type === 'wall' && mode.username === f.username
           return (
@@ -106,7 +87,7 @@ export function WallsDrawer() {
                   <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16 }}>{f.username}</span>
                   <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>{plural(f.post_count, 'post')}{f.latest ? ` · latest ${savedOn(f.latest)}` : ''}</span>
                 </span>
-                <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>open wall →</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>open feed →</span>
               </Row>
               <button onClick={() => unfollow(f)} style={{ ...pill, fontSize: 12 }}>unfollow</button>
             </div>
@@ -183,7 +164,8 @@ function PlaylistView({ id, token, onBack }) {
             <button onClick={() => { const n = window.prompt('Rename the playlist', data.name); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
             {data.share_token && <button onClick={() => shareLink(true)} style={pill}>new share link</button>}
             {data.invite_token && <button onClick={() => inviteLinkCopy(true)} style={pill}>new invite link</button>}
-            <button onClick={() => { if (window.confirm(`Delete “${data.name}”?`)) playlistsApi.remove(pid).then(() => { qc.invalidateQueries({ queryKey: ['playlists'] }); onBack?.() }, err => window.alert(err.message)) }} style={{ ...pill, color: 'var(--theme-accent)' }}>delete</button>
+            {/* The default playlist can't be deleted (2026-10-06) — only renamed. */}
+            {!data.is_default && <button onClick={() => { if (window.confirm(`Delete “${data.name}”?`)) playlistsApi.remove(pid).then(() => { qc.invalidateQueries({ queryKey: ['playlists'] }); onBack?.() }, err => window.alert(err.message)) }} style={{ ...pill, color: 'var(--theme-accent)' }}>delete</button>}
           </div>
           {(data.members || []).length > 0 && <div>
             <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: TER, margin: '4px 0' }}>Friends adding</div>
@@ -245,7 +227,7 @@ export function PlaylistsDrawer({ open: initialId, token }) {
         {(p.covers.length ? p.covers : [null]).slice(0, 3).map((c, i) => <span key={i} style={{ width: 30, height: 30, borderRadius: 8, marginLeft: i ? -10 : 0, border: '2px solid var(--theme-bg)', background: c ? `var(--theme-dark2) center/cover no-repeat url("${c}")` : 'var(--theme-dark2)' }} />)}
       </span>
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+        <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.is_default && <span style={{ fontFamily: MONO, fontWeight: 400, fontSize: 10.5, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', marginLeft: 8 }}>DEFAULT</span>}</span>
         <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>
           {p.role === 'member' ? `by ${p.owner}` : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
         </span>

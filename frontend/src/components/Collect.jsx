@@ -57,6 +57,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   const [open, setOpen] = useState(false)
   const [picked, setPicked] = useState(null) // Set of track indexes; null = all
   const [note, setNote] = useState('')
+  const [flash, setFlash] = useState(null) // '✓' after a one-tap add
   const ref = useRef(null)
   const menuRef = useRef(null)
   const qc = useQueryClient()
@@ -105,6 +106,18 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
       qc.invalidateQueries({ queryKey: ['playlist', id] })
     } catch (err) { setNote(err.message) }
   }
+  // One tap (2026-10-06, gabriel): a single track goes straight into your
+  // default playlist while it's your only one; with more, the menu asks.
+  const onlyDefault = lists.length === 1 && lists[0].is_default ? lists[0] : null
+  async function quickAdd() {
+    try {
+      const r = await playlistsApi.addTracks(onlyDefault.id, tracks)
+      setFlash(r.added ? '✓' : '·')
+      qc.invalidateQueries({ queryKey: ['playlists'] })
+      qc.invalidateQueries({ queryKey: ['playlist', onlyDefault.id] })
+    } catch (err) { window.alert(err.message) }
+    setTimeout(() => setFlash(null), 1600)
+  }
   async function addToNew() {
     const name = window.prompt('Name the new playlist')
     if (!name || !name.trim()) return
@@ -112,9 +125,11 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   }
   return (
     <span ref={ref} style={{ position: 'relative', flexShrink: 0, display: 'inline-flex' }}>
-      <button onClick={e => { e.stopPropagation(); if (!isLoggedIn()) return askToSignIn('make playlists'); setOpen(v => !v) }}
-        title={tracks.length > 1 ? 'Add tracks to a playlist' : 'Add to a playlist'} aria-haspopup="menu" aria-expanded={open}
-        style={{ ...plain, color: open ? 'var(--theme-accent)' : 'inherit', ...style }}>{label}</button>
+      <button onClick={e => { e.stopPropagation(); if (!isLoggedIn()) return askToSignIn('make playlists'); if (onlyDefault && tracks.length === 1) return quickAdd(); setOpen(v => !v) }}
+        title={flash === '✓' ? `Added to “${onlyDefault?.name}”` : flash ? `Already in “${onlyDefault?.name}”` : onlyDefault && tracks.length === 1 ? `Add to “${onlyDefault.name}”` : tracks.length > 1 ? 'Add tracks to a playlist' : 'Add to a playlist'}
+        aria-haspopup={onlyDefault && tracks.length === 1 ? undefined : 'menu'} aria-expanded={onlyDefault && tracks.length === 1 ? undefined : open}
+        style={{ ...plain, color: open || flash ? 'var(--theme-accent)' : 'inherit', ...style }}>{flash ? (flash === '✓' ? '✓' : label) : label}</button>
+      {flash && <span role="status" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{flash === '✓' ? `Added to ${onlyDefault?.name}` : `Already in ${onlyDefault?.name}`}</span>}
       {open && createPortal(
         <div ref={menuRef} role="menu" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}
           style={{ ...MENU, position: 'fixed', zIndex: 1100, overflowY: 'auto', left: 0, top: 0, visibility: 'hidden' }}>
@@ -128,7 +143,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
           </>}
           <div style={MENU_HEAD}>{tracks.length > 1 ? `Add ${chosen.length} to` : `Add “${tracks[0].title}” to`}</div>
           {lists.length === 0 && <div style={{ padding: '4px 10px 6px', color: 'var(--theme-text-sec)' }}>No playlists yet.</div>}
-          {lists.map(p => <MenuItem key={p.id} onClick={() => addTo(p.id, p.name)}>{p.name} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {p.track_count}{p.role === 'member' ? ` · ${p.owner}’s` : ''}</span></MenuItem>)}
+          {lists.map(p => <MenuItem key={p.id} onClick={() => addTo(p.id, p.name)}>{p.name} <span style={{ color: 'var(--theme-text-ter)', fontFamily: MONO, fontSize: 10.5 }}>· {p.track_count}{p.is_default && p.role === 'owner' ? ' · default' : ''}{p.role === 'member' ? ` · ${p.owner}’s` : ''}</span></MenuItem>)}
           <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
           <MenuItem muted onClick={addToNew}>+ new playlist…</MenuItem>
           {note && <div style={{ padding: '6px 10px', color: 'var(--theme-accent)', fontFamily: MONO, fontSize: 11 }}>{note}</div>}
@@ -168,7 +183,7 @@ export function HeartButton({ post, size, style }) {
   async function click(e) {
     e.stopPropagation()
     if (own) return
-    if (!isLoggedIn()) return askToSignIn('keep records on your wall')
+    if (!isLoggedIn()) return askToSignIn('keep records in your feed')
     setBusy(true)
     try {
       await (on ? joinApi.leave(post.id) : joinApi.join(post.id))
@@ -180,7 +195,7 @@ export function HeartButton({ post, size, style }) {
   }
   return (
     <button onClick={click} disabled={busy} aria-pressed={on}
-      title={own ? 'Your post — it’s on your wall' : on ? 'On your wall — tap to take it off' : 'Keep it — on your wall and in your followers’ feeds'}
+      title={own ? 'Your post — it’s in your feed' : on ? 'In your feed — tap to take it out' : 'Keep it — in your feed and your followers’ feeds'}
       style={{ ...plain, whiteSpace: 'nowrap', cursor: own ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
       <span style={size ? { fontSize: size } : null}>{on ? '♥' : '♡'}</span>{count > 1 ? ` ${count}` : ''}
     </button>
@@ -224,7 +239,7 @@ export function FavHeart({ kind, name, size, onChange, onColor = 'var(--theme-ac
 export function WallLink({ name, style }) {
   if (!name) return null
   return (
-    <button onClick={e => { e.stopPropagation(); openWall(name) }} title={`Open ${name}’s wall`}
+    <button onClick={e => { e.stopPropagation(); openWall(name) }} title={`Open ${name}’s feed`}
       style={{ ...plain, color: 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...style }}>{name}</button>
   )
 }
@@ -270,7 +285,7 @@ export function AlsoPosted({ post, style }) {
   const rest = names.length - 1
   async function leave(e) {
     e.stopPropagation()
-    if (!window.confirm('Take this off your wall?')) return
+    if (!window.confirm('Take this out of your feed?')) return
     try { await joinApi.leave(post.id); qc.invalidateQueries({ queryKey: ['posts'] }); qc.invalidateQueries({ queryKey: ['wall'] }) }
     catch (err) { window.alert(err.message) }
   }
@@ -278,7 +293,7 @@ export function AlsoPosted({ post, style }) {
     <span title={`Also posted by ${names.join(', ')}`} style={{ display: 'inline-flex', gap: 4, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', ...style }}>
       <span aria-hidden="true" style={{ opacity: 0.6 }}>&amp;</span>
       {first === me
-        ? <button onClick={leave} title="You posted this too — take it off your wall" style={{ ...plain, color: 'inherit' }}>you</button>
+        ? <button onClick={leave} title="You posted this too — take it out of your feed" style={{ ...plain, color: 'inherit' }}>you</button>
         : <WallLink name={first} />}
       {rest > 0 && <span style={{ opacity: 0.6 }}>+{rest}</span>}
     </span>
@@ -511,18 +526,19 @@ export function WallCard({ username, compact = false, friends }) {
 
   const playlistsSection = owner ? (
     <section style={{ display: 'flex', flexDirection: 'column' }}>
-      <h3 style={head}>Playlists — choose what's shown</h3>
+      {/* Your playlists open in the drawer, as for visitors (2026-10-06, gabriel);
+          every playlist is public for now — privacy comes later. */}
+      <h3 style={head}>Your playlists</h3>
       {(p.allPlaylists || []).length === 0 ? (
-        <div style={{ fontSize: 13, color: ter }}>No playlists yet — make one here, or use “+ list” on any card.</div>
+        <div style={{ fontSize: 13, color: ter }}>No playlists yet — make one here, or use “+” on any track.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {p.allPlaylists.map(pl => (
-            <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 14, background: pl.shown ? fill(12) : 'transparent', border: pl.shown ? 0 : `1px dashed ${fill(30)}`, fontSize: 14, cursor: 'pointer' }}>
-              <input type="checkbox" checked={pl.shown} disabled={busy} onChange={e => act(async () => { await profileApi.showPlaylist(pl.id, e.target.checked); qc.invalidateQueries({ queryKey: ['playlists'] }) })}
-                style={{ width: 18, height: 18, margin: 0, accentColor: 'var(--theme-text-pri)' }} />
+            <button key={pl.id} onClick={() => openD3?.('playlists', { open: pl.id })}
+              style={{ ...plain, display: 'flex', alignItems: 'baseline', gap: 12, padding: '10px 14px', borderRadius: 14, background: fill(12), color: pri, fontSize: 14, textAlign: 'left' }}>
               <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
-              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks · {pl.shown ? 'shown' : 'private'}</span>
-            </label>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks{pl.is_default ? ' · default' : ''} · open</span>
+            </button>
           ))}
         </div>
       )}
@@ -552,11 +568,11 @@ export function WallCard({ username, compact = false, friends }) {
         {owner && <button onClick={() => openD3?.('walls')} style={{ ...plain, fontFamily: MONO, fontSize: 10.5, color: ter, textDecoration: 'underline', textUnderlineOffset: 3 }}>manage</button>}
       </div>
       {p.follows.total === 0 ? (
-        <div style={{ fontSize: 13, color: ter }}>{owner ? 'Nobody yet — open a wall you like and follow them.' : 'Not following anyone yet.'}</div>
+        <div style={{ fontSize: 13, color: ter }}>{owner ? 'Nobody yet — open someone’s feed you like and follow them.' : 'Not following anyone yet.'}</div>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {p.follows.names.map(n => (
-            <button key={n} onClick={() => openWall(n)} title={`Open ${n}’s wall`} style={chip}>
+            <button key={n} onClick={() => openWall(n)} title={`Open ${n}’s feed`} style={chip}>
               <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', background: fill(30), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>{n.charAt(0).toUpperCase()}</span>{n}
             </button>
           ))}
@@ -577,7 +593,7 @@ export function WallCard({ username, compact = false, friends }) {
       ) : commonLoading || !common ? (
         <div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div>
       ) : !common.artists.total && !common.labels.total && !common.records.total ? (
-        <div style={{ fontSize: 13, lineHeight: 1.5, color: sec }}>Nothing in common yet — everything on this wall is new to you.</div>
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: sec }}>Nothing in common yet — everything in this feed is new to you.</div>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           {common.labels.items.map(n => <button key={'l' + n.name} onClick={() => openD3?.('labels', { filter: n.name })} title={`${n.posters} ${n.posters === 1 ? 'person posts' : 'people post'} ${n.name}`} style={chip}>{n.name}</button>)}
@@ -658,7 +674,7 @@ export function WelcomeCard({ compact = false }) {
   // The front page is someone's own wall (the first friend's) — say so.
   const wall = (
     <section style={{ padding: compact ? '14px 16px' : '16px 18px', borderRadius: 16, background: fill(12), fontSize: compact ? 15 : 15.5, lineHeight: 1.5, color: sec }}>
-      You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700 }}>{owner}'s</button> : 'my'} wall — the records I've posted and kept. Make an account and you get a wall of your own.
+      You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700 }}>{owner}'s</button> : 'my'} feed — the records I've posted and kept. Make an account and you get a feed of your own.
     </section>
   )
 
@@ -677,7 +693,7 @@ export function WelcomeCard({ compact = false }) {
         <h2 style={head}>With an account</h2>
         <ul style={list}>
           <li>{b('Post')} a record from a link.</li>
-          <li>{b('♥ a record')} to keep it on your wall.</li>
+          <li>{b('♥ a record')} to keep it in your feed.</li>
           <li>{b('Follow people')} to see what they're posting — your feed is newest first, no algorithm.</li>
         </ul>
       </section>
@@ -804,7 +820,7 @@ export function IntroCard({ intro, compact = false, placeholder = false }) {
 
       {intro.latest?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span style={mono}>Latest on {name}'s wall</span>
+          <span style={mono}>Latest in {name}'s feed</span>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
             {intro.latest.map(r => (
               <button key={r.id} onClick={() => jumpToPost?.(r.id)} title={r.title} aria-label={`Go to ${r.title}`}
@@ -825,7 +841,7 @@ export function IntroCard({ intro, compact = false, placeholder = false }) {
         <button onClick={follow} disabled={busy} style={{ flex: 1, height: 48, border: following ? `1px solid ${fill(50)}` : 0, borderRadius: 99, background: following ? 'transparent' : pri, color: following ? pri : 'var(--theme-showcase)', fontFamily: SANS, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
           {following ? '✓ following' : '+ follow'}
         </button>
-        <button onClick={open} style={{ flex: 1, height: 48, border: `1px solid ${fill(30)}`, borderRadius: 99, background: 'transparent', color: pri, fontFamily: SANS, fontSize: 16, cursor: 'pointer' }}>open wall</button>
+        <button onClick={open} style={{ flex: 1, height: 48, border: `1px solid ${fill(30)}`, borderRadius: 99, background: 'transparent', color: pri, fontFamily: SANS, fontSize: 16, cursor: 'pointer' }}>open feed</button>
       </div>
       <button onClick={() => setView(view === 'why' ? 'card' : 'why')} aria-expanded={view === 'why'}
         style={{ ...plain, alignSelf: 'center', color: pri, fontFamily: MONO, fontSize: 11, textDecoration: 'underline', textUnderlineOffset: 3, padding: 8 }}>
@@ -913,7 +929,7 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
             {lists.map(p => <MenuItem key={p.id} checked={isOn({ type: 'playlist', id: p.id })} onClick={() => { openPlaylistFeed(p); setOpen(false) }}>{p.name}</MenuItem>)}
             <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 6px' }} />
             <MenuItem muted onClick={() => { setOpen(false); openD3?.('playlists') }}>playlists…</MenuItem>
-            <MenuItem muted onClick={() => { setOpen(false); openD3?.('walls') }}>walls & following…</MenuItem>
+            <MenuItem muted onClick={() => { setOpen(false); openD3?.('walls') }}>following…</MenuItem>
           </>}
           {/* Everything, every post, unfiltered (2026-10-04): kept for the
               hardcore, but deliberately quiet — feeds are you + who you follow. */}

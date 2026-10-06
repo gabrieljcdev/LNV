@@ -232,7 +232,7 @@ export function profileOf(ownerId, viewerId) {
       ...posted.filter(x => !favSet.has(x.name.toLowerCase())).slice(0, Math.max(0, fill - favNames.length)),
     ];
   };
-  const playlistRow = p => ({ id: p.id, name: p.name, kind: p.kind, shown: !!p.on_profile, share_token: p.share_token,
+  const playlistRow = p => ({ id: p.id, name: p.name, kind: p.kind, shown: !!p.on_profile, share_token: p.share_token, is_default: !!p.is_default,
     track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c });
   const out = {
     username: u.username, bio: u.bio || '', member_since: u.created_at, is_owner: own,
@@ -242,7 +242,7 @@ export function profileOf(ownerId, viewerId) {
     artists: ledBy(favs.artist, tally('post_artists', 'artist_name', ownerId, 12), 6),
     labels: ledBy(favs.label, postedLabels(ownerId), 6),
     channels: favs.channel.map(name => ({ name, favourite: true })),
-    playlists: db.prepare('SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 ORDER BY created_at').all(ownerId).map(playlistRow),
+    playlists: db.prepare('SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow),
     // Who they follow, newest first — a friends list to explore (2026-10-05).
     follows: (() => {
       const rows = db.prepare('SELECT u.username FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY f.created_at DESC, u.username').all(ownerId);
@@ -250,7 +250,7 @@ export function profileOf(ownerId, viewerId) {
     })(),
   };
   if (own) {
-    out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY created_at').all(ownerId).map(playlistRow);
+    out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow);
     out.private = {
       hearted: db.prepare('SELECT COUNT(DISTINCT j.user_id) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ?').get(ownerId).c,
       replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,

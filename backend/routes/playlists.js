@@ -26,7 +26,7 @@ const tracksOf = id => db.prepare('SELECT * FROM playlist_tracks WHERE playlist_
 function summary(p, userId) {
   const role = playlistRole(p, userId);
   return {
-    id: p.id, name: p.name, kind: p.kind, created_at: p.created_at,
+    id: p.id, name: p.name, kind: p.kind, created_at: p.created_at, is_default: !!p.is_default,
     owner: db.prepare('SELECT username FROM users WHERE id = ?').get(p.owner_id)?.username || null,
     role,
     share_token: role === 'owner' ? p.share_token : (role ? p.share_token : undefined),
@@ -87,11 +87,20 @@ function load(req, res, need = 'member') {
 }
 
 // Yours and the ones you've been invited to, newest first.
+// Everyone has a default playlist — made the first time it's needed.
+export function ensureDefaultPlaylist(userId) {
+  const have = db.prepare('SELECT id FROM playlists WHERE owner_id = ? AND is_default = 1').get(userId);
+  if (have) return have.id;
+  return db.prepare("INSERT INTO playlists (owner_id, name, is_default, on_profile, share_token) VALUES (?, 'My playlist', 1, 1, ?)").run(userId, newShareToken()).lastInsertRowid;
+}
+
 router.get('/', (req, res, next) => {
   try {
+    ensureDefaultPlaylist(req.user.id);
+    // Your default first, then the newest.
     const rows = db.prepare(`SELECT p.* FROM playlists p
       WHERE p.owner_id = ? OR EXISTS (SELECT 1 FROM playlist_members m WHERE m.playlist_id = p.id AND m.user_id = ?)
-      ORDER BY p.id DESC`).all(req.user.id, req.user.id);
+      ORDER BY (p.owner_id = ? AND p.is_default = 1) DESC, p.id DESC`).all(req.user.id, req.user.id, req.user.id);
     res.json({ playlists: rows.map(p => summary(p, req.user.id)) });
   } catch (err) { next(err); }
 });
@@ -100,7 +109,8 @@ router.post('/', (req, res, next) => {
   try {
     const name = cleanName(req.body?.name);
     if (!name) return res.status(400).json({ error: 'Give the playlist a name.' });
-    const r = db.prepare('INSERT INTO playlists (owner_id, name) VALUES (?, ?)').run(req.user.id, name);
+    // Public from the start for now — on the profile, readable by link (2026-10-06).
+    const r = db.prepare('INSERT INTO playlists (owner_id, name, on_profile, share_token) VALUES (?, ?, 1, ?)').run(req.user.id, name, newShareToken());
     res.status(201).json(summary(db.prepare('SELECT * FROM playlists WHERE id = ?').get(r.lastInsertRowid), req.user.id));
   } catch (err) { next(err); }
 });
@@ -147,6 +157,7 @@ router.patch('/:id', (req, res, next) => {
 router.delete('/:id', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (p.is_default) return res.status(400).json({ error: 'Your default playlist can’t be deleted — rename it, or empty it, instead.' });
     db.transaction(() => {
       db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(p.id);
       db.prepare('DELETE FROM playlist_members WHERE playlist_id = ?').run(p.id);

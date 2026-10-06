@@ -82,7 +82,7 @@ export function useFeedMode() {
 }
 
 export function feedModeLabel(m) {
-  if (m.type === 'wall') return `${m.username}’s wall`
+  if (m.type === 'wall') return `${m.username}’s feed`
   if (m.type === 'playlist') return `▶ ${m.name || 'playlist'}`
   if (m.type === 'home') return isLoggedIn() ? 'my feed' : 'front page'
   return 'everything'
@@ -164,7 +164,7 @@ export const wallsApi = {
   follow: username => call('POST', `/walls/${encodeURIComponent(username)}/follow`),
   unfollow: username => call('DELETE', `/walls/${encodeURIComponent(username)}/follow`),
 }
-export const wallLink = username => `${window.location.origin}/?wall=${encodeURIComponent(username)}`
+export const wallLink = username => `${window.location.origin}/?feed=${encodeURIComponent(username)}`
 
 // Introductions (alpha, 2026-10-05): people my feed suggests you follow,
 // with the reasons (backend collectionsService introductionsFor). Fetched
