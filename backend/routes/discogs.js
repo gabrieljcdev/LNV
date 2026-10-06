@@ -3,6 +3,7 @@ import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDisco
 import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
 import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
 import db from '../db/database.js';
+import { combSoon } from '../services/catalogueComber.js';
 
 const router = express.Router();
 
@@ -102,6 +103,7 @@ for (const kind of ['artist', 'label']) {
   router.get(`/${kind}/:id/releases`, async (req, res, next) => {
     try {
       const { offset, limit, q } = req.query;
+      combSoon(kind, Number(req.params.id)); // someone's looking: comb this one first
       res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q }));
     } catch (err) {
       next(err);
@@ -120,7 +122,7 @@ for (const kind of ['artist', 'label']) {
 // actually searched).
 router.get('/youtube/search', async (req, res, next) => {
   try {
-    const { artist = '', title, label = '', release_id, position } = req.query;
+    const { artist = '', title, label = '', release_id, position, listen } = req.query;
     if (!title) return res.status(400).json({ error: 'title required' });
     // SPOTIFY-FALLBACK (2026-10-06, gabriel) — revisit when the YouTube quota
     // increase lands (handover TODO): with YouTube's day 80% spent, only the
@@ -128,15 +130,22 @@ router.get('/youtube/search', async (req, res, next) => {
     // a Spotify player instead (full track for people signed in to Spotify,
     // a 30-second preview otherwise). A fallback is never saved as the
     // track's link, so YouTube gets its turn again tomorrow.
+    // Spotify first (2026-10-06, YouTube savings): someone just listening
+    // (`listen=1` — spotlights, drawer previews) gets the free checks, then
+    // Spotify, and only then a paid YouTube search. Compose leaves it off: a
+    // post wants a real YouTube link where there is one.
     const ytCap = Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
     const ytBusy = quotaUsed() >= ytCap * 0.8;
-    let result = await searchTrackVideo(artist, title, { label, localOnly: ytBusy });
-    if (!result.youtube_url && (ytBusy || result.capped) && spotifyConfigured()) {
+    const spotifyFirst = listen === '1' && spotifyConfigured();
+    const trySpotify = async () => {
       const sp = await spotifySearchTrack(artist, title).catch(() => null);
-      if (sp) result = { youtube_url: null, youtube_title: null, spotify_url: sp.url, spotify_title: `${sp.artists.join(', ')} – ${sp.name}`, fallback: true };
-    }
+      return sp && { youtube_url: null, youtube_title: null, spotify_url: sp.url, spotify_title: `${sp.artists.join(', ')} – ${sp.name}`, fallback: true };
+    };
+    let result = await searchTrackVideo(artist, title, { label, localOnly: ytBusy || spotifyFirst });
+    if (!result.youtube_url && spotifyFirst) result = (await trySpotify()) || (ytBusy ? result : await searchTrackVideo(artist, title, { label }));
+    else if (!result.youtube_url && (ytBusy || result.capped) && spotifyConfigured()) result = (await trySpotify()) || result;
     if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
-    if (release_id && position && !result.capped && !result.fallback) {
+    if (release_id && position && !result.capped && !result.fallback && !result.localOnly) {
       db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
                   VALUES (?, ?, ?, ?, ?, 'youtube-search', datetime('now'))
                   ON CONFLICT(release_id, position) DO UPDATE SET
@@ -152,14 +161,14 @@ router.get('/youtube/search', async (req, res, next) => {
 
 // GET /api/discogs/release/:id/track-links -> { links: { [position]: { url, title } } }
 // Every YouTube link already found for this release's tracks. url null =
-// searched and nothing found; those are dropped after 14 days so they get
-// another try.
+// searched and nothing found; those are dropped after 30 days so they get
+// another try (was 14 — misses were costing searches, 2026-10-06).
 router.get('/release/:id/track-links', (req, res, next) => {
   try {
     const rows = db.prepare(`
       SELECT position, youtube_url, youtube_title FROM release_track_links
       WHERE release_id = ?
-        AND (youtube_url IS NOT NULL OR fetched_at > datetime('now', '-14 days'))
+        AND (youtube_url IS NOT NULL OR fetched_at > datetime('now', '-30 days'))
     `).all(Number(req.params.id));
     const links = {};
     for (const r of rows) links[r.position] = { url: r.youtube_url, title: r.youtube_title };

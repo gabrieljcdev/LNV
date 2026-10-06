@@ -430,13 +430,13 @@ export async function getChannelUploads(videoId, { offset = 0, limit = 100, q = 
 // the one expensive YouTube call — 100 units against a 10,000/day project
 // quota — so every call goes through three guards:
 //   1. ONE query per track (the old /api/discogs/youtube/search tried up to 7),
-//   2. results cached in youtube_cache — hits for 90 days, misses for 14,
+//   2. results cached in youtube_cache — hits for 90 days, misses for 30,
 //   3. a daily unit cap (YOUTUBE_DAILY_UNIT_CAP, default 5000) tracked in
 //      api_quota, leaving the rest of the quota for videos/channels lookups.
 
 const SEARCH_COST = 100;
 const SEARCH_HIT_TTL = 90 * 24 * 60 * 60 * 1000;
-const SEARCH_MISS_TTL = 14 * 24 * 60 * 60 * 1000;
+const SEARCH_MISS_TTL = 30 * 24 * 60 * 60 * 1000;
 const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
 const today = () => new Date().toISOString().slice(0, 10);
 

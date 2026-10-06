@@ -101,6 +101,23 @@ export async function getRelease(releaseId, { background = false } = {}) {
   return data;
 }
 
+// The master a release belongs to (0 = none), for the duplicate comber
+// (services/catalogueComber.js). From the cache when the cached copy already
+// carries it; otherwise one background call (which also refreshes the cache).
+// Throws { rateLimited } on a 429 so the comber can back off.
+export async function releaseMasterId(releaseId) {
+  const key = `release:${releaseId}`;
+  const cached = getCached(key);
+  if (cached && cached._v >= RELEASE_SHAPE_VERSION && 'masterId' in cached) return cached.masterId;
+  const res = await fetch(`${DISCOGS_BASE}/releases/${releaseId}`, { headers: getHeaders() });
+  if (res.status === 429) { const e = new Error('Discogs rate limit'); e.rateLimited = true; throw e; }
+  if (res.status === 404) return 0; // gone from Discogs: no master to join
+  if (!res.ok) throw new Error(`Discogs release ${releaseId}: ${res.status}`);
+  const data = normaliseRelease(await res.json());
+  setCache(key, data);
+  return data.masterId;
+}
+
 export async function getMaster(masterId, { background = false } = {}) {
   const key = `master:${masterId}`;
   const cached = getCached(key);
@@ -262,6 +279,8 @@ function normaliseRelease(data) {
   return {
     discogsId: data.id,
     type: 'release',
+    // Discogs' grouping of pressings (0 = none) — the duplicate comber's proof.
+    masterId: data.master_id || 0,
     title: data.title,
     year: data.year,
     country: data.country,
@@ -518,12 +537,15 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 200);
   const off = Math.max(Number(offset) || 0, 0);
   const term = String(q || '').trim().toLowerCase();
+  // Pressings the duplicate comber folded under another row aren't listed;
+  // the row they're folded under says how many versions it has (2026-10-06).
   const where = term
-    ? "kind = ? AND entity_id = ? AND instr(lower(title || ' ' || ifnull(artist, '') || ' ' || ifnull(catno, '')), ?) > 0"
-    : 'kind = ? AND entity_id = ?';
+    ? "c.kind = ? AND c.entity_id = ? AND c.dup_of IS NULL AND instr(lower(c.title || ' ' || ifnull(c.artist, '') || ' ' || ifnull(c.catno, '')), ?) > 0"
+    : 'c.kind = ? AND c.entity_id = ? AND c.dup_of IS NULL';
   const args = term ? [kind, id, term] : [kind, id];
-  const matched = db.prepare(`SELECT COUNT(*) c FROM discogs_catalogue WHERE ${where}`).get(...args).c;
-  const rows = db.prepare(`SELECT * FROM discogs_catalogue WHERE ${where} ORDER BY (year IS NULL), year DESC, title LIMIT ? OFFSET ?`).all(...args, lim, off);
+  const matched = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where}`).get(...args).n;
+  const rows = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM discogs_catalogue d WHERE d.kind = c.kind AND d.entity_id = c.entity_id AND d.dup_of = c.item_type || ':' || c.item_id) AS folded
+    FROM discogs_catalogue c WHERE ${where} ORDER BY (c.year IS NULL), c.year DESC, c.title LIMIT ? OFFSET ?`).all(...args, lim, off);
   const crawl = crawlRow(kind, id);
   const have = catalogueCount(kind, id);
 
@@ -531,6 +553,8 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
     releases: rows.map(r => ({
       id: r.item_id, type: r.item_type, title: r.title, year: r.year, role: r.role, thumb: r.thumb,
       artist: r.artist, label: r.label, format: r.format, catno: r.catno, mainRelease: r.main_release,
+      // Pressings folded under this row by the duplicate comber, and its master.
+      versions: (r.folded || 0) + 1, masterId: r.item_type === 'master' ? r.item_id : (r.master_id || null),
     })),
     // items = Discogs' own count (it counts a release once per role).
     pagination: { items: crawl?.total || have, offset: off, limit: lim, matched },

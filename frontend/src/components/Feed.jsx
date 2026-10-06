@@ -1859,6 +1859,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
           year: r.year || '',
           thumb: r.thumb || '',
           onSite: isOnSite(r),
+          versions: r.versions || 1, // pressings folded in by the duplicate comber
         }
       })
     : posts.map(p => ({
@@ -1925,7 +1926,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     try {
       const artist = (t.artists || []).map(a => a.name).join(' ')
         || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''
-      const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '' })
+      const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '', listen: '1' })
       if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
       const d = await r.json()
@@ -1949,22 +1950,14 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     }
   }
 
-  // Album play-through: when track i ends, play the next track that has (or
-  // can get) a link. Known misses are skipped; tracks with no link yet are
-  // searched on the fly, at most 3 per step so a run of missing tracks can't
-  // drain the daily YouTube quota. Stops at the end of the album or the cap.
-  async function playNextFrom(i) {
-    let searches = 0
+  // Album play-through: when track i ends, play the next track that already
+  // has a link. No searching ahead (2026-10-06, YouTube savings) — a track
+  // with no link is only searched when someone clicks it.
+  function playNextFrom(i) {
     for (let j = i + 1; j < openTracks.length; j++) {
-      const t = openTracks[j]
       const found = foundUrls[`${openKey}#${j}`]
-      const url = t.url || (found && found !== 'none' && found !== 'capped' ? found : '')
+      const url = openTracks[j].url || (found && found !== 'none' && found !== 'capped' ? found : '')
       if (url) { setPlaying({ key: `${openKey}#${j}`, url }); return }
-      if (t.knownMiss || found === 'none') continue
-      if (found === 'capped' || searches >= 3) return
-      searches++
-      const res = await playTrack(t, j)
-      if (res === 'played' || res === 'capped') return
     }
   }
 
@@ -2120,6 +2113,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                   {r.onSite && hasCatalogue && <span title="on LNV" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
                   {r.title}
                   {r.artist && type === 'artist' && <span style={{ fontWeight: 400, fontStyle: 'italic', color: open ? cardBg : textSec }}> · {r.artist}</span>}
+                  {r.versions > 1 && <span title="Pressings of the same record, folded into one row" style={{ ...monoText, fontWeight: 400, fontSize: 10, color: open ? cardBg : textTer }}> · {r.versions} versions</span>}
                 </span>
                 {hasRoles && <span style={pillStyle(r.group, open)}>{ROLE_PILL[r.group]}</span>}
                 <span style={{ ...rowText, color: open ? cardBg : textSec, fontStyle: type === 'label' ? 'italic' : 'normal' }}>{type === 'label' ? r.artist : r.label}</span>

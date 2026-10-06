@@ -66,7 +66,7 @@ export default function ReleasePreview({ release, artistName = '' }) {
     setSearching(i)
     try {
       const artist = (t.artists || []).map(a => a.name).join(' ') || (full?.artists || []).map(a => a.name).join(' ') || artistName
-      const q = new URLSearchParams({ artist, title: t.title || '', label: '' })
+      const q = new URLSearchParams({ artist, title: t.title || '', label: '', listen: '1' })
       if (releaseId && t.position) { q.set('release_id', releaseId); q.set('position', t.position) }
       const d = await (await fetch(`${API}/discogs/youtube/search?${q}`)).json()
       // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.
@@ -84,17 +84,12 @@ export default function ReleasePreview({ release, artistName = '' }) {
       setSearching(null)
     }
   }
-  // When track i ends: the next one with (or able to get) a link.
-  async function playNext(i) {
-    let searches = 0
+  // When track i ends: the next one that already has a link (no searching
+  // ahead — a track is only searched when someone clicks it).
+  function playNext(i) {
     for (let j = i + 1; j < tracks.length; j++) {
-      const t = tracks[j], url = urlOf(t, j)
+      const url = urlOf(tracks[j], j)
       if (url) { setPlaying({ i: j, url }); return }
-      if (t.knownMiss || found[j] === 'none') continue
-      if (found[j] === 'capped' || searches >= 3) return
-      searches++
-      const r = await play(t, j)
-      if (r === 'played' || r === 'capped') return
     }
   }
 
@@ -113,6 +108,10 @@ export default function ReleasePreview({ release, artistName = '' }) {
             <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl } }))}
               style={{ ...btn, border: 0, background: 'var(--theme-accent)', color: '#fff' }}>+ add to my feed</button>
             <a href={discogsUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>Discogs ↗</a>
+            {/* Folded pressings (the duplicate comber): all of them, on Discogs. */}
+            {release.versions > 1 && release.masterId && (
+              <a href={`https://www.discogs.com/master/${release.masterId}`} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>All {release.versions} versions ↗</a>
+            )}
           </div>
         </div>
       </div>

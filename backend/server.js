@@ -21,6 +21,7 @@ import { requestLogger, startLogPruning, logEvent } from './services/logService.
 import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
 import { startCatalogueKeeper } from './services/discogsService.js';
+import { startCatalogueComber } from './services/catalogueComber.js';
 import { startChannelKeeper } from './services/youtubeService.js';
 import { startGapSweeper } from './services/gapSweeper.js';
 
@@ -62,6 +63,8 @@ app.listen(PORT, () => {
   startDiscogsMatcher();
   // Fill the Discogs catalogues and YouTube channels in quiet moments.
   startCatalogueKeeper();
+  // Fold duplicate pressings in the catalogues, checked against Discogs.
+  startCatalogueComber();
   startChannelKeeper();
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
