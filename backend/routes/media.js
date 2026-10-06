@@ -2,6 +2,8 @@ import express from 'express';
 import fetch from 'node-fetch';
 import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl, catalogueCandidates } from '../services/discogsService.js';
 import { getChannelUploads, extractVideoId, channelsWithVerdicts } from '../services/youtubeService.js';
+import { spotifyConfigured, spotifyAlbum, spotifyTrack, spotifyBarcodeFor } from '../services/spotifyService.js';
+import { lastfmGenres } from '../services/lastfmService.js';
 
 const router = express.Router();
 
@@ -833,7 +835,11 @@ async function tryCatNoLookup(catNo, artist, labels = []) {
  */
 async function tryBarcodeLookup(barcode, artist, title) {
   try {
-    const data = await searchDiscogsBarcode(barcode);
+    // Spotify gives a 13-digit EAN ("0724…"); Discogs often holds the
+    // 12-digit UPC — try both (2026-10-06).
+    const digits = String(barcode || '').replace(/\D/g, '');
+    let data = await searchDiscogsBarcode(digits);
+    if (!data?.results?.length && /^0\d{12}$/.test(digits)) data = await searchDiscogsBarcode(digits.slice(1));
     const results = (data?.results || []).slice(0, 3);
     const fetched = await Promise.all(results.map(r => discogsRelease(r.id)));
     for (let i = 0; i < results.length; i++) {
@@ -859,8 +865,12 @@ async function tryBarcodeLookup(barcode, artist, title) {
  *   barcode   UPC/EAN
  *   uploader  account name, tried as the artist when there's no artist
  */
-async function findDiscogsRelease({ artist = '', title = '', album = '', labels = [], catNo = '', barcode = '', uploader = '' } = {}) {
+async function findDiscogsRelease({ artist = '', title = '', album = '', labels = [], catNo = '', barcode = '', uploader = '', kind = 'track' } = {}) {
   labels = [...new Set(labels.filter(Boolean))];
+  // No barcode (a YouTube / SoundCloud / Bandcamp link…): ask Spotify for
+  // the same record's — one exact Discogs lookup instead of up to six name
+  // searches when Discogs lists that edition (2026-10-06).
+  if (!barcode && !catNo && artist && (title || album)) barcode = await spotifyBarcodeFor({ artist, title, album, kind });
   const attempts = [];
   const add = (key, run) => { if (!attempts.some(a => a.key === key)) attempts.push({ key, run }); };
   const lookup = (a, t) => t && add(`${a}|${t}`.toLowerCase(), () => tryDiscogsLookup(a, t));
@@ -1565,6 +1575,21 @@ async function resolveSpotify(url) {
   const pageUrl = `https://open.spotify.com/${type}/${id}`;
   const embedUrl = `https://open.spotify.com/embed/${type}/${id}`;
 
+  // The Web API first (2026-10-06): exact tracklist, year and the album's
+  // barcode (UPC) — Discogs' most exact match. Keys missing or Spotify
+  // refusing: read the public page as before.
+  let viaApi = null;
+  if (type !== 'playlist' && spotifyConfigured()) {
+    try {
+      if (type === 'album') viaApi = { album: await spotifyAlbum(id) };
+      else {
+        const track = await spotifyTrack(id);
+        viaApi = { track, album: track.albumId ? await spotifyAlbum(track.albumId) : null };
+      }
+    } catch (err) { console.warn('[spotify api]', err.message); viaApi = null; }
+  }
+  if (viaApi) return spotifyFromApi(type, pageUrl, embedUrl, viaApi);
+
   const html = await fetchHtml(pageUrl);
   const cover = metaTag(html, 'og:image') || null;
   let title = '', artist = '', albumName = '', year = metaTag(html, 'music:release_date').slice(0, 4);
@@ -1619,6 +1644,45 @@ async function resolveSpotify(url) {
       year: year || album?.year,
       tracks: type === 'album' ? album?.tracks : [],
       label: album?.labels?.[0],
+    }),
+  };
+}
+
+// A Spotify link resolved through the Web API (resolveSpotify above).
+async function spotifyFromApi(type, pageUrl, embedUrl, { track = null, album = null }) {
+  const albumArtists = (album?.artists || []).map(a => a.name);
+  const artist = (type === 'track' ? (track?.artists || []).map(a => a.name) : albumArtists).join(', ');
+  const title = type === 'track' ? normaliseVersionTitle(track?.name || '') : (album?.name || '');
+  const labels = labelsFromCopyright(album?.copyrights || []);
+  const tracks = (album?.tracks || []).map(t => ({ ...t, title: normaliseVersionTitle(t.title) }));
+  const fallbackType = type === 'album'
+    ? (tracks.length <= 2 || album?.type === 'single' ? 'single' : 'album')
+    : detectPostType({ platform: 'spotify', title });
+  let discogsData = null, search = null;
+  if (fallbackType !== 'livemix' && title) {
+    discogsData = await findDiscogsRelease(search = { kind: type === 'album' ? 'album' : 'track',
+      artist,
+      title,
+      album: type === 'track' ? (album?.name || '') : '',
+      labels,
+      barcode: album?.upc || '',
+    });
+  }
+  return {
+    platform: 'spotify',
+    _search: search,
+    detected_type: typeFromTracks('spotify', title, discogsData, fallbackType),
+    stream_url: pageUrl,
+    embed_url: embedUrl,
+    artists: splitArtists(artist),
+    artist,
+    channel: null,
+    title,
+    ...discogsFields(discogsData, {
+      cover: album?.cover || null,
+      year: album?.year,
+      tracks: type === 'album' ? tracks : [],
+      label: labels[0],
     }),
   };
 }
@@ -2141,6 +2205,13 @@ router.get('/resolve', async (req, res) => {
             ? { ...t, stream_url: result.stream_url }
             : t);
       }
+    }
+
+    // No Discogs genres (just the 'Electronic' placeholder): listeners'
+    // tags from Last.fm, when its key is set (2026-10-06).
+    if (result && result.detected_type !== 'livemix' && (!result.genres?.length || (result.genres.length === 1 && result.genres[0] === 'Electronic' && !result.discogs_id))) {
+      const tags = await lastfmGenres({ artist: result.artist, album: result.detected_type === 'album' ? result.title : '', track: result.detected_type === 'album' ? '' : result.title });
+      if (tags.length) result.genres = tags;
     }
 
     res.json(result);

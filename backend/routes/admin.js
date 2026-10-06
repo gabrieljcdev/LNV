@@ -8,6 +8,9 @@ import { readLog, logSummary, logEvent } from '../services/logService.js';
 import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } from '../services/youtubeService.js';
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
+import { callsToday } from '../services/usageService.js';
+import { spotifyConfigured } from '../services/spotifyService.js';
+import { lastfmConfigured } from '../services/lastfmService.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
 } from '../services/authService.js';
@@ -56,6 +59,13 @@ router.get('/status', (req, res, next) => {
       youtube: { usedToday: quotaUsed(), dailyCap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000, crawlShare: 0.6 },
       crawls: { catalogues, channels },
       gaps: gapCounts(),
+      // Each outside service's load today (2026-10-06) — cache hits don't count.
+      services: {
+        youtube: { used: quotaUsed(), cap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000 },
+        discogs: { calls: callsToday('discogs') },
+        spotify: { calls: callsToday('spotify'), on: spotifyConfigured() },
+        lastfm: { calls: callsToday('lastfm'), on: lastfmConfigured() },
+      },
       log: logSummary(),
     });
   } catch (err) { next(err); }

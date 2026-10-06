@@ -1,6 +1,7 @@
 import express from 'express';
 import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDiscogsUrl, getCovers, getReleaseInfo, getCataloguePage } from '../services/discogsService.js';
-import { searchTrackVideo } from '../services/youtubeService.js';
+import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
+import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
 import db from '../db/database.js';
 
 const router = express.Router();
@@ -121,8 +122,21 @@ router.get('/youtube/search', async (req, res, next) => {
   try {
     const { artist = '', title, label = '', release_id, position } = req.query;
     if (!title) return res.status(400).json({ error: 'title required' });
-    const result = await searchTrackVideo(artist, title, { label });
-    if (release_id && position && !result.capped) {
+    // SPOTIFY-FALLBACK (2026-10-06, gabriel) — revisit when the YouTube quota
+    // increase lands (handover TODO): with YouTube's day 80% spent, only the
+    // free checks run (cache, crawled uploads) and a miss plays the track as
+    // a Spotify player instead (full track for people signed in to Spotify,
+    // a 30-second preview otherwise). A fallback is never saved as the
+    // track's link, so YouTube gets its turn again tomorrow.
+    const ytCap = Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+    const ytBusy = quotaUsed() >= ytCap * 0.8;
+    let result = await searchTrackVideo(artist, title, { label, localOnly: ytBusy });
+    if (!result.youtube_url && (ytBusy || result.capped) && spotifyConfigured()) {
+      const sp = await spotifySearchTrack(artist, title).catch(() => null);
+      if (sp) result = { youtube_url: null, youtube_title: null, spotify_url: sp.url, spotify_title: `${sp.artists.join(', ')} – ${sp.name}`, fallback: true };
+    }
+    if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
+    if (release_id && position && !result.capped && !result.fallback) {
       db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
                   VALUES (?, ?, ?, ?, ?, 'youtube-search', datetime('now'))
                   ON CONFLICT(release_id, position) DO UPDATE SET

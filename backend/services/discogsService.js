@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import db from '../db/database.js';
 import { logEvent } from './logService.js';
+import { countCall } from './usageService.js';
 dotenv.config();
 
 const DISCOGS_BASE = 'https://api.discogs.com';
@@ -17,7 +18,10 @@ function fgFetch(url, opts) {
   return fetch(url, opts);
 }
 
+// Every Discogs request builds its headers here — so it's also where they're
+// counted for Admin → Status (usageService, 2026-10-06).
 function getHeaders() {
+  countCall('discogs');
   return {
     'Authorization': `Discogs token=${process.env.DISCOGS_TOKEN}`,
     'User-Agent': 'LateNightVibes/1.0',
