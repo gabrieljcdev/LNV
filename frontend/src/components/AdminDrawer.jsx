@@ -79,6 +79,29 @@ function Bar({ value, max, mark }) {
 // Gaps (2026-10-06): what's still missing in the DB — the gap sweep
 // (backend services/gapSweeper.js) fills these every 6 hours; "Run now"
 // starts it at once and says what it filled.
+// Services today (2026-10-06): how hard each outside service is being
+// asked — real requests only, cache hits don't count. LNV tries the
+// cheapest source first for each job, so the load spreads between them.
+function ServicesSection({ s }) {
+  const rows = [
+    ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, s.youtube.used >= s.youtube.cap * 0.8 ? 'searches paused — free checks and Spotify only' : '100 units per search'],
+    ['Discogs', `${n(s.discogs.calls)} requests`, 'limit 60 a minute'],
+    ['Spotify', s.spotify.on ? `${n(s.spotify.calls)} requests` : 'not connected', s.spotify.on ? 'barcodes, tracklists; player when YouTube is busy' : 'add SPOTIFY_CLIENT_ID / SECRET to backend/.env'],
+    ['Last.fm', s.lastfm.on ? `${n(s.lastfm.calls)} requests` : 'not connected', s.lastfm.on ? 'genres when Discogs has none' : 'add LASTFM_API_KEY to backend/.env'],
+  ]
+  return (
+    <Section title="Services today">
+      <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, auto) minmax(0, 1fr)', gap: '7px 14px', alignItems: 'baseline', fontFamily: SANS, fontSize: 14, color: SEC }}>
+        {rows.map(([name, value, note]) => [
+          <span key={name + 'n'} style={{ fontWeight: 700, color: PRI }}>{name}</span>,
+          <span key={name + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: PRI, whiteSpace: 'nowrap' }}>{value}</span>,
+          <span key={name + 't'} style={{ fontSize: 12.5, color: TER }}>{note}</span>,
+        ])}
+      </div>
+    </Section>
+  )
+}
+
 function GapsSection({ gaps }) {
   const qc = useQueryClient()
   const [run, setRun] = useState(null)
@@ -178,6 +201,7 @@ function StatusTab({ onShowLogs }) {
       <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 6 }}>Background channel crawls stop at {Math.round(youtube.crawlShare * 100)}%; the rest is kept for track searches (100 units each). Resets at midnight UTC.</div>
     </Section>
 
+    {data.services && <ServicesSection s={data.services} />}
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>

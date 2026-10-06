@@ -69,10 +69,12 @@ export default function ReleasePreview({ release, artistName = '' }) {
       const q = new URLSearchParams({ artist, title: t.title || '', label: '' })
       if (releaseId && t.position) { q.set('release_id', releaseId); q.set('position', t.position) }
       const d = await (await fetch(`${API}/discogs/youtube/search?${q}`)).json()
-      if (releaseId && t.position && !d.capped) {
+      // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.
+      if (releaseId && t.position && !d.capped && !d.fallback) {
         qc.setQueryData(['release-track-links', releaseId], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
       }
-      if (d.youtube_url) { setFound(m => ({ ...m, [i]: d.youtube_url })); setPlaying({ i, url: d.youtube_url }); return 'played' }
+      const foundUrl = d.youtube_url || d.spotify_url
+      if (foundUrl) { setFound(m => ({ ...m, [i]: foundUrl })); setPlaying({ i, url: foundUrl }); return 'played' }
       setFound(m => ({ ...m, [i]: d.capped ? 'capped' : 'none' }))
       return d.capped ? 'capped' : 'none'
     } catch {

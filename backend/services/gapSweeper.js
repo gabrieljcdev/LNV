@@ -9,6 +9,7 @@
 //    where the release IS the post (a single YouTube track from an album
 //    must not grow the album's tracklist). Read from the release (cached
 //    30 days), filling only what's empty — nothing is ever overwritten.
+//    Posts with no release still lacking genres: Last.fm tags (if keyed).
 // 2. Tracks with nothing to play: tried against the cache and the crawled
 //    channel uploads (free), then a few paid YouTube searches a day at most
 //    (GAP_SWEEP_YT_SEARCHES, default 5 = 500 of the 5,000 daily units).
@@ -21,6 +22,8 @@ import db from '../db/database.js';
 import { getRelease } from './discogsService.js';
 import { searchTrackVideo } from './youtubeService.js';
 import { logEvent } from './logService.js';
+import { lastfmConfigured, lastfmGenres } from './lastfmService.js';
+import { platformGenres } from '../routes/media.js';
 
 try { db.exec('ALTER TABLE posts ADD COLUMN gaps_checked_at TEXT'); } catch { /* already there */ }
 try { db.exec('ALTER TABLE post_tracks ADD COLUMN link_checked_at TEXT'); } catch { /* already there */ }
@@ -112,6 +115,28 @@ async function fillFromReleases() {
   return filled;
 }
 
+// Posts still without genres (no Discogs release to read them from): the
+// Bandcamp / SoundCloud page's own tags first, then listeners' tags from
+// Last.fm when its key is set (2026-10-06).
+async function fillGenresFromLastfm() {
+  const posts = db.prepare(`
+    SELECT p.id, p.title, p.post_type, p.stream_url, (SELECT artist_name FROM post_artists a WHERE a.post_id = p.id ORDER BY a.id LIMIT 1) AS artist,
+      (SELECT label_name FROM post_labels l WHERE l.post_id = p.id ORDER BY l.id LIMIT 1) AS label
+    FROM posts p
+    WHERE p.is_spotlight = 0 AND COALESCE(p.post_type, '') != 'livemix'
+      AND NOT EXISTS (SELECT 1 FROM post_genres g WHERE g.post_id = p.id)
+      AND (p.gaps_checked_at IS NULL OR p.gaps_checked_at < datetime('now', '${RECHECK}') OR p.discogs_id IS NULL)`).all();
+  let filled = 0;
+  for (const p of posts) {
+    let tags = p.stream_url ? await platformGenres(p.stream_url, [p.artist, p.label]) : [];
+    if (!tags.length && p.artist && lastfmConfigured()) tags = await lastfmGenres({ artist: p.artist, album: p.post_type === 'album' ? p.title : '', track: p.post_type === 'album' ? '' : p.title });
+    if (!tags.length) continue;
+    const ins = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
+    db.transaction(() => { if (!db.prepare('SELECT 1 FROM post_genres WHERE post_id = ?').get(p.id)) { for (const g of tags) ins.run(p.id, g); filled++; } })();
+  }
+  return filled;
+}
+
 async function fillTrackLinks() {
   const tracks = db.prepare(`
     SELECT t.id, t.title, t.post_id,
@@ -146,6 +171,7 @@ export async function sweepGaps() {
   try {
     const before = gapCounts();
     const rel = await fillFromReleases();
+    rel.genres += await fillGenresFromLastfm();
     const links = await fillTrackLinks();
     const parts = [
       rel.artistIds && `${rel.artistIds} artist id${rel.artistIds === 1 ? '' : 's'}`,

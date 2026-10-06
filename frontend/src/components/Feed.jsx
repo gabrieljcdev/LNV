@@ -1929,12 +1929,14 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
       const d = await r.json()
-      if (openRow?.kind === 'release' && trackReleaseId && t.position && !d.capped) {
+      // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.
+      if (openRow?.kind === 'release' && trackReleaseId && t.position && !d.capped && !d.fallback) {
         queryClient.setQueryData(['release-track-links', trackReleaseId], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
       }
-      if (d.youtube_url) {
-        setFoundUrls(m => ({ ...m, [trackKey]: d.youtube_url }))
-        setPlaying({ key: trackKey, url: d.youtube_url })
+      const foundUrl = d.youtube_url || d.spotify_url
+      if (foundUrl) {
+        setFoundUrls(m => ({ ...m, [trackKey]: foundUrl }))
+        setPlaying({ key: trackKey, url: foundUrl })
         return 'played'
       }
       setFoundUrls(m => ({ ...m, [trackKey]: d.capped ? 'capped' : 'none' }))
