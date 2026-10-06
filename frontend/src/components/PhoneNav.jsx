@@ -15,8 +15,8 @@ const TABS = [
   { id: 'artists', label: 'artists' },
   { id: 'labels', label: 'labels' },
   { id: 'post', label: '+' },
-  { id: 'genres', label: 'genres' },
   { id: 'live', label: 'live sets' },
+  { id: 'community', label: 'community' }, // in genres' place (2026-10-06)
   { id: 'more', label: 'more' },
 ]
 

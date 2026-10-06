@@ -65,12 +65,14 @@ const TABS = [
   { id: 'feed',        label: 'home' },
   null,
   { id: 'artists',     label: 'artists',   panel: true },
-  { id: 'genres',      label: 'genres',    panel: true },
   { id: 'labels',      label: 'labels',    panel: true },
   null,
   // 2026-10-01: readme → live sets (its content moved into About), and
   // About opens as a drawer like the rest instead of replacing the feed.
   { id: 'live',        label: 'live sets', panel: true },
+  // Community (2026-10-06, gabriel): in genres' place on the strip — the
+  // genres drawer still opens from genre pills, search and profiles.
+  { id: 'community',   label: 'community', panel: true },
   { id: 'about',       label: 'about',     panel: true },
 ];
 

@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
-  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner,
+  useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner, communityApi,
 } from '../lib/collections'
 
 // Small UI pieces for walls and playlists (2026-10-03):
@@ -458,6 +458,7 @@ export function WallCard({ username, compact = false, friends }) {
         </label>
       )}
       {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
+      {owner && friends && <BoardsSetting pri={pri} ter={ter} fill={fill} />}
 
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
@@ -888,6 +889,34 @@ function IntroSettings({ pri, ter, fill }) {
         </div>
       )}
     </div>
+  )
+}
+
+// On the Community boards or not (2026-10-06) — on your profile, under
+// Introductions. Off: you still see the boards, you just aren't on them.
+function BoardsSetting({ pri, ter, fill }) {
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['community', 'me'], queryFn: () => communityApi.me(), enabled: isLoggedIn(), staleTime: 60_000 })
+  const [busy, setBusy] = useState(false)
+  if (!data) return null
+  const on = !data.off
+  async function flip(next) {
+    setBusy(true)
+    try { qc.setQueryData(['community', 'me'], await communityApi.set(!next)); qc.invalidateQueries({ queryKey: ['community'] }) } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>Community boards
+          <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
+        <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{on ? 'You can show up on the boards' : 'Off — you see the boards, you’re not on them'}</span>
+      </span>
+      <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={e => flip(e.target.checked)} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
+      <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
+        <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+      </span>
+    </label>
   )
 }
 

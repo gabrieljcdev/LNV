@@ -184,6 +184,11 @@ export function useIntroSettings(enabled = true) {
   const q = useQuery({ queryKey: ['introductions', 'settings'], queryFn: () => call('GET', '/walls/me/introductions/settings'), enabled: enabled && isLoggedIn(), staleTime: 60_000 })
   return q.data || null
 }
+// Community boards (alpha, 2026-10-06): your on/off choice.
+export const communityApi = {
+  me: () => call('GET', '/community/me'),
+  set: off => call('PUT', '/community/me', { off }),
+}
 export const introApi = {
   seen: username => call('POST', `/walls/me/introductions/${encodeURIComponent(username)}/seen`),
   dismiss: username => call('POST', `/walls/me/introductions/${encodeURIComponent(username)}/dismiss`),

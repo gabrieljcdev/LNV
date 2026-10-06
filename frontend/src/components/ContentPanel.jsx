@@ -7,6 +7,7 @@ import { AdminDrawer } from './AdminDrawer';
 import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 import { usePhone } from '../lib/usePhone';
 import { PHONE_NAV_H } from './PhoneNav';
+import { CommunityDrawer } from './CommunityDrawer';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -17,6 +18,8 @@ const COMPONENTS = {
   genres:  (props) => <GenresDrawer {...props} />,
   live:    (props) => <LiveDrawer {...props} />,
   about:   (props) => <AboutDrawer {...props} />,
+  // Community boards (alpha, 2026-10-06) — the strip's community tab.
+  community: (props) => <CommunityDrawer {...props} />,
   // Admin accounts only (the strip's admin button); every call it makes is
   // checked server-side too.
   admin:   (props) => <AdminDrawer {...props} />,
