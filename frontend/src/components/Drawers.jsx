@@ -4,6 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 import { FavHeart } from './Collect'
 import ReleasePreview from './ReleasePreview'
+import { COMMUNITY_RULES } from '../lib/communityRules'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -600,6 +601,12 @@ export function AboutDrawer() {
         <li><b style={{ color: PRI }}>Only people with at least 5 posts</b> are introduced, and nobody is suggested to more than 20 people a week.</li>
         <li><b style={{ color: PRI }}>× means no, for good.</b> Undo it on your profile.</li>
         <li><b style={{ color: PRI }}>Turn them off</b> any time — the switch is on your profile, under Friends' posts.</li>
+      </ol>
+      {/* 2026-10-06: the Community boards' rules, in full (lib/communityRules). */}
+      <h3 style={h3}>Community boards <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', border: `1px solid ${LINE}`, borderRadius: 99, padding: '1px 7px', verticalAlign: 'middle' }}>α ALPHA</span></h3>
+      <p style={p}>The boards show who’s been digging in a style, so you can find people worth following. They’re fixed rules — nothing is tuned to keep you posting.</p>
+      <ol style={{ margin: '0 0 8px', paddingLeft: 20, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.6, maxWidth: '46ch' }}>
+        {COMMUNITY_RULES.map(([b, rest]) => <li key={b}><b style={{ color: PRI }}>{b}</b> {rest}</li>)}
       </ol>
       <h3 style={h3}>Contact</h3>
       <p style={p}>hello@latenightvibes.com · @latenightvibes</p>

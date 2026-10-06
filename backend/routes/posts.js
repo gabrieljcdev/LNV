@@ -119,7 +119,7 @@ router.get('/', (req, res, next) => {
     const entryPost = r => { const p = getFullPost(r.id); return p && { ...p, feedNumber: r.num }; };
     if (req.query.wall) {
       const owner = userByName(req.query.wall);
-      if (!owner) return res.status(404).json({ error: 'No such wall.' });
+      if (!owner) return res.status(404).json({ error: 'No such person.' });
       const rows = wallPage(owner.id, { before: entryBefore, limit: lim });
       const posts = rows.map(entryPost).filter(Boolean);
       return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
@@ -274,7 +274,7 @@ router.post('/', requireAuth, (req, res, next) => {
     if (!result.changes) {
       // Already up: ♥ it instead, POST /posts/:id/join (the composer offers it).
       const existing = db.prepare('SELECT id FROM posts WHERE discogs_id = ?').get(Number(resolvedDiscogsId));
-      return res.status(409).json({ error: 'This release is already up — ♥ it to keep it on your wall.', postId: existing?.id ?? null });
+      return res.status(409).json({ error: 'This release is already up — ♥ it to keep it in your feed.', postId: existing?.id ?? null });
     }
     const postId = result.lastInsertRowid;
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
@@ -377,7 +377,7 @@ router.post('/:id/join', requireAuth, (req, res, next) => {
   try {
     const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already on your wall.' });
+    if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already in your feed.' });
     const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'also')").run(post.id, req.user.id).changes;
     if (added) logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
     res.json(getFullPost(post.id));

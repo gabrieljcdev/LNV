@@ -15,8 +15,8 @@ const TABS = [
   { id: 'artists', label: 'artists' },
   { id: 'labels', label: 'labels' },
   { id: 'post', label: '+' },
-  { id: 'genres', label: 'genres' },
   { id: 'live', label: 'live sets' },
+  { id: 'community', label: 'community' }, // in genres' place (2026-10-06)
   { id: 'more', label: 'more' },
 ]
 
@@ -74,7 +74,7 @@ export default function PhoneNav() {
       {more && (
         <div ref={moreRef} role="menu" style={{ position: 'absolute', right: 8, bottom: `calc(100% + 8px)`, width: 240, padding: 6, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 18, boxShadow: '0 12px 32px rgba(0,0,0,0.35)' }}>
           {user && <button style={{ ...item, fontWeight: 700 }} onClick={() => { setMore(false); closeD3(); showMyProfile() }}>My profile <span style={{ fontWeight: 400, color: 'var(--theme-text-ter)' }}>· {user}</span></button>}
-          {user && <button style={item} onClick={() => open('playlists')}>♥ Playlists &amp; walls</button>}
+          {user && <button style={item} onClick={() => open('playlists')}>Playlists &amp; following</button>}
           <button style={item} onClick={random}>▶ A random track</button>
           <button style={item} onClick={() => open('about')}>About</button>
           {user && isAdmin() && <button style={item} onClick={() => open('admin')}>⚙ Admin</button>}

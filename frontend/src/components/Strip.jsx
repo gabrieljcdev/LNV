@@ -65,12 +65,14 @@ const TABS = [
   { id: 'feed',        label: 'home' },
   null,
   { id: 'artists',     label: 'artists',   panel: true },
-  { id: 'genres',      label: 'genres',    panel: true },
   { id: 'labels',      label: 'labels',    panel: true },
   null,
   // 2026-10-01: readme → live sets (its content moved into About), and
   // About opens as a drawer like the rest instead of replacing the feed.
   { id: 'live',        label: 'live sets', panel: true },
+  // Community (2026-10-06, gabriel): in genres' place on the strip — the
+  // genres drawer still opens from genre pills, search and profiles.
+  { id: 'community',   label: 'community', panel: true },
   { id: 'about',       label: 'about',     panel: true },
 ];
 
@@ -339,11 +341,11 @@ export default function Strip({ activeView }) {
         {user && (() => {
           const active = d3Content === 'walls' || d3Content === 'playlists';
           return (
-            <button onClick={() => (active ? closeD3() : openD3('playlists'))} title="Playlists and walls" aria-label="Playlists and walls"
+            <button onClick={() => (active ? closeD3() : openD3('playlists'))} title="Playlists and following" aria-label="Playlists and following"
               style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
-            >♥</button>
+            >{/* A playlist, not ♥ — ♥ means keeping a record now (2026-10-06). */}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h11" /><path d="M3 12h11" /><path d="M3 18h7" /><path d="M18 17V6l4-1" /><circle cx="16" cy="17" r="2" /></svg></button>
           );
         })()}
         {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer

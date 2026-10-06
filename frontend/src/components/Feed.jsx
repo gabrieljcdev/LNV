@@ -3125,10 +3125,11 @@ export default function Feed() {
     if (linksChecked.current) return
     linksChecked.current = true
     const params = new URLSearchParams(window.location.search)
-    const wallName = params.get('wall'), shared = params.get('playlist')
+    // ?feed=<username> opens someone's feed (?wall= still works for old links).
+    const wallName = params.get('feed') || params.get('wall'), shared = params.get('playlist')
     let invite = params.get('playlistinvite')
     if (wallName || shared || invite) {
-      for (const k of ['wall', 'playlist', 'playlistinvite']) params.delete(k)
+      for (const k of ['feed', 'wall', 'playlist', 'playlistinvite']) params.delete(k)
       window.history.replaceState(null, '', window.location.pathname + (params.toString() ? `?${params}` : ''))
     }
     if (wallName) openWall(wallName)
@@ -3467,8 +3468,8 @@ export default function Feed() {
 
   const myFeedSwitch = { on: feedMode.friends !== false, set: setHomeFriends }
   const emptyText = search ? `No results for "${search}"`
-    : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : !isLoggedIn() ? 'Nothing on the front page yet.' : feedSel[1] === 'mine' ? 'Nothing posted yet — post a link with +, or ♥ a record to keep it here.' : 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s wall from a card and follow them.')
-    : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing on your wall yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing on ${feedMode.username}’s wall yet.`)
+    : feedSel?.[0] === 'home' ? (isFetching ? 'Loading…' : !isLoggedIn() ? 'Nothing on the front page yet.' : feedSel[1] === 'mine' ? 'Nothing posted yet — post a link with +, or ♥ a record to keep it here.' : 'Your feed: your posts and everyone you follow. Post a link with +, or open someone’s feed from a card and follow them.')
+    : feedSel?.[0] === 'wall' ? (isFetching ? 'Loading…' : feedMode.username === getUser() ? 'Nothing in your feed yet — everything you post shows up here (and in your followers’ feeds).' : `Nothing in ${feedMode.username}’s feed yet.`)
     : feedSel ? (isFetching ? 'Loading…' : `None of “${feedMode.name}”’s tracks come from posts yet — tracks added from a post or spotlight show here as cards.`)
     : 'No posts yet — share the first record.'
 

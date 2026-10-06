@@ -82,7 +82,7 @@ export function useFeedMode() {
 }
 
 export function feedModeLabel(m) {
-  if (m.type === 'wall') return `${m.username}’s wall`
+  if (m.type === 'wall') return `${m.username}’s feed`
   if (m.type === 'playlist') return `▶ ${m.name || 'playlist'}`
   if (m.type === 'home') return isLoggedIn() ? 'my feed' : 'front page'
   return 'everything'
@@ -164,7 +164,7 @@ export const wallsApi = {
   follow: username => call('POST', `/walls/${encodeURIComponent(username)}/follow`),
   unfollow: username => call('DELETE', `/walls/${encodeURIComponent(username)}/follow`),
 }
-export const wallLink = username => `${window.location.origin}/?wall=${encodeURIComponent(username)}`
+export const wallLink = username => `${window.location.origin}/?feed=${encodeURIComponent(username)}`
 
 // Introductions (alpha, 2026-10-05): people my feed suggests you follow,
 // with the reasons (backend collectionsService introductionsFor). Fetched
@@ -183,6 +183,11 @@ export function useIntroductions(enabled) {
 export function useIntroSettings(enabled = true) {
   const q = useQuery({ queryKey: ['introductions', 'settings'], queryFn: () => call('GET', '/walls/me/introductions/settings'), enabled: enabled && isLoggedIn(), staleTime: 60_000 })
   return q.data || null
+}
+// Community boards (alpha, 2026-10-06): your on/off choice.
+export const communityApi = {
+  me: () => call('GET', '/community/me'),
+  set: off => call('PUT', '/community/me', { off }),
 }
 export const introApi = {
   seen: username => call('POST', `/walls/me/introductions/${encodeURIComponent(username)}/seen`),
