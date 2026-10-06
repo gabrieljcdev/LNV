@@ -1175,7 +1175,7 @@ function isLiveSetPost(p) {
 
 
 function LiveSetCard({ post, cardBg, d, onEdit }) {
-  const { registerPostRef } = useLayout() || {}
+  const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [playing, setPlaying] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -1288,6 +1288,16 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         <div style={{ flexShrink: 0, width: T.artSize, height: 1, background: 'var(--lv-line)', margin: `${T.ruleSolidMy}px 0` }} />
       </div>
 
+      {/* Genre pills (2026-10-05, gabriel) — as on single cards. */}
+      {post.genres?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: T.pillGap, flexShrink: 0 }}>
+          {post.genres.slice(0, 6).map(g => (
+            <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+              style={{ fontSize: T.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${T.pillPy}px ${T.pillPx}px`, borderRadius: T.pillRadius, fontFamily: T.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+          ))}
+        </div>
+      )}
+
       {/* byline — kept quiet at the bottom. edit/delete on the left, replies
           on the right, clear of the number's line (gabriel, 2026-10-02). */}
       <div style={{ marginTop: 'auto', paddingTop: T.bylineMt, display: 'flex', gap: 14, alignItems: 'baseline', fontFamily: MONO, fontSize: 11, lineHeight: '15px' /* = the album byline's height, so the numbers sit level */, letterSpacing: '0.06em', color: 'var(--lv-ter)', flexShrink: 0 }}>
@@ -1339,7 +1349,7 @@ function isAlbumPost(p) {
 }
 
 function AlbumCard({ post, cardBg, d, onEdit }) {
-  const { registerPostRef } = useLayout() || {}
+  const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [activeUrl, setActiveUrl] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -1486,6 +1496,16 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           {trackCol(indexed.slice(half))}
         </div>
       </div>
+
+      {/* Genre pills (2026-10-05, gabriel) — as on single cards. */}
+      {post.genres?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 10, flexShrink: 0 }}>
+          {post.genres.slice(0, 6).map(g => (
+            <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+              style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+          ))}
+        </div>
+      )}
 
       {/* byline — the regular card's byline sizes */}
       <div style={{ marginTop: d.bylineMt, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>

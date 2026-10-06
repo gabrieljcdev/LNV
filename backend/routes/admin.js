@@ -7,6 +7,7 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { readLog, logSummary, logEvent } from '../services/logService.js';
 import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } from '../services/youtubeService.js';
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
+import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
 } from '../services/authService.js';
@@ -54,6 +55,7 @@ router.get('/status', (req, res, next) => {
       database: { bytes: fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE).size : null, catalogueRows: one('SELECT COUNT(*) c FROM discogs_catalogue').c, channelVideos: one('SELECT COUNT(*) c FROM yt_channel_videos').c },
       youtube: { usedToday: quotaUsed(), dailyCap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000, crawlShare: 0.6 },
       crawls: { catalogues, channels },
+      gaps: gapCounts(),
       log: logSummary(),
     });
   } catch (err) { next(err); }
@@ -75,6 +77,16 @@ router.get('/logs', (req, res, next) => {
   try {
     const { level, kind, q, before, limit } = req.query;
     res.json(readLog({ level, kind, q, before, limit }));
+  } catch (err) { next(err); }
+});
+
+// ── Gaps (2026-10-06) ──
+// What's still missing in the DB, and the gap sweep run on demand (it also
+// runs every 6 hours by itself — services/gapSweeper.js).
+router.post('/gaps/sweep', async (req, res, next) => {
+  try {
+    const r = await sweepGaps();
+    res.json(r || { busy: true, after: gapCounts() });
   } catch (err) { next(err); }
 });
 

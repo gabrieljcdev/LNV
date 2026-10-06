@@ -256,7 +256,9 @@ export function LayoutProvider({ children }) {
      // that's what lets the drawer's own overflowY:'auto' list actually
      // scroll instead of doing nothing (preventDefault'd) while ALSO
      // driving the feed underneath, which is what happened before this.
-     if (e.target.closest?.('#lnv-drawer, #lnv-drawer-backdrop')) return;
+     // Pop-ups over the feed (the compose window, data-overlay) scroll on
+     // their own the same way (2026-10-06).
+     if (e.target.closest?.('#lnv-drawer, #lnv-drawer-backdrop, [data-overlay]')) return;
      // 2026-09-25: boxes inside a card that scroll on their own (post
      // description, long tracklists, the comment list) opt in with
      // data-inner-scroll. They get the wheel while they can still move in

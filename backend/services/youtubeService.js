@@ -472,7 +472,9 @@ function searchScore(item, trackTitle, artist) {
  * Best YouTube video for one track, or null.
  * Returns { youtube_url, youtube_title, cached, capped }.
  */
-export async function searchTrackVideo(artist, trackTitle, { label = '' } = {}) {
+// `localOnly` (the gap sweep, 2026-10-06): stop after the free checks —
+// the cache and the crawled channel uploads — and never spend quota.
+export async function searchTrackVideo(artist, trackTitle, { label = '', localOnly = false } = {}) {
   const a = /^various$/i.test((artist || '').trim()) ? '' : (artist || '').trim();
   const title = (trackTitle || '').trim();
   if (!title) return { youtube_url: null, youtube_title: null };
@@ -502,6 +504,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '' } = {}) 
     setCache(cacheKey, url, localBest.title);
     return { youtube_url: url, youtube_title: localBest.title, cached: false, local: true };
   }
+  if (localOnly) return { youtube_url: null, youtube_title: null, localOnly: true };
 
   if (!spendQuota(SEARCH_COST)) return { youtube_url: null, youtube_title: null, capped: true };
 

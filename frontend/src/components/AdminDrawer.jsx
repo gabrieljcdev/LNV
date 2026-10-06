@@ -76,6 +76,48 @@ function Bar({ value, max, mark }) {
 }
 
 // ── Status ──
+// Gaps (2026-10-06): what's still missing in the DB — the gap sweep
+// (backend services/gapSweeper.js) fills these every 6 hours; "Run now"
+// starts it at once and says what it filled.
+function GapsSection({ gaps }) {
+  const qc = useQueryClient()
+  const [run, setRun] = useState(null)
+  const rows = [
+    ['Artists without a Discogs id', gaps.artistIds],
+    ['Labels without a Discogs id', gaps.labelIds],
+    ['Posts without genres', gaps.genres],
+    ['Posts without a year', gaps.years],
+    ['Posts without a tracklist', gaps.tracklists],
+    ['Tracks with nothing to play', gaps.unplayable],
+    ['Posts not matched to Discogs', gaps.unmatched],
+  ]
+  const go = async () => {
+    setRun({ busy: true })
+    try {
+      const r = await postJson('/gaps/sweep')
+      const f = r.filled || {}
+      const total = (f.artistIds || 0) + (f.labelIds || 0) + (f.genres || 0) + (f.years || 0) + (f.tracklists || 0) + (f.free || 0) + (f.paid || 0)
+      setRun({ done: true, text: r.busy ? 'A sweep is already running.' : total ? `Filled ${total} gap${total === 1 ? '' : 's'}.` : 'Nothing new could be filled right now.' })
+      qc.invalidateQueries({ queryKey: ['admin', 'status'] })
+    } catch (e) { setRun({ error: e.message }) }
+  }
+  return (
+    <Section title="Gaps in the data" right="filled every 6 hours">
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '6px 12px', fontFamily: SANS, fontSize: 14, color: SEC }}>
+        {rows.map(([label, v]) => [
+          <span key={label + 'l'}>{label}</span>,
+          <span key={label + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: v ? PRI : TER, textAlign: 'right' }}>{n(v)}</span>,
+        ])}
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <Btn onClick={go} disabled={run?.busy}>{run?.busy ? 'Sweeping…' : 'Run the sweep now'}</Btn>
+        {run?.text && <span style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>{run.text}</span>}
+        {run?.error && <span style={{ fontFamily: SANS, fontSize: 13, color: LEVEL.error }}>{run.error}</span>}
+      </div>
+    </Section>
+  )
+}
+
 function StatusTab({ onShowLogs }) {
   const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'status'], queryFn: () => getJson('/status'), refetchInterval: 10000 })
   const [test, setTest] = useState(null)
@@ -135,6 +177,8 @@ function StatusTab({ onShowLogs }) {
       <Bar value={youtube.usedToday} max={youtube.dailyCap} mark={youtube.crawlShare} />
       <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 6 }}>Background channel crawls stop at {Math.round(youtube.crawlShare * 100)}%; the rest is kept for track searches (100 units each). Resets at midnight UTC.</div>
     </Section>
+
+    {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>
       {crawls.catalogues.map(c => (

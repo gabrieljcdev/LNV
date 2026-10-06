@@ -21,6 +21,7 @@ import { attachUser } from './middleware/auth.js';
 import { startDiscogsMatcher } from './services/discogsMatcher.js';
 import { startCatalogueKeeper } from './services/discogsService.js';
 import { startChannelKeeper } from './services/youtubeService.js';
+import { startGapSweeper } from './services/gapSweeper.js';
 
 dotenv.config();
 const app = express();
@@ -60,4 +61,6 @@ app.listen(PORT, () => {
   // Fill the Discogs catalogues and YouTube channels in quiet moments.
   startCatalogueKeeper();
   startChannelKeeper();
+  // Fill what those leave: missing ids, genres, years, tracklists, links.
+  startGapSweeper();
 });
