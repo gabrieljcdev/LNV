@@ -4,6 +4,7 @@ import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, get
 import { getChannelUploads, extractVideoId, channelsWithVerdicts } from '../services/youtubeService.js';
 import { spotifyConfigured, spotifyAlbum, spotifyTrack, spotifyBarcodeFor } from '../services/spotifyService.js';
 import { lastfmGenres } from '../services/lastfmService.js';
+import { genresFromTags, parseSoundCloudTags } from '../services/genreTags.js';
 
 const router = express.Router();
 
@@ -1271,6 +1272,34 @@ async function fetchSoundCloudPage(url) {
   }
 }
 
+// The genres a Bandcamp or SoundCloud page gives itself — its own tags,
+// through the shared filter. For the gap sweep (posts saved before tags were
+// kept, 2026-10-06). [] for other links or when the page won't load.
+// Bandcamp's tag list ends with the artist's town ("Venice") — the page's
+// location line says which, so it's left out with the other names.
+const bandcampLocation = html => decodeHtml((html || '').match(/class="location[^"]*">\s*([^<]+?)\s*</)?.[1] || '').split(',').map(s => s.trim()).filter(Boolean);
+// A SoundCloud set usually has no tags of its own — its tracks do.
+const soundCloudTags = page => {
+  const own = [page?.genre, ...parseSoundCloudTags(page?.tag_list)].filter(Boolean);
+  return own.length ? own : (page?.tracks || []).flatMap(t => [t?.genre, ...parseSoundCloudTags(t?.tag_list)]).filter(Boolean);
+};
+
+export async function platformGenres(url, exclude = []) {
+  try {
+    if (/bandcamp\.com/i.test(url)) {
+      const html = await fetchHtml(url);
+      const tags = [...(html || '').matchAll(/class="tag"[^>]*>\s*([^<]+?)\s*</g)].map(m => decodeHtml(m[1]));
+      const title = decodeHtml((html || '').match(/<meta property="og:title" content="([^"]*)"/)?.[1] || '').split(', by ')[0];
+      return genresFromTags(tags, { exclude: [...exclude, title, ...bandcampLocation(html)] });
+    }
+    if (/soundcloud\.com/i.test(url)) {
+      const page = await fetchSoundCloudPage(url.split('#')[0].split('?')[0]);
+      return genresFromTags(soundCloudTags(page), { exclude: [...exclude, page?.user?.username, page?.title] });
+    }
+  } catch { /* nothing to add */ }
+  return [];
+}
+
 async function resolveSoundCloud(url) {
   let search = null; // for resolveWithFallback when Discogs misses
   url = url.split('#')[0];
@@ -1370,7 +1399,10 @@ async function resolveSoundCloud(url) {
   }
 
   const artists = splitArtists(artist || uploader);
-  const scGenres = genresFromKeywords(`${page?.genre || ''} ${rawTitle}`);
+  // The uploader's genre + tags, kept as written (2026-10-06); the title's
+  // keywords only when there are none.
+  const scTagGenres = genresFromTags(soundCloudTags(page), { exclude: [artist, uploader, label, rawTitle, parsed.title] });
+  const scGenres = scTagGenres.length ? scTagGenres : genresFromKeywords(`${page?.genre || ''} ${rawTitle}`);
 
   return {
     platform: 'soundcloud',
@@ -1515,7 +1547,9 @@ async function resolveBandcamp(url) {
     };
   }
 
-  const tagGenres = genresFromKeywords(tags.join(' '));
+  // The artist's / label's own tags, kept as written ("dub techno", not just
+  // "Techno") — the best genres underground releases have (2026-10-06).
+  const tagGenres = genresFromTags(tags, { exclude: [artist, account, title, fromAlbum, ...bandcampLocation(html)] });
   return {
     platform: 'bandcamp',
     _search: search,

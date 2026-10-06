@@ -7,6 +7,7 @@
 import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { countCall } from './usageService.js';
+import { genresFromTags } from './genreTags.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS lastfm_cache (
   cache_key TEXT PRIMARY KEY,
@@ -32,16 +33,11 @@ async function call(params) {
   return data;
 }
 
-// Tags that aren't genres.
-const NOT_GENRES = /^(seen live|favou?rites?|my |albums? i own|beautiful|awesome|love|best|amazing|cool|chill(ed)?|under \d+|\d{2,4}s?|[a-z]{2,3}$|british|uk|usa|american|german|french|japanese|italian|japan|germany|france|italy|spain|brazil|brazilian|nigeria|nigerian|ghana|london|detroit|chicago|berlin|paris|tokyo|new york|canada|canadian|australia|australian|dutch|netherlands|belgian|belgium|swedish|sweden|norway|norwegian|finland|finnish|danish|russian|russia|south africa|south african|jamaica|jamaican|cuba|cuban|male vocalists?|female vocalists?)/i;
-const tidy = t => t.replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bAnd\b/g, 'and');
-
 function pick(data, field) {
   const tags = data?.[field]?.tag || [];
-  return (Array.isArray(tags) ? tags : [tags])
-    .filter(t => t?.name && Number(t.count ?? 100) >= 10 && !NOT_GENRES.test(t.name))
-    .slice(0, 4)
-    .map(t => tidy(t.name));
+  // Tags a handful of listeners used once don't count; the shared filter
+  // (genreTags.js) drops places, moods and the like.
+  return genresFromTags((Array.isArray(tags) ? tags : [tags]).filter(t => t?.name && Number(t.count ?? 100) >= 10).map(t => t.name), { max: 4 });
 }
 
 // Up to 4 genres for a record: the album's tags, else the track's, else the
