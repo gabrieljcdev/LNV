@@ -3,6 +3,7 @@ import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
+import { isHeadingRow } from '../lib/tracklist'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -374,6 +375,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  for (let i = 0; i < updated.length; i++) {
  if (stale()) return
  if (updated[i].stream_url) continue
+ if (isHeadingRow(updated[i], updated)) continue // "SS026"-style heading, not a track: never worth a search
  const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(', ') || releaseArtist
  setFetchStatus(`SEARCHING YOUTUBE · ${updated[i].position || i + 1} ${(updated[i].title || '').toUpperCase()}...`)
  try {

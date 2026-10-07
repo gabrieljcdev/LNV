@@ -9,6 +9,7 @@ import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/aut
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
+import { withoutHeadings } from '../lib/tracklist'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -1908,7 +1909,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     : openRow.kind === 'post'
       ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
       : openRow.kind === 'release'
-        ? (selectedFull?.tracklist || []).map(t => {
+        ? withoutHeadings(selectedFull?.tracklist).map(t => {
             const tt = normT(t.title)
             const video = tt && (selectedFull.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
             const posted = tt && (onSitePost?.tracks || []).find(pt => normT(pt.title) === tt)

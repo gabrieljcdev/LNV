@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import TrackPlayer from './TrackPlayer'
 import { AddToPlaylistButton } from './Collect'
 import { toEmbedSrc } from '../lib/embeds'
+import { withoutHeadings } from '../lib/tracklist'
 
 // A Discogs release opened in place (2026-10-06, gabriel: "like on the
 // spotlights, see the release tracklist and embeds here to keep traffic on
@@ -51,7 +52,7 @@ export default function ReleasePreview({ release, artistName = '' }) {
     staleTime: Infinity,
   })
 
-  const tracks = (full?.tracklist || []).map(t => {
+  const tracks = withoutHeadings(full?.tracklist).map(t => {
     const tt = normT(t.title)
     const video = tt && (full.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
     const link = saved?.links?.[t.position]
