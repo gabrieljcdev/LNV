@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { enrichPostTracks } from '../services/youtubeService.js';
+import { checkPostLinks } from '../services/linkHealth.js';
 import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
@@ -285,6 +286,8 @@ router.post('/', requireAuth, (req, res, next) => {
     for (const g of genres) ig.run(postId, g);
     const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+    // A link that can't play (embedding switched off, removed) is cleared a moment after saving.
+    setTimeout(() => checkPostLinks(postId).catch(() => {}), 1500);
     // triggerSpotlights(postId); — disabled 2026-08-24: spotlights are now
     // computed client-side per feed load (Feed.jsx buildSpotlightPool),
     // every SPOTLIGHT_EVERYth post, randomized and not repeated within a
@@ -342,6 +345,7 @@ router.patch('/:id', requireAuth, (req, res, next) => {
         db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
         const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
         for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+        setTimeout(() => checkPostLinks(id).catch(() => {}), 1500);
       }
     })();
     logEvent('info', 'post', `Edited post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });

@@ -12,7 +12,8 @@
 //    Posts with no release still lacking genres: Last.fm tags (if keyed).
 // 2. Tracks with nothing to play: tried against the cache and the crawled
 //    channel uploads (free), then a few paid YouTube searches a day at most
-//    (GAP_SWEEP_YT_SEARCHES, default 5 = 500 of the 5,000 daily units).
+//    (GAP_SWEEP_YT_SEARCHES, default 0 until the quota increase lands —
+//    set it to 5 = 500 of the 5,000 daily units to switch paid searches on).
 //
 // Each post / track is retried at most once a week (gaps_checked_at,
 // link_checked_at). Runs a few minutes after startup, then every 6 hours.
@@ -32,7 +33,7 @@ const RECHECK = '-7 days';
 // Posts made from a Discogs link (no platform recorded on the oldest ones).
 const DISCOGS_POST = "COALESCE(p.platform, 'discogs') = 'discogs'";
 const DISCOGS_GAP_MS = 3000; // well under Discogs' 60/min alongside the other jobs
-const paidPerDay = () => Number(process.env.GAP_SWEEP_YT_SEARCHES ?? 5);
+const paidPerDay = () => Number(process.env.GAP_SWEEP_YT_SEARCHES ?? 0);
 const today = () => new Date().toISOString().slice(0, 10);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const key = s => String(s || '').toLowerCase().replace(/\s*-\s*topic$/, '').replace(/\s*\(\d+\)$/, '').replace(/[^\p{L}\p{N}]+/gu, '');

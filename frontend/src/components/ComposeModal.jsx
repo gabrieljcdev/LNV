@@ -3,6 +3,7 @@ import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
+import { isHeadingRow, linkKeys } from '../lib/tracklist'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -371,18 +372,22 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
 
  const releaseArtist = /^various( artists)?$/i.test((fArtist || '').trim()) ? '' : (fArtist || '')
  let capped = false
+ const lkeys = linkKeys(updated) // saved links are keyed so repeated positions (box sets) don't collide
  for (let i = 0; i < updated.length; i++) {
  if (stale()) return
  if (updated[i].stream_url) continue
- const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(' ') || releaseArtist
+ if (isHeadingRow(updated[i], updated)) continue // "SS026"-style heading, not a track: never worth a search
+ const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(', ') || releaseArtist
  setFetchStatus(`SEARCHING YOUTUBE · ${updated[i].position || i + 1} ${(updated[i].title || '').toUpperCase()}...`)
  try {
- const q = new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '' })
- if (releaseId && updated[i].position) { q.set('release_id', releaseId); q.set('position', updated[i].position) }
+ const q = new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '', catno: fCatno || '' })
+ if (releaseId && lkeys[i]) { q.set('release_id', releaseId); q.set('position', lkeys[i]) }
  const r = await fetch(`${API}/discogs/youtube/search?${q}`)
  const d = await r.json()
  if (d.capped) { capped = true; break }
  if (d.youtube_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.youtube_url }; setUrl(i, d.youtube_url) }
+ // No YouTube link: a Spotify placeholder, so the post has something to play (upgraded later).
+ else if (d.spotify_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.spotify_url }; setUrl(i, d.spotify_url) }
  } catch { /* one failed row shouldn't stop the rest */ }
  }
  if (stale()) return

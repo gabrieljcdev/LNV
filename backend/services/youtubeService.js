@@ -425,18 +425,108 @@ export async function getChannelUploads(videoId, { offset = 0, limit = 100, q = 
   };
 }
 
+// ─── Channels named by Discogs profiles (2026-10-07) ─────────────────────────
+// An artist's or label's Discogs profile often links their YouTube channel
+// (services/profileLinks.js). Resolving it costs 1-2 units and the crawler
+// then reads every upload at 1 unit per 50 — so their tracks are found by a
+// free database lookup instead of a 100-unit search. Every answer, including
+// "no such channel", is remembered in yt_channel_urls so a URL is never
+// resolved twice; a channel too big to crawl blind is remembered and left.
+
+db.exec(`CREATE TABLE IF NOT EXISTS yt_channel_urls (
+  url TEXT PRIMARY KEY,
+  channel_id TEXT,
+  checked_at TEXT DEFAULT (datetime('now'))
+)`);
+const MAX_AUTO_CRAWL = 20000;   // uploads; HÖR (10k) is about 200 units
+const NOT_A_CHANNEL = new Set(['watch', 'playlist', 'results', 'feed', 'shorts', 'embed', 'channel', 'user', 'c',
+  'hashtag', 'redirect', 'about', 'live', 'gaming', 'premium', 'music', 'post', 'source', 'attribution_link']);
+
+// What a YouTube URL names: { id } | { handle, username } | null (a video, a playlist…).
+export function parseChannelUrl(raw) {
+  let u;
+  try { u = new URL(/^https?:/i.test(raw) ? raw : `https://${raw}`); } catch { return null; }
+  if (!/(^|\.)youtube\.com$/i.test(u.hostname)) return null;
+  let seg;
+  try { seg = u.pathname.split('/').filter(Boolean).map(decodeURIComponent); } catch { return null; }
+  if (!seg.length) return null;
+  const [a, b] = seg;
+  if (a === 'channel') return /^UC[\w-]{20,}$/.test(b || '') ? { id: b } : null;
+  if (a.startsWith('@')) return a.length > 1 ? { handle: a.slice(1) } : null;
+  if (a === 'user') return b ? { username: b } : null;
+  if (a === 'c') return b ? { handle: b, username: b } : null;
+  if (seg.length === 1 && !NOT_A_CHANNEL.has(a.toLowerCase())) return { handle: a, username: a }; // youtube.com/richiehawtin
+  return null;
+}
+
+// Whether the crawl's share of today's quota still has room.
+export const crawlBudgetLeft = () => quotaUsed() < dailyCap() * CRAWL_QUOTA_SHARE;
+
+// Resolve a profile's YouTube URL and start crawling its channel.
+// -> the channel row, or null (not a channel / not found / too big / no budget today).
+export async function adoptChannelUrl(url) {
+  const p = parseChannelUrl(url);
+  if (!p) return null;
+
+  const known = db.prepare('SELECT channel_id, checked_at FROM yt_channel_urls WHERE url = ?').get(url);
+  if (known?.channel_id) {
+    const row = channelRow(known.channel_id);
+    if (row) crawlChannel(row.channel_id);   // already ours: just keep it going
+    return row || null;
+  }
+  // Not found last time: not asked again for 30 days.
+  if (known && Date.now() - new Date(`${known.checked_at}Z`).getTime() < 30 * 24 * 60 * 60 * 1000) return null;
+
+  if (p.id) {
+    const row = channelRow(p.id);
+    if (row) {
+      db.prepare('INSERT OR REPLACE INTO yt_channel_urls (url, channel_id) VALUES (?, ?)').run(url, p.id);
+      crawlChannel(row.channel_id);
+      return row;
+    }
+  }
+  if (!crawlBudgetLeft()) return null;       // nothing is remembered: asked again another day
+
+  const lookups = p.id ? [{ id: p.id }] : [p.handle && { forHandle: p.handle }, p.username && { forUsername: p.username }].filter(Boolean);
+  let item = null;
+  for (const q of lookups) {
+    if (!spendQuota(1)) return null;
+    const ch = await ytApi('channels', { part: 'contentDetails,snippet,statistics', ...q });
+    item = ch.items?.[0] || null;
+    if (item) break;
+  }
+  const remember = id => db.prepare('INSERT OR REPLACE INTO yt_channel_urls (url, channel_id) VALUES (?, ?)').run(url, id);
+  if (!item) { remember(null); return null; }
+
+  remember(item.id);
+  const existing = channelRow(item.id);
+  if (existing) { crawlChannel(existing.channel_id); return existing; }
+  const uploadsId = item.contentDetails?.relatedPlaylists?.uploads;
+  const total = Number(item.statistics?.videoCount) || 0;
+  if (!uploadsId || total > MAX_AUTO_CRAWL) return null;
+
+  db.prepare('INSERT OR IGNORE INTO yt_channels (channel_id, uploads_id, title, thumb, total) VALUES (?, ?, ?, ?, ?)')
+    .run(item.id, uploadsId, item.snippet?.title || '', item.snippet?.thumbnails?.default?.url || null, total || null);
+  saveChannelStats(item);
+  logEvent('info', 'crawl', `YouTube channel from a Discogs profile: ${item.snippet?.title || item.id} (${total} uploads)`);
+  crawlChannel(item.id);   // not awaited
+  return channelRow(item.id);
+}
+
 // ─── Track search (YouTube Data API search.list) ──────────────────────────────
 // Fills tracklist rows that Discogs' own videos[] didn't cover. search.list is
 // the one expensive YouTube call — 100 units against a 10,000/day project
 // quota — so every call goes through three guards:
 //   1. ONE query per track (the old /api/discogs/youtube/search tried up to 7),
-//   2. results cached in youtube_cache — hits for 90 days, misses for 14,
+//   2. results cached in youtube_cache — a found link is kept for good (after
+//      90 days it is re-checked with the free oEmbed call, never re-searched
+//      while the video is alive); misses are retried after 30 days,
 //   3. a daily unit cap (YOUTUBE_DAILY_UNIT_CAP, default 5000) tracked in
 //      api_quota, leaving the rest of the quota for videos/channels lookups.
 
 const SEARCH_COST = 100;
-const SEARCH_HIT_TTL = 90 * 24 * 60 * 60 * 1000;
-const SEARCH_MISS_TTL = 14 * 24 * 60 * 60 * 1000;
+const SEARCH_HIT_RECHECK = 90 * 24 * 60 * 60 * 1000; // a hit this old is re-checked (free), not re-searched
+const SEARCH_MISS_TTL = 30 * 24 * 60 * 60 * 1000;
 const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -453,16 +543,87 @@ function spendQuota(units, provider = 'youtube') {
   return true;
 }
 
-function searchScore(item, trackTitle, artist) {
+// One key for a track whoever posted it and whichever pressing it came from:
+// accents folded, Discogs' "(2)" artist suffix dropped, punctuation and case
+// ignored. Rows saved before this (plain lowercase artist|title) are still
+// read — see searchTrackVideo.
+// Letters of any script count (a key of only a-z turned every Russian or
+// Greek title into "" and they all shared one row); accents are folded on
+// Latin letters only, so е/ё-style pairs elsewhere stay apart.
+export function trackKey(s) {
+  return String(s || '').normalize('NFD').replace(/(\p{Script=Latin})[\u0300-\u036f]+/gu, '$1').normalize('NFC').toLowerCase()
+    .replace(/\s*\(\d+\)\s*$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+// Is a saved video still there? YouTube's oEmbed answers 4xx (400 unknown id,
+// 401 private / embedding off, 404 removed) for ones that won't play; a rate
+// limit (429), a server error or a network error counts as alive, so a bad
+// moment never throws a good link away.
+export async function videoAlive(url) {
+  try {
+    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+    return !(res.status >= 400 && res.status < 500 && res.status !== 429);
+  } catch { return true; }
+}
+
+// Query / scoring cleanup (2026-10-07). The searches that found nothing were
+// often our own doing: a joint credit ("A, B") was matched as ONE long name
+// that no video title contains, and "(Original Mix)" / "(feat. X)" made the
+// title harder to match than the video's. So: search and match on the MAIN
+// artist and the core title, and accept any credited name as the artist.
+export const mainArtist = a => String(a || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with)\s+/i)[0].trim();
+const creditedNames = a => [...new Set([a, ...String(a || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with|and|x)\s+|\s*[&+]\s*/i)]
+  .map(normalize).filter(n => n.length > 2))];
+// Only wording that never changes WHICH recording it is: "Original Mix",
+// "Album Version", "Radio Edit", "(feat. X)". Remixes, dubs, parts stay.
+const TITLE_NOISE = /\s*[\(\[]\s*(?:original(?:\s+(?:mix|version|edit))?|album\s+version|single\s+version|radio\s+edit|(?:feat\.?|ft\.?|featuring|with)\s[^)\]]*)\s*[\)\]]/gi;
+// Spotify writes the same noise after a dash: "Lost In A Moment - Original Mix".
+const TITLE_DASH_NOISE = /\s+-\s+(?:original(?:\s+(?:mix|version|edit))?|album\s+version|single\s+version|radio\s+edit)\s*$/i;
+export const coreTitle = t => String(t || '').replace(TITLE_NOISE, '').replace(TITLE_DASH_NOISE, '').replace(/\s+/g, ' ').trim() || String(t || '').trim();
+
+// How well a link someone pasted fits the track it was pasted for (services/
+// trackLinks.js): the link's real title against the track's artist and title.
+//   strong   — the whole title shows AND the artist (in the title or the uploader)
+//   weak     — the title fits but the artist doesn't show / it may be another version
+//   rejected — the title doesn't fit (or is too short to mean anything alone)
+const MARKS = /\b(remix|live|cover|karaoke|tribute|instrumental|acapella|mashup)\b/;
+export function linkVerdict({ fetchedTitle = '', author = '', trackTitle = '', artist = '' }) {
+  const tt = trackKey(coreTitle(trackTitle)), vt = trackKey(fetchedTitle), au = trackKey(author);
+  if (!tt || !vt) return { verdict: 'rejected', reason: "We couldn't read that link's title." };
+  const words = tt.split(' ').filter(w => w.length > 2);
+  const full = vt.includes(tt);
+  const partial = !full && words.length > 0 && words.filter(w => vt.includes(w)).length / words.length >= 0.7;
+  if (!full && !partial) return { verdict: 'rejected', reason: "That doesn't look like this track — its title is different." };
+  const names = [...new Set([artist, ...String(artist || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with|and|x)\s+|\s*[&+]\s*/i)].map(trackKey).filter(n => n.length > 2))];
+  const artistHit = names.some(n => vt.includes(n) || au.includes(n));
+  // A very short title ("7") fits almost any video: the artist has to show.
+  if (tt.length < 5 && !artistHit) return { verdict: 'rejected', reason: "That title is very short and the artist's name isn't there, so we can't tell it's the right track." };
+  const otherVersion = MARKS.test(vt) && !MARKS.test(tt);
+  if (full && artistHit && !otherVersion) return { verdict: 'strong', reason: '' };
+  return { verdict: 'weak', reason: otherVersion ? 'It may be a different version (remix, live…).' : "We can't see the artist's name there." };
+}
+
+function searchScore(item, trackTitle, artist, { label = '', catno = '' } = {}) {
   const vt = item.snippet?.title || '';
   const ch = normalize(item.snippet?.channelTitle || '');
-  let score = matchScore(vt, trackTitle, artist);
-  if (!artist) score -= 20; // matchScore's artist bonus: '' is in every title
+  const main = mainArtist(artist);
+  let score = matchScore(vt, trackTitle, main);
+  if (!main) score -= 20; // matchScore's artist bonus: '' is in every title
   const v = normalize(vt), tt = normalize(trackTitle);
+  const names = creditedNames(artist);
+  // A co-credited artist in the video title counts like the main one.
+  if (main && !v.includes(normalize(main)) && names.some(n => v.includes(n))) score += 20;
+  // The label's own channel, or the cat number in the title/description, is
+  // a second witness that this is the right release (only ever added on top
+  // of a title match — it can't rescue a wrong title by itself).
+  const lb = normalize(label);
+  if (lb.length > 2 && ch.includes(lb)) score += 15;
+  const cn = String(catno || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (cn.length >= 3 && `${vt} ${item.snippet?.description || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '').includes(cn)) score += 15;
   // matchScore penalises "remix"/"live" outright; undo that when the track
   // itself is a remix/live version.
   if (/remix|live/.test(tt) && /remix|live/.test(v)) score += 20;
-  if (artist && ch.includes(normalize(artist))) score += 15; // artist's own / Topic channel
+  if (names.some(n => ch.includes(n))) score += 15;           // artist's own / Topic channel
   if (/ topic$/.test(ch)) score += 10;                        // distributor upload = the release audio
   if (/full album|full ep|album mix/.test(v)) score -= 40;
   return score;
@@ -474,32 +635,53 @@ function searchScore(item, trackTitle, artist) {
  */
 // `localOnly` (the gap sweep, 2026-10-06): stop after the free checks —
 // the cache and the crawled channel uploads — and never spend quota.
-export async function searchTrackVideo(artist, trackTitle, { label = '', localOnly = false } = {}) {
+export async function searchTrackVideo(artist, trackTitle, { label = '', catno = '', localOnly = false } = {}) {
   const a = /^various$/i.test((artist || '').trim()) ? '' : (artist || '').trim();
-  const title = (trackTitle || '').trim();
+  const rawTitle = (trackTitle || '').trim();
+  const title = coreTitle(rawTitle);
   if (!title) return { youtube_url: null, youtube_title: null };
+  const extras = { label, catno };
 
-  const cacheKey = `search|${a}|${title}`.toLowerCase();
-  const row = db.prepare('SELECT * FROM youtube_cache WHERE query = ?').get(cacheKey);
+  // Saved under the main artist + core title, so every way of crediting and
+  // titling the same track shares one row; older keys are still read.
+  const cacheKey = `search|${trackKey(mainArtist(a))}|${trackKey(title)}`;
+  const getRow = db.prepare('SELECT * FROM youtube_cache WHERE query = ?');
+  const row = getRow.get(cacheKey)
+    || getRow.get(`search|${trackKey(a)}|${trackKey(rawTitle)}`)   // yesterday's key
+    || getRow.get(`search|${a}|${rawTitle}`.toLowerCase());        // the original key
   if (row) {
     const age = Date.now() - new Date(row.fetched_at).getTime();
-    if (age < (row.youtube_url ? SEARCH_HIT_TTL : SEARCH_MISS_TTL)) {
-      return { youtube_url: row.youtube_url, youtube_title: row.youtube_title, cached: true };
+    if (row.youtube_url) {
+      // A found link is for keeping: only an old one is looked at again, for
+      // free, and only a video that is really gone sends us back to searching.
+      if (age < SEARCH_HIT_RECHECK || await videoAlive(row.youtube_url)) {
+        if (age >= SEARCH_HIT_RECHECK) setCache(cacheKey, row.youtube_url, row.youtube_title);
+        return { youtube_url: row.youtube_url, youtube_title: row.youtube_title, cached: true };
+      }
+    } else if (age < SEARCH_MISS_TTL) {
+      return { youtube_url: null, youtube_title: null, cached: true };
     }
   }
 
   // DB first (2026-10-02): uploads the channel crawler already collected.
   // Scored like a real search result (the channel title stands in for
   // snippet.channelTitle); a hit costs no quota at all.
+  // Nearest first: uploads from a channel (or with a title) naming the artist,
+  // then the label's channel — with more crawled channels the cap of 50 must
+  // not drop the right one.
+  const near = (mainArtist(a) || '\uffff').toLowerCase(), byLabel = (label || '\uffff').toLowerCase();
   const local = db.prepare(`SELECT v.video_id, v.title, c.title channel FROM yt_channel_videos v
                             JOIN yt_channels c ON c.channel_id = v.channel_id
-                            WHERE instr(lower(v.title), ?) > 0 LIMIT 50`).all(title.toLowerCase());
+                            WHERE instr(lower(v.title), ?) > 0
+                            ORDER BY (instr(lower(c.title), ?) > 0 OR instr(lower(v.title), ?) > 0) DESC,
+                                     (instr(lower(c.title), ?) > 0) DESC
+                            LIMIT 50`).all(title.toLowerCase(), near, near, byLabel);
   let localBest = null, localScore = -Infinity;
   for (const v of local) {
-    const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a);
+    const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a, extras);
     if (sc > localScore) { localScore = sc; localBest = v; }
   }
-  if (localBest && localScore >= (a ? 65 : 30)) {
+  if (localBest && localScore >= (a ? 65 : 30) && await videoAlive(`https://www.youtube.com/watch?v=${localBest.video_id}`)) {
     const url = `https://www.youtube.com/watch?v=${localBest.video_id}`;
     setCache(cacheKey, url, localBest.title);
     return { youtube_url: url, youtube_title: localBest.title, cached: false, local: true };
@@ -508,10 +690,12 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', localOn
 
   if (!spendQuota(SEARCH_COST)) return { youtube_url: null, youtube_title: null, capped: true };
 
-  const q = a ? `${a} ${title}` : `${title} ${label}`.trim();
+  const q = a ? `${mainArtist(a)} ${title}` : `${title} ${label}`.trim();
   let data;
   try {
-    data = await ytApi('search', { part: 'snippet', type: 'video', maxResults: '5', q });
+    // videoEmbeddable: only videos whose owner allows playing them on other
+    // sites (free filter) — a blocked one would show "Video unavailable".
+    data = await ytApi('search', { part: 'snippet', type: 'video', maxResults: '5', videoEmbeddable: 'true', q });
   } catch (e) {
     // Out of quota at Google's end: treat as capped, don't cache a false miss.
     if (/quota/i.test(e.message)) return { youtube_url: null, youtube_title: null, capped: true };
@@ -520,7 +704,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', localOn
 
   let best = null, bestScore = -Infinity;
   for (const item of data.items || []) {
-    const s = searchScore(item, title, a);
+    const s = searchScore(item, title, a, extras);
     if (s > bestScore) { bestScore = s; best = item; }
   }
   // Title must match (>=30). With a known artist, also want the artist in the

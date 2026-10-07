@@ -329,9 +329,11 @@ function Discography({ kind, id, name, allPosts }) {
           const mi = r.type === 'master' ? info?.info?.[r.mainRelease] : null
           const group = kind === 'artist' ? roleGroup(r.role || '') : null
           const onSite = r.type !== 'master' ? postByRelease.get(r.id) : null
+          // "· 609 versions": pressings the duplicate comber folded into this row.
+          const versions = r.versions > 1 ? `${r.versions.toLocaleString('en-GB')} versions` : ''
           const sub = kind === 'label'
-            ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : ''].filter(Boolean).join(' · ')
-            : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || '')].filter(Boolean).join(' · ')
+            ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : '', versions].filter(Boolean).join(' · ')
+            : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || ''), versions].filter(Boolean).join(' · ')
           // On LNV: go to the post. Otherwise open it here — tracklist and
           // players, like the spotlights (2026-10-06; it used to open Discogs).
           const rk = `${r.type}:${r.id}`, isOpen = openRel === rk

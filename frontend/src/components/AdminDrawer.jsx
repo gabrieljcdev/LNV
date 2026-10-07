@@ -429,18 +429,64 @@ function IntroductionsTab() {
   </>
 }
 
+// Links people added by hand (2026-10-07): waiting for a decision first, then
+// what was decided in the last two weeks. An admin's approve / reject is final.
+function LinksTab() {
+  const qc = useQueryClient()
+  const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'links'], queryFn: () => getJson('/link-submissions') })
+  const [busy, setBusy] = useState(null)
+  if (isLoading) return <Note>Loading…</Note>
+  if (error) return <Note tone="error">{error.message}</Note>
+  const decide = async (id, decision) => {
+    setBusy(id)
+    try { await postJson(`/link-submissions/${id}/${decision}`); await qc.invalidateQueries({ queryKey: ['admin', 'links'] }) } catch (e) { window.alert(e.message) }
+    setBusy(null)
+  }
+  const rows = data.submissions
+  const waiting = rows.filter(r => r.status === 'pending')
+  const tone = s => (s === 'live' ? PRI : s === 'rejected' ? LEVEL.error : LEVEL.warn)
+  const Row = ({ r }) => (
+    <div style={{ borderBottom: `1px solid ${LINE}`, padding: '10px 0' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15.5, color: PRI }}>{r.trackTitle}</span>
+        <span style={{ fontFamily: SANS, fontSize: 13.5, color: SEC }}>{r.artist}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11.5, color: tone(r.status) }}>{r.status}{r.decidedBy ? ` · ${r.decidedBy}` : ''}</span>
+      </div>
+      <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER, marginTop: 2, overflowWrap: 'anywhere' }}>
+        {r.platform} · “{r.fetchedTitle}” · {r.verdict} match · by {r.by} · {ago(r.at)} · {r.ok} yes / {r.bad} no
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>open link ↗</a>
+        <a href={`https://www.discogs.com/release/${r.releaseId}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>release {r.releaseId} · {r.position} ↗</a>
+        {r.status !== 'live' && <Btn onClick={() => decide(r.id, 'approve')} disabled={busy === r.id}>Approve</Btn>}
+        {r.status !== 'rejected' && <Btn onClick={() => decide(r.id, 'reject')} disabled={busy === r.id}>Reject</Btn>}
+      </div>
+    </div>
+  )
+  return <>
+    <Section title="Waiting" right={`${waiting.length}`}>
+      <Note>Links pasted by listeners that didn't clearly match their track. Two other people confirming makes one live; your approve or reject is final.</Note>
+      {waiting.length === 0 ? <Note>Nothing waiting.</Note> : waiting.map(r => <Row key={r.id} r={r} />)}
+    </Section>
+    <Section title="Last two weeks" right={`${rows.length - waiting.length}`}>
+      {rows.length === waiting.length ? <Note>Nothing else yet.</Note> : rows.filter(r => r.status !== 'pending').map(r => <Row key={r.id} r={r} />)}
+    </Section>
+  </>
+}
+
 export function AdminDrawer({ tab: initialTab }) {
   const [tab, setTab] = useState(initialTab || 'status')
   const [logLevel, setLogLevel] = useState('')
   return <>
     <DrawerHead title="Admin" count="">
-      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['channels', 'Channels'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
+      <Chips options={[['status', 'Status'], ['logs', 'Logs'], ['users', 'Users'], ['channels', 'Channels'], ['links', 'Links'], ['intros', 'Introductions']]} value={tab} onChange={setTab} />
     </DrawerHead>
     <DrawerBody>
       {tab === 'status' && <StatusTab onShowLogs={lvl => { setLogLevel(lvl); setTab('logs') }} />}
       {tab === 'logs' && <LogsTab key={logLevel} initialLevel={logLevel} />}
       {tab === 'users' && <UsersTab />}
       {tab === 'channels' && <ChannelsTab />}
+      {tab === 'links' && <LinksTab />}
       {tab === 'intros' && <IntroductionsTab />}
     </DrawerBody>
   </>

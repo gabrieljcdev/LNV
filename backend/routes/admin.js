@@ -10,6 +10,7 @@ import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
+import { adminList, adminDecide } from '../services/trackLinks.js';
 import { lastfmConfigured } from '../services/lastfmService.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
@@ -21,6 +22,19 @@ router.use(requireAuth, requireAdmin);
 
 const startedAt = new Date();
 const DB_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'vinyl_crate.db');
+
+// ── Links people added by hand: the ones waiting, and what was decided lately ──
+router.get('/link-submissions', (req, res, next) => {
+  try { res.json({ submissions: adminList() }); } catch (err) { next(err); }
+});
+router.post('/link-submissions/:id/:decision', (req, res, next) => {
+  try {
+    if (!['approve', 'reject'].includes(req.params.decision)) return res.status(400).json({ error: 'approve or reject' });
+    const r = adminDecide(req.params.id, req.params.decision, req.user);
+    if (!r) return res.status(404).json({ error: 'No such link.' });
+    res.json(r);
+  } catch (err) { next(err); }
+});
 
 // ── Status ──
 router.get('/status', (req, res, next) => {

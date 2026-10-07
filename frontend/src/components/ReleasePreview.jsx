@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import TrackPlayer from './TrackPlayer'
 import { AddToPlaylistButton } from './Collect'
 import { toEmbedSrc } from '../lib/embeds'
+import { withoutHeadings, linkKeys } from '../lib/tracklist'
+import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 
 // A Discogs release opened in place (2026-10-06, gabriel: "like on the
 // spotlights, see the release tracklist and embeds here to keep traffic on
@@ -51,11 +53,15 @@ export default function ReleasePreview({ release, artistName = '' }) {
     staleTime: Infinity,
   })
 
-  const tracks = (full?.tracklist || []).map(t => {
+  const rows = withoutHeadings(full?.tracklist)
+  const keys = linkKeys(rows)
+  const tracks = rows.map((t, ti) => {
     const tt = normT(t.title)
     const video = tt && (full.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
-    const link = saved?.links?.[t.position]
-    return { position: t.position, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || link?.url || '', knownMiss: !!link && !link.url }
+    const link = saved?.links?.[keys[ti]]
+    return { position: t.position, linkKey: keys[ti],
+      added: link?.by ? { by: link.by, id: link.submissionId } : null,
+      suggestion: saved?.suggestions?.[keys[ti]] || null, mine: saved?.mine?.[keys[ti]] || null, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || link?.url || '', knownMiss: !!link && !link.url }
   })
   const urlOf = (t, i) => t.url || (found[i] && found[i] !== 'none' && found[i] !== 'capped' ? found[i] : '')
 
@@ -65,13 +71,14 @@ export default function ReleasePreview({ release, artistName = '' }) {
     if (searching != null) return 'busy'
     setSearching(i)
     try {
-      const artist = (t.artists || []).map(a => a.name).join(' ') || (full?.artists || []).map(a => a.name).join(' ') || artistName
-      const q = new URLSearchParams({ artist, title: t.title || '', label: '' })
-      if (releaseId && t.position) { q.set('release_id', releaseId); q.set('position', t.position) }
+      const artist = (t.artists || []).map(a => a.name).join(', ') || (full?.artists || []).map(a => a.name).join(', ') || artistName
+      const rel = full?.labels?.[0]
+      const q = new URLSearchParams({ artist, title: t.title || '', label: rel?.name || '', catno: rel?.catno && !/^none$/i.test(rel.catno) ? rel.catno : '', listen: '1' })
+      if (releaseId && t.linkKey) { q.set('release_id', releaseId); q.set('position', t.linkKey) }
       const d = await (await fetch(`${API}/discogs/youtube/search?${q}`)).json()
       // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.
-      if (releaseId && t.position && !d.capped && !d.fallback) {
-        qc.setQueryData(['release-track-links', releaseId], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
+      if (releaseId && t.linkKey && !d.capped && !d.fallback) {
+        qc.setQueryData(['release-track-links', releaseId], old => ({ links: { ...(old?.links || {}), [t.linkKey]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
       }
       const foundUrl = d.youtube_url || d.spotify_url
       if (foundUrl) { setFound(m => ({ ...m, [i]: foundUrl })); setPlaying({ i, url: foundUrl }); return 'played' }
@@ -84,17 +91,12 @@ export default function ReleasePreview({ release, artistName = '' }) {
       setSearching(null)
     }
   }
-  // When track i ends: the next one with (or able to get) a link.
-  async function playNext(i) {
-    let searches = 0
+  // When track i ends: the next one that already has a link (no searching
+  // ahead — a track is only searched when someone clicks it).
+  function playNext(i) {
     for (let j = i + 1; j < tracks.length; j++) {
-      const t = tracks[j], url = urlOf(t, j)
+      const url = urlOf(tracks[j], j)
       if (url) { setPlaying({ i: j, url }); return }
-      if (t.knownMiss || found[j] === 'none') continue
-      if (found[j] === 'capped' || searches >= 3) return
-      searches++
-      const r = await play(t, j)
-      if (r === 'played' || r === 'capped') return
     }
   }
 
@@ -113,6 +115,10 @@ export default function ReleasePreview({ release, artistName = '' }) {
             <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl } }))}
               style={{ ...btn, border: 0, background: 'var(--theme-accent)', color: '#fff' }}>+ add to my feed</button>
             <a href={discogsUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>Discogs ↗</a>
+            {/* Folded pressings (the duplicate comber): all of them, on Discogs. */}
+            {release.versions > 1 && release.masterId && (
+              <a href={`https://www.discogs.com/master/${release.masterId}`} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>All {release.versions} versions ↗</a>
+            )}
           </div>
         </div>
       </div>
@@ -137,6 +143,15 @@ export default function ReleasePreview({ release, artistName = '' }) {
                   <span aria-hidden="true" style={{ fontFamily: MONO, fontSize: 12, color: isPlaying ? 'var(--theme-accent)' : TER, textAlign: 'right' }}>{state}</span>
                   <span style={{ textAlign: 'right' }}>{url && <AddToPlaylistButton tracks={[tr]} label="+" align="right" style={{ fontFamily: MONO, fontSize: 12, color: TER }} />}</span>
                 </div>
+                {miss && t.linkKey && (
+                  <AddLinkRow releaseId={releaseId} linkKey={t.linkKey} title={t.title}
+                    artist={(t.artists || []).map(a => a.name).join(', ') || (full.artists || []).map(a => a.name).join(', ') || artistName}
+                    suggestion={t.suggestion} mine={t.mine}
+                    onDone={() => { qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] }); setFound(m => { const n = { ...m }; delete n[i]; return n }) }} />
+                )}
+                {url && t.added && (
+                  <UserLinkNote by={t.added.by} submissionId={t.added.id} onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
+                )}
                 {isPlaying && toEmbedSrc(playing.url) && (
                   <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260, margin: '8px 0 10px', borderRadius: 12, overflow: 'hidden' }}>
                     <TrackPlayer key={playing.url} src={toEmbedSrc(playing.url)} title={t.title} autoplay onEnded={() => playNext(i)} />
