@@ -1,0 +1,304 @@
+<title>Spotlight List Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the spotlight card as it sits in the feed, list area swapped per option; controls above it. Single deliberate dark look (the card's own palette). */
+:root {
+  --page: #171a16;      /* around the card */
+  --card: #2c4a2e;      /* the spotlight green from the feed */
+  --ink: #efecde;       /* primary text */
+  --ink2: #c2c9b6;      /* secondary */
+  --ink3: #92a48f;      /* tertiary / labels */
+  --line: #446148;      /* dividers */
+  --hover: #365a3a;     /* row hover */
+  --accent: #e4d47c;    /* on-LNV dot, active chip */
+  --sans: 'Barlow', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --pad: 9px;           /* row padding, set by the spacing control */
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--sans); padding: 28px 16px 48px; }
+.wrap { max-width: 920px; margin: 0 auto; display: grid; gap: 18px; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; justify-content: space-between; }
+.controls h1 { margin: 0 0 4px; font-weight: 800; font-size: 22px; letter-spacing: -0.01em; }
+.controls p { margin: 0; color: var(--ink3); font-size: 14px; max-width: 60ch; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg span { font-family: var(--sans); font-weight: 600; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink3); margin-right: 4px; }
+.seg button, .chips button { font: 500 13px var(--sans); color: var(--ink2); background: none; border: 1px solid var(--line); border-radius: 99px; padding: 4px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.seg button:focus-visible, .chips button:focus-visible, .row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { font-size: 14.5px; line-height: 1.5; color: var(--ink2); background: #20251f; border-radius: 12px; padding: 12px 16px; max-width: 100%; }
+.note b { color: var(--ink); }
+
+/* card */
+.card { background: var(--card); border-radius: 40px; padding: 44px 56px 30px; min-width: 0; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; }
+.badge { font: 700 10.5px var(--sans); letter-spacing: .14em; text-transform: uppercase; }
+.mark { width: 44px; height: 44px; border-radius: 50%; background: #1d2a1e; border: 1px solid var(--line); }
+.name { margin: 26px 0 0; font-weight: 800; font-size: 34px; letter-spacing: -0.02em; line-height: 1; }
+.name sup { font: 400 11px var(--mono); color: var(--ink2); margin-left: 6px; letter-spacing: .06em; }
+.meta { margin-top: 12px; font: 400 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink2); }
+.strip { margin: 18px -56px 0; height: 120px; display: flex; gap: 8px; overflow: hidden; padding-left: 40px;
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent); -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent); }
+.strip i { flex: 0 0 120px; border-radius: 18px; background: #3a5a3d; }
+.strip i:nth-child(3n) { background: #49684a; } .strip i:nth-child(4n) { background: #263d28; }
+.striplabel { font: 400 11px var(--mono); color: var(--ink3); margin-top: 6px; text-align: center; letter-spacing: .06em; }
+
+.list { margin-top: 16px; height: 430px; overflow-y: auto; padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.foot { margin-top: 14px; display: flex; justify-content: space-between; font-size: 13px; }
+.foot a { color: var(--ink); font-weight: 600; text-decoration: none; border-bottom: 1px dotted currentColor; }
+.foot span { font-family: var(--mono); color: var(--ink2); font-size: 11.5px; }
+
+/* shared row parts */
+.sect { display: flex; justify-content: space-between; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink3); margin: 18px 0 4px; }
+.sect:first-child { margin-top: 2px; }
+.row { display: grid; align-items: center; gap: 12px; width: 100%; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer;
+  padding: var(--pad) 10px; margin: 0 -10px; width: calc(100% + 20px); border-radius: 12px; font: inherit; }
+.row + .row { margin-top: calc(var(--pad) / 3); }
+.row:hover { background: var(--hover); }
+.row.open { background: var(--ink); color: var(--card); }
+.row.open .sub, .row.open .yr, .row.open .lbl, .row.open .role { color: #4a5d4b; }
+.row.open .tag { border-color: var(--card); color: var(--card); }
+.tag { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); border: 1px solid #8fa58d; border-radius: 5px; padding: 2px 0; width: 54px; text-align: center; white-space: nowrap; }
+.ttl { font-weight: 700; font-size: 15.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-style: italic; font-size: 14px; color: var(--ink2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbl { font-size: 14px; color: var(--ink2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yr { font: 400 12px var(--mono); color: var(--ink3); text-align: right; font-variant-numeric: tabular-nums; }
+.role { font: 400 11px var(--mono); color: var(--ink3); letter-spacing: .04em; white-space: nowrap; }
+.stack { display: grid; gap: 1px; min-width: 0; }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 7px; vertical-align: middle; }
+.opened { margin: 4px 0 10px; padding: 10px 2px 4px 66px; font: 400 12px var(--mono); color: var(--ink3); }
+.opened div { display: grid; grid-template-columns: 28px 1fr 44px; gap: 10px; padding: 4px 0; border-bottom: 1px dotted var(--line); }
+
+/* option grids */
+.A .row { grid-template-columns: 54px minmax(0, 1fr) 40px; }
+.B .row { grid-template-columns: 54px minmax(0, 1.5fr) minmax(0, 1fr) 40px; }
+.C .row { grid-template-columns: 54px minmax(0, 1.4fr) 74px minmax(0, 1fr); }
+.D .row { grid-template-columns: 54px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .9fr) 40px; }
+.thead { display: grid; gap: 12px; padding: 0 0 7px; border-bottom: 1px solid var(--ink); margin-bottom: 4px; font: 600 10.5px var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--ink3); }
+.D .thead { grid-template-columns: 54px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .9fr) 40px; }
+.B .thead { grid-template-columns: 54px minmax(0, 1.5fr) minmax(0, 1fr) 40px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+.chips button b { font: 400 11px var(--mono); margin-left: 5px; opacity: .7; }
+.year { font-weight: 900; font-size: 25px; color: var(--ink3); margin: 14px 0 2px; letter-spacing: -0.01em; }
+.year:first-child { margin-top: 0; }
+
+.rp { font: 600 10px var(--sans); letter-spacing: .12em; text-transform: uppercase; border-radius: 99px; padding: 2px 8px; white-space: nowrap; justify-self: start; border: 1px solid transparent; }
+.rp.main { background: var(--accent); color: #2a2a14; }
+.rp.remix { border-color: #b9c7a8; color: var(--ink); }
+.rp.prod { border-color: #b9c7a8; color: var(--ink); border-style: dashed; }
+.rp.guest { color: var(--ink3); border-color: var(--line); }
+.row.open .rp.remix, .row.open .rp.prod, .row.open .rp.guest { border-color: var(--card); color: var(--card); }
+.E .row { grid-template-columns: 54px minmax(0, 1.5fr) 84px minmax(0, 1fr); }
+.F .row { grid-template-columns: 54px minmax(0, 1fr) 84px; }
+.F .subline { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.F .yr { text-align: right; }
+.yhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 4px; }
+.yhead:first-child { margin-top: 0; }
+.yhead .year { margin: 0; }
+.yhead .ycount { font: 400 11px var(--mono); color: var(--ink3); letter-spacing: .06em; text-transform: uppercase; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--ink3); align-items: center; }
+.legend .tag { width: auto; padding: 2px 6px; }
+
+@media (max-width: 640px) {
+  .card { padding: 30px 20px 22px; border-radius: 28px; }
+  .strip { margin: 16px -20px 0; }
+  .A .row { grid-template-columns: 54px minmax(0, 1fr) 36px; }
+  .B .row, .D .row { grid-template-columns: 54px minmax(0, 1fr) 36px; }
+  .B .row .lbl, .D .row .lbl, .D .row .sub, .B .thead, .D .thead { display: none; }
+  .C .row { grid-template-columns: 54px minmax(0, 1fr) 64px; }
+  .C .row .lbl, .E .row .lbl { display: none; }
+  .E .row { grid-template-columns: 54px minmax(0, 1fr) 76px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="controls">
+    <div>
+      <h1>Spotlight list mockups</h1>
+      <p>Justin Scharvona's real Discogs catalogue (18 releases). Click a row to see the open state. The sleeve strip above the list stays as it is.</p>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Option">
+      <span>Option</span>
+      <button id="opt-E" data-opt="E" aria-pressed="true">E · Year + role column</button>
+      <button id="opt-F" data-opt="F" aria-pressed="false">F · Year + role in subline</button>
+      <button id="opt-A" data-opt="A" aria-pressed="false">A · Grouped by role</button>
+      <button id="opt-B" data-opt="B" aria-pressed="false">B · Role filter chips</button>
+      <button id="opt-C" data-opt="C" aria-pressed="false">C · By year</button>
+      <button id="opt-D" data-opt="D" aria-pressed="false">D · Today's table, fixed</button>
+    </div>
+    <div class="seg" role="group" aria-label="Row spacing">
+      <span>Spacing</span>
+      <button id="sp-6" data-sp="6" aria-pressed="false">Tight</button>
+      <button id="sp-9" data-sp="9" aria-pressed="true">Medium</button>
+      <button id="sp-12" data-sp="12" aria-pressed="false">Airy</button>
+    </div>
+  </div>
+  <div class="note" id="note"></div>
+
+  <div class="card">
+    <div class="head"><span class="badge">Artist spotlight</span><div class="mark" aria-hidden="true"></div></div>
+    <div class="name">Justin Scharvona<sup>[18]</sup></div>
+    <div class="meta">1 post in the feed · 18 on Discogs</div>
+    <div class="strip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="striplabel">sleeve strip · unchanged</div>
+    <div class="list" id="list"></div>
+    <div class="foot"><a href="#" onclick="return false">view all →</a><span>LNV · editorial</span></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+</div>
+
+<script>
+const DATA = [{"t":"Buck Bumble OST","a":"Justin Scharvona","r":"Main","f":"13xFile, FLAC, Album","l":"Not On Label (Justin Scharvona Self-released)","c":"none","y":2022,"on":true},{"t":"Croc: Legend Of The Gobbos","a":"Justin Scharvona, Karin Griffin, Martin Gwynn Jones (2)","r":"Main","f":"CD-ROM, Enh","l":"Fox Interactive","c":"4102837","y":1997},{"t":"R3MIX","a":"Sara Jorge","r":"Remix","f":"CD, Album, Promo","l":"Purple City","c":"PCTYCD1P","y":2006},{"t":"Look On The Floor (Hypnotic Tango)","a":"Bananarama","r":"Remix","f":"CD, Single","l":"A&G Productions, A&G Productions","c":"CDAG4P","y":2006},{"t":"Closest Thing To Heaven","a":"Tears For Fears","r":"Remix, Appearance","f":"CD, Single, Promo","l":"Arista","c":"82876 58951 2","y":2005},{"t":"Under The Hours Of Satellite Towers","a":"Amoriste","r":"Producer, Appearance","f":"CD, EP","l":"My Satellite Records","c":"MSR002","y":2010},{"t":"Penny Foster","a":"Penny Foster","r":"Producer, Appearance","f":"CD","l":"Not On Label (Penny Foster Self-released)","c":"none","y":2006},{"t":"The Very Best Of Euphoric Dance Breakdown Ibiza","a":"Various","r":"Producer","f":"2xCD, Mixed","l":"Telstar TV","c":"TTVCD3195","y":2001},{"t":"Mon Ami","a":"Giresse","r":"Producer, Appearance","f":"Vinyl, 12\", 45 RPM","l":"Inferno","c":"T FERN 36","y":2001},{"t":"Feel The Vibe","a":"Delta Brothers","r":"Producer, Appearance","f":"12\"","l":"Vault Recordings, Pow!","c":"POW007","y":1999},{"t":"Drama","a":"Bananarama","r":"Appearance","f":"CD, Album","l":"A&G Productions","c":"AG003CD","y":2019},{"t":"Tribute Album 64","a":"Various","r":"Appearance","f":"87xFile, FLAC, Comp","l":"Patient Corgi","c":"none","y":2016},{"t":"I Kissed A Girl (Remixes)","a":"Katy Perry","r":"Appearance","f":"CD, Single","l":"Capitol Records","c":"509992 36699 2 5","y":2008},{"t":"Bleeding Love","a":"Leona Lewis","r":"Appearance","f":"CD, Single","l":"Syco Music, Sony BMG Music Entertainment","c":"88697175622","y":2008},{"t":"Hed Kandi Summer Sampler 2005","a":"Various","r":"Appearance","f":"CD, Compilation, Mixed","l":"Hed Kandi","c":"hedksmp005","y":2005},{"t":"Everybody Loves A Happy Ending","a":"Tears For Fears","r":"Appearance","f":"2xVinyl, LP, Advance, Album, Promo","l":"Arista","c":"82876-52140-1","y":2005},{"t":"Lighten Up","a":"Morcheeba","r":"Appearance","f":"CD, Maxi-Single","l":"Echo, [PIAS], G&G Records","c":"ECSCD 176","y":2005},{"t":"Atomic Bomb Compilation Vol. 7","a":"Various","r":"TrackAppearance","f":"26xFile, MP3, Comp, 320","l":"Atomic Bomb (2)","c":"none","y":2019}];
+
+// Discogs format string -> one short type tag.
+function tagOf(r) {
+  const f = r.f || '';
+  if (/CD-ROM/i.test(f) || /\bOST\b|soundtrack/i.test(r.t)) return 'OST';
+  if (/Comp/i.test(f)) return 'Comp';
+  if (/Mixed|Mixtape/i.test(f)) return 'Mix';
+  if (/Album|\bLP\b/i.test(f)) return 'LP';
+  if (/\bEP\b/i.test(f)) return 'EP';
+  if (/Single/i.test(f)) return 'Single';
+  const v = f.match(/(12|10|7)"/); if (v) return v[0];
+  const n = +(f.match(/(\d+)xFile/) || [])[1];
+  if (n) return n <= 3 ? 'Single' : n <= 7 ? 'EP' : 'LP';
+  return (f.split(',')[0] || '—').trim();
+}
+// Discogs role -> which part of the catalogue it belongs to.
+const GROUPS = [
+  { key: 'main', name: 'Releases', word: '' },
+  { key: 'remix', name: 'Remixes', word: 'remix' },
+  { key: 'prod', name: 'Production', word: 'producer' },
+  { key: 'guest', name: 'Appears on', word: 'appears' },
+];
+function groupOf(r) {
+  const first = (r.r || '').split(',')[0].trim();
+  if (first === 'Main') return 'main';
+  if (/Remix/i.test(first)) return 'remix';
+  if (/Producer/i.test(first)) return 'prod';
+  return 'guest';
+}
+const PILL = { main: 'Own', remix: 'Remix', prod: 'Producer', guest: 'Guest' };
+const pill = r => `<span class="rp ${r.g}">${PILL[r.g]}</span>`;
+// "2005 · 1 own · 2 remixes · 3 guest"
+function yearSummary(rs) {
+  const n = k => rs.filter(r => r.g === k).length;
+  return [['main', 'own'], ['remix', 'remix'], ['prod', 'producer'], ['guest', 'guest']]
+    .filter(([k]) => n(k)).map(([k, w]) => `${n(k)} ${w}`).join(' · ');
+}
+const wordOf = r => GROUPS.find(g => g.key === groupOf(r)).word;
+function cleanLabel(l) {
+  if (/^Not On Label/i.test(l)) return 'Self-released';
+  return [...new Set(l.split(',').map(s => s.replace(/\s*\(\d+\)$/, '').trim()))].slice(0, 2).join(', ');
+}
+const cleanArtist = a => a.split(',')[0].replace(/\s*\(\d+\)$/, '').trim() + (a.includes(',') ? ' & co.' : '');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const rows = DATA.map((r, i) => ({ ...r, i, tag: tagOf(r), g: groupOf(r), lab: cleanLabel(r.l), art: cleanArtist(r.a) }))
+  .sort((a, b) => b.y - a.y);
+
+const NOTES = {
+  A: '<b>Grouped by role.</b> Borrowed from the drawers: small-caps section heads, rounded hover rows, no hard rules. Each row is a type tag, the title over an italic line (the record\'s artist for remixes and guest spots, then the label), and the year. His own releases come first, so "Appearance" never reads as a label again. Two lines per row, so it\'s the least compact.',
+  B: '<b>Role filter chips.</b> One line per row, like today, with the drawer\'s pill chips above the list to narrow it to releases, remixes, production or guest spots. For a remix or guest spot, the record\'s artist sits in italic after the title. The most compact option.',
+  C: '<b>By year.</b> Big muted year heads, the way the artist drawer uses letters, then one-line rows with a short role word (remix, producer, appears). Reads like a discography timeline. Good for long careers, weaker for 2-entry spotlights.',
+  E: `<b>Year + role column.</b> Year heads as in C, each with a count of what's in it. One line per row: type tag, title, then the record's artist in italic when it isn't his, a role pill, and the label. His own releases get the filled pill, so they stand out in a long list of remixes and guest spots.`,
+  F: `<b>Year + role in subline.</b> Year heads, two-line drawer rows: title on top, then the role pill, the record's artist and the label underneath, and the type tag on the left. Roomier and easier to scan, less compact than E.`,
+  D: '<b>Today\'s table, fixed.</b> The smallest change: the number column becomes the type tag, the title gets its role word, and the record\'s artist and the label get their own columns. Roles never fill the label column. Rows get rounded hover and the spacing below.',
+};
+
+let opt = 'E', filter = 'all', openIdx = null;
+try { opt = localStorage.getItem('slm-opt2') || 'E'; } catch (e) {}
+
+function openBlock(r) {
+  if (openIdx !== r.i) return '';
+  return `<div class="opened"><div><span>A1</span><span>tracklist + player open here, as today</span><span></span></div><div><span>A2</span><span>…</span><span></span></div></div>`;
+}
+function rowA(r) {
+  const sub = r.g === 'main' ? r.lab : `${r.art} · ${r.lab}`;
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="stack"><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}</span><span class="sub">${esc(sub)}</span></span><span class="yr">${r.y}</span></button>${openBlock(r)}`;
+}
+function rowB(r) {
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}${r.g === 'main' ? '' : ` <span class="sub" style="font-weight:400">· ${esc(r.art)}</span>`}</span><span class="lbl">${esc(r.lab)}</span><span class="yr">${r.y}</span></button>${openBlock(r)}`;
+}
+function rowC(r) {
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}${r.g === 'main' ? '' : ` <span class="sub" style="font-weight:400">· ${esc(r.art)}</span>`}</span><span class="role">${esc(wordOf(r) || 'own')}</span><span class="lbl">${esc(r.lab)}</span></button>${openBlock(r)}`;
+}
+function rowE(r) {
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}${r.g === 'main' ? '' : ` <span class="sub" style="font-weight:400">· ${esc(r.art)}</span>`}</span>${pill(r)}<span class="lbl">${esc(r.lab)}</span></button>${openBlock(r)}`;
+}
+function rowF(r) {
+  const who = r.g === 'main' ? r.lab : `${r.art} · ${r.lab}`;
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="stack"><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}</span><span class="subline">${pill(r)}<span class="sub">${esc(who)}</span></span></span><span class="yr">${esc(r.c && r.c !== 'none' ? r.c : '')}</span></button>${openBlock(r)}`;
+}
+function rowD(r) {
+  return `<button class="row${openIdx === r.i ? ' open' : ''}" data-i="${r.i}"><span class="tag">${esc(r.tag)}</span><span class="ttl">${r.on ? '<i class="dot" title="on LNV"></i>' : ''}${esc(r.t)}${wordOf(r) ? ` <span class="role">${esc(wordOf(r))}</span>` : ''}</span><span class="sub">${esc(r.g === 'main' ? 'Justin Scharvona' : r.art)}</span><span class="lbl">${esc(r.lab)}</span><span class="yr">${r.y}</span></button>${openBlock(r)}`;
+}
+
+function render() {
+  const list = document.getElementById('list');
+  list.className = 'list ' + opt;
+  let html = '';
+  if (opt === 'A') {
+    for (const g of GROUPS) {
+      const rs = rows.filter(r => r.g === g.key);
+      if (!rs.length) continue;
+      html += `<div class="sect"><span>${g.name}</span><span>${rs.length}</span></div>` + rs.map(rowA).join('');
+    }
+  } else if (opt === 'B') {
+    const counts = Object.fromEntries(GROUPS.map(g => [g.key, rows.filter(r => r.g === g.key).length]));
+    html += `<div class="chips" role="group" aria-label="Filter by role"><button id="f-all" data-f="all" aria-pressed="${filter === 'all'}">All<b>${rows.length}</b></button>` +
+      GROUPS.filter(g => counts[g.key]).map(g => `<button id="f-${g.key}" data-f="${g.key}" aria-pressed="${filter === g.key}">${g.name}<b>${counts[g.key]}</b></button>`).join('') + '</div>';
+    html += `<div class="thead"><span>Type</span><span>Title</span><span>Label</span><span>Year</span></div>`;
+    html += rows.filter(r => filter === 'all' || r.g === filter).map(rowB).join('');
+  } else if (opt === 'E' || opt === 'F') {
+    const years = [...new Set(rows.map(r => r.y))];
+    for (const y of years) {
+      const rs = rows.filter(r => r.y === y);
+      html += `<div class="yhead"><div class="year">${y}</div><span class="ycount">${yearSummary(rs)}</span></div>` + rs.map(opt === 'E' ? rowE : rowF).join('');
+    }
+  } else if (opt === 'C') {
+    let last = null;
+    for (const r of rows) {
+      if (r.y !== last) { html += `<div class="year">${r.y}</div>`; last = r.y; }
+      html += rowC(r);
+    }
+  } else {
+    html += `<div class="thead"><span>Type</span><span>Title</span><span>Artist</span><span>Label</span><span>Year</span></div>`;
+    html += rows.map(rowD).join('');
+  }
+  list.innerHTML = html;
+  document.getElementById('note').innerHTML = NOTES[opt];
+  document.querySelectorAll('[data-opt]').forEach(b => b.setAttribute('aria-pressed', b.dataset.opt === opt));
+}
+
+document.addEventListener('click', e => {
+  const o = e.target.closest('[data-opt]');
+  if (o) { opt = o.dataset.opt; openIdx = null; try { localStorage.setItem('slm-opt2', opt); } catch (err) {} render(); return; }
+  const s = e.target.closest('[data-sp]');
+  if (s) {
+    document.documentElement.style.setProperty('--pad', s.dataset.sp + 'px');
+    document.querySelectorAll('[data-sp]').forEach(b => b.setAttribute('aria-pressed', b === s));
+    return;
+  }
+  const f = e.target.closest('[data-f]');
+  if (f) { filter = f.dataset.f; render(); return; }
+  const r = e.target.closest('.row');
+  if (r) { const i = +r.dataset.i; openIdx = openIdx === i ? null : i; render(); }
+});
+
+// Type tags actually used, with what they mean.
+const MEANING = { LP: 'album', EP: 'EP', Single: 'single / maxi', '12"': '12-inch vinyl', Comp: 'compilation', Mix: 'mixed / DJ mix', OST: 'soundtrack / game', CD: 'format only' };
+document.getElementById('legend').innerHTML = '<span style="font:600 11px var(--sans);letter-spacing:.18em;text-transform:uppercase">Type tags</span>' +
+  [...new Set(rows.map(r => r.tag))].map(t => `<span><span class="tag">${esc(t)}</span> ${esc(MEANING[t] || '')}</span>`).join('');
+document.getElementById('legend').innerHTML += '<span style="font:600 11px var(--sans);letter-spacing:.18em;text-transform:uppercase;margin-left:12px">Roles</span>' +
+  ['main', 'remix', 'prod', 'guest'].map(k => `<span class="rp ${k}">${PILL[k]}</span>`).join('');
+render();
+</script>
