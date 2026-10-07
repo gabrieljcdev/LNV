@@ -25,15 +25,16 @@ const text = { background: 'none', border: 0, padding: 0, cursor: 'pointer', fon
 const pill = (on = true) => ({ border: `1px solid ${LINE}`, borderRadius: 99, padding: '4px 12px', background: 'none', color: PRI, fontFamily: SANS, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.5 })
 
 // Under a track with no link.
-export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone }) {
+export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone, prompt, signInText, indent }) {
+  const box = indent == null ? wrap : { ...wrap, paddingLeft: indent }
   const [open, setOpen] = useState(false)
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [check, setCheck] = useState(null)   // what the server made of the link
   const [note, setNote] = useState('')
 
-  if (!isLoggedIn()) return <div style={{ ...wrap, color: TER }}>sign in to add a link for this track</div>
-  if (note) return <div style={wrap}>{note}</div>
+  if (!isLoggedIn()) return <div style={{ ...box, color: TER }}>{signInText || 'sign in to add a link for this track'}</div>
+  if (note) return <div style={box}>{note}</div>
 
   // Someone else's link, waiting for a yes / no.
   if (suggestion) {
@@ -45,7 +46,7 @@ export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine
       onDone?.()
     }
     return (
-      <div style={wrap}>
+      <div style={box}>
         <span style={{ color: TER }}>{suggestion.by} suggested a link:</span> <b style={{ color: PRI, fontWeight: 600 }}>{suggestion.title || suggestion.url}</b>{' '}
         <a href={suggestion.url} target="_blank" rel="noopener noreferrer" style={{ ...text, textDecoration: 'none' }}>listen ↗</a>
         <span style={{ display: 'inline-flex', gap: 6, marginLeft: 10 }}>
@@ -56,9 +57,9 @@ export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine
     )
   }
   // Their own, waiting.
-  if (mine) return <div style={{ ...wrap, color: TER }}>Your link is waiting for others to confirm it: <span style={{ color: SEC }}>{mine.title || mine.url}</span></div>
+  if (mine) return <div style={{ ...box, color: TER }}>Your link is waiting for others to confirm it: <span style={{ color: SEC }}>{mine.title || mine.url}</span></div>
 
-  if (!open) return <div style={wrap}><button onClick={() => setOpen(true)} style={text}>＋ know where this is? add a link</button></div>
+  if (!open) return <div style={box}><button onClick={() => setOpen(true)} style={text}>{prompt || '＋ know where this is? add a link'}</button></div>
 
   const body = { release_id: releaseId, position: linkKey, url: url.trim(), title, artist }
   const doCheck = async () => {
@@ -78,7 +79,7 @@ export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine
   }
 
   return (
-    <div style={wrap}>
+    <div style={box}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input value={url} onChange={e => { setUrl(e.target.value); setCheck(null) }} onKeyDown={e => e.key === 'Enter' && doCheck()}
           placeholder="paste a YouTube, SoundCloud or Spotify link" autoFocus

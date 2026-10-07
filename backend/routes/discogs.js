@@ -3,6 +3,7 @@ import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDisco
 import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
 import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
 import { ensureReleaseSpotify } from '../services/releaseSpotify.js';
+import { findFreeLink, findFreeSources } from '../services/trackSources.js';
 import { searchBudget } from '../services/searchBudget.js';
 import db from '../db/database.js';
 try { db.exec('ALTER TABLE release_track_links ADD COLUMN paid INTEGER NOT NULL DEFAULT 0'); } catch { /* already there */ }   // paid YouTube searches made for this track
@@ -161,16 +162,26 @@ router.get('/youtube/search', async (req, res, next) => {
                                    SUM(youtube_url IS NULL AND spotify_url IS NULL AND fetched_at > datetime('now', '-30 days')) misses
                             FROM release_track_links WHERE release_id = ?`).get(Number(release_id)) : null;
     const { busy: ytBusy, held } = searchBudget({ used: quotaUsed(), cap: ytCap, listening: listen === '1', release: rel });
-    const spotifyFirst = listen === '1' && spotifyConfigured();
-    const trySpotify = async () => {
-      const sp = await spotifySearchTrack(artist, title).catch(() => null);
-      return sp && { youtube_url: null, youtube_title: null, spotify_url: sp.url, spotify_title: `${sp.artists.join(', ')} – ${sp.name}`, fallback: true };
+    // Free sources first (2026-10-07, gabriel: "where we can use anything other
+    // than YouTube, to save quota"). After the free YouTube checks (saved links,
+    // crawled channels) a miss tries Spotify, Deezer and Apple (trackSources.js);
+    // the paid YouTube search only runs when all of those found nothing.
+    // YOUTUBE_FIRST=1 puts it back the old way for posting (a real YouTube link
+    // wherever there is one — full-length for everyone — at the cost of quota).
+    const freeFirst = process.env.YOUTUBE_FIRST !== '1';
+    const spotifyFirst = (listen === '1' && spotifyConfigured()) || freeFirst;
+    const tryFree = async () => {
+      const f = await findFreeLink(artist, title).catch(() => null);
+      if (!f) return null;
+      return f.platform === 'spotify'
+        ? { youtube_url: null, youtube_title: null, spotify_url: f.url, spotify_title: f.title, fallback: true }
+        : { youtube_url: null, youtube_title: null, fallback_url: f.url, fallback_platform: f.platform, fallback_title: f.title, fallback: true };
     };
     let result = await searchTrackVideo(artist, title, { label, catno, localOnly: ytBusy || held || spotifyFirst });
-    if (!result.youtube_url && spotifyFirst) result = (await trySpotify()) || (ytBusy || held ? result : await searchTrackVideo(artist, title, { label, catno }));
-    // Not listening (compose): YouTube found nothing -> a Spotify placeholder, so
+    if (!result.youtube_url && spotifyFirst) result = (await tryFree()) || (ytBusy || held ? result : await searchTrackVideo(artist, title, { label, catno }));
+    // Posting with YOUTUBE_FIRST: YouTube found nothing -> a free placeholder, so
     // a post never goes up with a track that can't be played (2026-10-07).
-    else if (!result.youtube_url && spotifyConfigured()) result = (await trySpotify()) || result;
+    else if (!result.youtube_url) result = (await tryFree()) || result;
     if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
     else if (held && !result.youtube_url && !result.spotify_url) result = { ...result, held: true };
     if (release_id && position && !result.capped && !result.fallback && !result.localOnly) {
@@ -200,6 +211,18 @@ router.get('/youtube/search', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/discogs/track-sources?artist=&title= -> { sources: [{ platform, url, title, full }] }
+// Every free place this track can be played (Spotify, Deezer, Apple) — what
+// compose offers as "play it from…". No YouTube quota; the answers that matter
+// are cached by the services themselves.
+router.get('/track-sources', async (req, res, next) => {
+  try {
+    const { artist = '', title } = req.query;
+    if (!title) return res.status(400).json({ error: 'title required' });
+    res.json({ sources: await findFreeSources(String(artist), String(title)) });
+  } catch (err) { next(err); }
 });
 
 // GET /api/discogs/release/:id/track-links -> { links: { [position]: { url, title } } }

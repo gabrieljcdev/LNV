@@ -26,6 +26,7 @@ import { extractVideoId, linkVerdict } from './youtubeService.js';
 import { spotifyConfigured, spotifyTrack } from './spotifyService.js';
 import { isAdminUser } from './authService.js';
 import { logEvent } from './logService.js';
+import { applyUserLink, removeUserLink } from './trackSources.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS track_link_submissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +120,7 @@ export async function checkLink({ url, title, artist }) {
 
 // ── what a live link does to release_track_links ──
 function publish(sub) {
+  applyUserLink(sub);   // and onto the posts' tracks (trackSources.js)
   const spotify = sub.platform === 'spotify';
   db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at, spotify_url, spotify_title)
               VALUES (@release_id, @position, @title, @yt, @yt_title, 'user', datetime('now'), @sp, @sp_title)
@@ -130,6 +132,7 @@ function publish(sub) {
       sp: spotify ? sub.url : null, sp_title: spotify ? sub.fetched_title : null });
 }
 function unpublish(sub) {
+  removeUserLink(sub);
   const col = sub.platform === 'spotify' ? 'spotify' : 'youtube';
   db.prepare(`UPDATE release_track_links SET ${col}_url = NULL, ${col}_title = NULL WHERE release_id = ? AND position = ? AND ${col}_url = ?`)
     .run(sub.release_id, sub.position, sub.url);
