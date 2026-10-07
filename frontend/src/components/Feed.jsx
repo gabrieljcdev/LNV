@@ -9,7 +9,7 @@ import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/aut
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
-import { withoutHeadings } from '../lib/tracklist'
+import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -1905,16 +1905,18 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // click (playTrack) — one capped, cached YouTube search, never up front.
   const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === (trackReleaseId || openRow.id)) : null
+  const releaseRows = withoutHeadings(selectedFull?.tracklist)
+  const releaseKeys = linkKeys(releaseRows)
   const openTracks = !openRow ? []
     : openRow.kind === 'post'
       ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
       : openRow.kind === 'release'
-        ? withoutHeadings(selectedFull?.tracklist).map(t => {
+        ? releaseRows.map((t, ti) => {
             const tt = normT(t.title)
             const video = tt && (selectedFull.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
             const posted = tt && (onSitePost?.tracks || []).find(pt => normT(pt.title) === tt)
-            const saved = savedLinks?.links?.[t.position]
-            return { position: t.position, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || posted?.stream_url || posted?.youtube_url || saved?.url || '', knownMiss: !!saved && !saved.url }
+            const saved = savedLinks?.links?.[releaseKeys[ti]]
+            return { position: t.position, linkKey: releaseKeys[ti], title: t.title, duration: t.duration, artists: t.artists, url: video?.url || posted?.stream_url || posted?.youtube_url || saved?.url || '', knownMiss: !!saved && !saved.url }
           })
         : []
 
@@ -1929,12 +1931,12 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''
       const rel = openRow?.kind === 'release' ? selectedFull?.labels?.[0] : null
       const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : (rel?.name || ''), catno: rel?.catno && !/^none$/i.test(rel.catno) ? rel.catno : '', listen: '1' })
-      if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
+      if (openRow?.kind === 'release' && trackReleaseId && t.linkKey) { q.set('release_id', trackReleaseId); q.set('position', t.linkKey) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
       const d = await r.json()
       // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.
-      if (openRow?.kind === 'release' && trackReleaseId && t.position && !d.capped && !d.fallback) {
-        queryClient.setQueryData(['release-track-links', trackReleaseId], old => ({ links: { ...(old?.links || {}), [t.position]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
+      if (openRow?.kind === 'release' && trackReleaseId && t.linkKey && !d.capped && !d.fallback) {
+        queryClient.setQueryData(['release-track-links', trackReleaseId], old => ({ links: { ...(old?.links || {}), [t.linkKey]: { url: d.youtube_url || null, title: d.youtube_title || null } } }))
       }
       const foundUrl = d.youtube_url || d.spotify_url
       if (foundUrl) {

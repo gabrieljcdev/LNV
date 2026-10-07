@@ -15,6 +15,7 @@
 import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { countCall } from './usageService.js';
+import { coreTitle, trackKey } from './youtubeService.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS spotify_cache (
   cache_key TEXT PRIMARY KEY,
@@ -85,6 +86,7 @@ export async function spotifyAlbum(id) {
     artists: (a.artists || []).map(x => ({ id: x.id, name: x.name })),
     cover: a.images?.[0]?.url || null,
     tracks: items.map(t => ({
+      id: t.id,
       position: discs > 1 ? `${t.disc_number}-${t.track_number}` : String(t.track_number),
       title: t.name || '',
       duration: clock(t.duration_ms),
@@ -112,24 +114,70 @@ export async function spotifyTrack(id) {
 // is nearly spent, as a player. A result only counts when both the artist
 // and the title agree with what was asked for.
 const squash = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
-  .replace(/\s*[([].*?(remaster|deluxe|edition|version|mix|edit)[^)\]]*[)\]]/g, '').replace(/[^a-z0-9]+/g, '');
+  .replace(/\s*[([].*?(remaster|deluxe|edition|version|mix|edit)[^)\]]*[)\]]/g, '').replace(/&/g, ' and ').replace(/\bvolume\b/g, 'vol').replace(/\bpart\b/g, 'pt').replace(/[^a-z0-9]+/g, '');
 const agrees = (a, b) => { const x = squash(a), y = squash(b); return !!x && !!y && (x === y || (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x)))); };
 const artistAgrees = (want, artists) => !want || artists.some(n => agrees(want, n) || String(want).toLowerCase().split(/\s*(?:,|&|\band\b|\bfeat\.?|\bx\b)\s*/).some(w => w && agrees(w, n)));
+
+// What a title says beyond the song's name — "Dixon Rework", "Deep Cover 98".
+// "(Original Mix)" / "(feat. X)" are already gone (coreTitle); remaster and
+// year labels are ignored too. Two titles name the same recording only when
+// these agree: "Track (Dub Remix)" must not match plain "Track".
+const IGNORED_TAG = new Set(['remaster', 'remastered', 'mono', 'stereo', 'deluxe', 'edition', 'bonus', 'track']);
+const versionTag = t => trackKey((coreTitle(t).split(/\s*[(\[]|\s-\s/).slice(1).join(' ')))
+  .split(' ').filter(w => w && !IGNORED_TAG.has(w) && !/^(19|20)\d\d$/.test(w)).join(' ');
+const sameVersion = (a, b) => versionTag(a) === versionTag(b);
 
 export async function spotifySearchTrack(artist, title) {
   if (!title) return null;
   const q = [`track:${title}`, artist ? `artist:${String(artist).split(/,|&/)[0].trim()}` : ''].filter(Boolean).join(' ');
   const d = await api(`/search?type=track&limit=5&q=${encodeURIComponent(q)}`);
-  const t = (d.tracks?.items || []).find(x => agrees(title, x.name) && artistAgrees(artist, (x.artists || []).map(a => a.name)));
+  const t = (d.tracks?.items || []).find(x => agrees(title, x.name) && sameVersion(title, x.name) && artistAgrees(artist, (x.artists || []).map(a => a.name)));
   return t ? { id: t.id, name: t.name, artists: t.artists.map(a => a.name), albumId: t.album?.id || null, url: `https://open.spotify.com/track/${t.id}` } : null;
 }
 
 export async function spotifySearchAlbum(artist, title) {
   if (!title) return null;
-  const q = [`album:${title}`, artist ? `artist:${String(artist).split(/,|&/)[0].trim()}` : ''].filter(Boolean).join(' ');
-  const d = await api(`/search?type=album&limit=5&q=${encodeURIComponent(q)}`);
-  const a = (d.albums?.items || []).find(x => agrees(title, x.name) && artistAgrees(artist, (x.artists || []).map(y => y.name)));
-  return a ? { id: a.id, name: a.name } : null;
+  const main = String(artist || '').split(/,|&/)[0].trim();
+  // The precise field query first; Spotify's field filters are literal ("Volume 1"
+  // finds nothing when the album is "Vol. 1"), so then a plain one. Either way a
+  // result only counts when the title AND artist agree.
+  // Spotify matches every word: "Volume 1" finds nothing when the album is
+  // "Vol. 1", so a third try leaves the volume / part number out (agreement is
+  // still checked on the full title, where volume = vol).
+  const bare = String(title).replace(/[,\s]*\b(?:vol(?:ume)?|part|pt)\.?\s*\d+\b/i, '').trim();
+  const queries = [[`album:${title}`, main ? `artist:${main}` : ''], [main, title], bare && bare !== title ? [main, bare] : null]
+    .filter(Boolean).map(parts => parts.filter(Boolean).join(' '));
+  for (const q of queries) {
+    const d = await api(`/search?type=album&limit=5&q=${encodeURIComponent(q)}`);
+    const a = (d.albums?.items || []).find(x => agrees(title, x.name) && artistAgrees(artist, (x.artists || []).map(y => y.name)));
+    if (a) return { id: a.id, name: a.name };
+  }
+  return null;
+}
+
+// A whole release in one go (2026-10-07): find its album on Spotify, then
+// match the Discogs tracks to the album's tracks by title (the same core
+// title the YouTube lookup uses: "(Original Mix)" / "(feat. X)" ignored,
+// remixes and parts NOT). Two or three free calls instead of one search per
+// track. -> { albumId, albumName, links: { [discogs position]: { url, title } }, total } | null.
+export async function spotifyAlbumLinks({ artist = '', album = '', tracks = [] } = {}) {
+  if (!artist || !album || !tracks.length) return null;
+  const hit = await spotifySearchAlbum(artist, album);
+  if (!hit) return null;
+  const alb = await spotifyAlbum(hit.id);
+  // Spotify often joins a side's tracks into one title ("Flotation Device /
+  // Fear or Laziness?"): a Discogs title may match the whole or one half.
+  const pool = alb.tracks.map(t => ({ ...t, keys: [trackKey(coreTitle(t.title)), ...(t.title.includes(' / ') ? t.title.split(' / ').map(x => trackKey(coreTitle(x))) : [])].filter(Boolean), used: false }));
+  const links = {};
+  for (const t of tracks) {
+    const key = trackKey(coreTitle(t.title));
+    // a whole-title match is preferred over a half-title one
+    const m = key && (pool.find(p => !p.used && p.keys[0] === key) || pool.find(p => !p.used && p.keys.includes(key)));   // in order, so two "Intro"s pair off
+    if (!m) continue;
+    m.used = true;
+    links[t.key ?? t.position] = { url: `https://open.spotify.com/track/${m.id}`, title: `${m.artists.map(a => a.name).join(', ')} – ${m.title}` };
+  }
+  return { albumId: hit.id, albumName: alb.name, links, total: tracks.length };
 }
 
 // The barcode of the record a track or release title belongs to, or ''.

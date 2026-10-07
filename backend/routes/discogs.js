@@ -1,10 +1,82 @@
 import express from 'express';
 import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDiscogsUrl, getCovers, getReleaseInfo, getCataloguePage } from '../services/discogsService.js';
 import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
-import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
+import { spotifyConfigured, spotifySearchTrack, spotifyAlbumLinks } from '../services/spotifyService.js';
 import db from '../db/database.js';
 try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_url TEXT'); } catch { /* already there */ }
 try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_title TEXT'); } catch { /* already there */ }
+db.exec(`CREATE TABLE IF NOT EXISTS release_spotify (
+  release_id INTEGER PRIMARY KEY,
+  album_id TEXT,
+  matched INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  checked_at TEXT DEFAULT (datetime('now'))
+)`);
+
+// One Spotify album lookup fills a whole release with provisional links
+// (2026-10-07). A release with every track matched is done; anything less —
+// no album, too few tracks, a track or two Spotify words differently — is
+// tried again after 14 days. Free (Spotify), and it never touches a YouTube link already saved.
+// The key a track's saved link goes under: its position, or "A1~2" for the
+// second A1 of a box set. Same rule as linkKeys in frontend/src/lib/tracklist.js.
+const linkKeysOf = list => {
+  const seen = {};
+  return list.map(t => {
+    const p = t?.position || '';
+    if (!p) return '';
+    seen[p] = (seen[p] || 0) + 1;
+    return seen[p] === 1 ? p : `${p}~${seen[p]}`;
+  });
+};
+
+async function ensureReleaseSpotify(releaseId) {
+  if (!spotifyConfigured() || !Number.isInteger(releaseId)) return null;
+  const done = db.prepare(`SELECT matched, total, checked_at > datetime('now', '-14 days') AS fresh FROM release_spotify WHERE release_id = ?`).get(releaseId);
+  if (done && (done.matched >= done.total || done.fresh)) return done;
+
+  const rel = await getRelease(releaseId, { background: true });
+  const list = rel.tracklist || [];
+  const kept = list.filter(t => t.title && (t.position || !list.some(x => x.position)));   // no heading rows
+  const ks = linkKeysOf(kept);
+  const tracks = kept.map((t, i) => ({ ...t, key: ks[i] }));
+  const names = (rel.artists || []).map(a => a.name);
+  const various = /^various/i.test(names[0] || '');
+  const record = (albumId, matched) => db.prepare(`INSERT OR REPLACE INTO release_spotify (release_id, album_id, matched, total, checked_at)
+    VALUES (?, ?, ?, ?, datetime('now'))`).run(releaseId, albumId || null, matched, tracks.length);
+  if (!tracks.length) { record(null, 0); return { matched: 0, total: 0 }; }
+
+  // 1. The album, when most of it matches: a handful of title matches on the
+  //    wrong edition would play the wrong recordings. (Not for "Various".)
+  const links = {};   // link key -> { url, title, source }
+  const album = names.length && !various ? await spotifyAlbumLinks({ artist: names.join(', '), album: rel.title, tracks }).catch(() => null) : null;
+  if (album && Object.keys(album.links).length * 2 >= tracks.length) {
+    for (const [pos, l] of Object.entries(album.links)) links[pos] = { ...l, source: 'spotify-album' };
+  }
+  // 2. Whatever the album didn't give — a single whose tracks live on other
+  //    albums, a compilation, a title worded differently — one free search each
+  //    (8 at most, 4 at a time), by the track's own artist when it has one.
+  const rest = tracks.filter(t => t.key && !links[t.key]).slice(0, 8);
+  const artistOf = t => ((t.artists || []).map(a => a.name).join(', ')) || (various ? '' : names.join(', '));
+  for (let i = 0; i < rest.length; i += 4) {
+    await Promise.all(rest.slice(i, i + 4).map(async t => {
+      const who = artistOf(t);
+      if (!who) return;
+      const s = await spotifySearchTrack(who, t.title).catch(() => null);
+      if (s) links[t.key] = { url: s.url, title: `${s.artists.join(', ')} – ${s.name}`, source: 'spotify-track' };
+    }));
+  }
+
+  const save = db.prepare(`INSERT INTO release_track_links (release_id, position, title, source, fetched_at, spotify_url, spotify_title)
+                           VALUES (?, ?, ?, ?, datetime('now'), ?, ?)
+                           ON CONFLICT(release_id, position) DO UPDATE SET
+                             spotify_url = excluded.spotify_url, spotify_title = excluded.spotify_title`);
+  const matched = Object.keys(links).length;
+  db.transaction(() => {
+    for (const t of tracks) { const l = t.key && links[t.key]; if (l) save.run(releaseId, t.key, t.title, l.source, l.url, l.title); }
+    record(album?.albumId, matched);
+  })();
+  return { matched, total: tracks.length };
+}
 import { combSoon } from '../services/catalogueComber.js';
 import { adoptProfileLinks } from '../services/profileLinks.js';
 
@@ -171,16 +243,19 @@ router.get('/youtube/search', async (req, res, next) => {
     };
     let result = await searchTrackVideo(artist, title, { label, catno, localOnly: ytBusy || held || spotifyFirst });
     if (!result.youtube_url && spotifyFirst) result = (await trySpotify()) || (ytBusy || held ? result : await searchTrackVideo(artist, title, { label, catno }));
-    else if (!result.youtube_url && (ytBusy || result.capped) && spotifyConfigured()) result = (await trySpotify()) || result;
+    // Not listening (compose): YouTube found nothing -> a Spotify placeholder, so
+    // a post never goes up with a track that can't be played (2026-10-07).
+    else if (!result.youtube_url && spotifyConfigured()) result = (await trySpotify()) || result;
     if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
     else if (held && !result.youtube_url && !result.spotify_url) result = { ...result, held: true };
     if (release_id && position && !result.capped && !result.fallback && !result.localOnly) {
       db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
-                  VALUES (?, ?, ?, ?, ?, 'youtube-search', datetime('now'))
+                  VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
                   ON CONFLICT(release_id, position) DO UPDATE SET
                     title = excluded.title, youtube_url = excluded.youtube_url,
                     youtube_title = excluded.youtube_title, source = excluded.source, fetched_at = excluded.fetched_at`)
-        .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null);
+        // where it came from: a crawled channel (free) or a real search (paid)
+        .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null, result.local ? 'youtube-channel' : 'youtube-search');
     }
     // A Spotify placeholder is saved too (2026-10-07) — kept apart from the
     // YouTube columns, so the real link replaces it the moment one is found.
@@ -201,8 +276,10 @@ router.get('/youtube/search', async (req, res, next) => {
 // Every YouTube link already found for this release's tracks. url null =
 // searched and nothing found; those are dropped after 30 days so they get
 // another try (was 14 — misses were costing searches, 2026-10-06).
-router.get('/release/:id/track-links', (req, res, next) => {
+router.get('/release/:id/track-links', async (req, res, next) => {
   try {
+    // Opening a release fills it from its Spotify album first (free).
+    await ensureReleaseSpotify(Number(req.params.id)).catch(() => null);
     const rows = db.prepare(`
       SELECT position, youtube_url, youtube_title, spotify_url, spotify_title FROM release_track_links
       WHERE release_id = ?

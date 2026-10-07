@@ -574,7 +574,9 @@ const creditedNames = a => [...new Set([a, ...String(a || '').split(/\s*,\s*|\s+
 // Only wording that never changes WHICH recording it is: "Original Mix",
 // "Album Version", "Radio Edit", "(feat. X)". Remixes, dubs, parts stay.
 const TITLE_NOISE = /\s*[\(\[]\s*(?:original(?:\s+(?:mix|version|edit))?|album\s+version|single\s+version|radio\s+edit|(?:feat\.?|ft\.?|featuring|with)\s[^)\]]*)\s*[\)\]]/gi;
-export const coreTitle = t => String(t || '').replace(TITLE_NOISE, '').replace(/\s+/g, ' ').trim() || String(t || '').trim();
+// Spotify writes the same noise after a dash: "Lost In A Moment - Original Mix".
+const TITLE_DASH_NOISE = /\s+-\s+(?:original(?:\s+(?:mix|version|edit))?|album\s+version|single\s+version|radio\s+edit)\s*$/i;
+export const coreTitle = t => String(t || '').replace(TITLE_NOISE, '').replace(TITLE_DASH_NOISE, '').replace(/\s+/g, ' ').trim() || String(t || '').trim();
 
 function searchScore(item, trackTitle, artist, { label = '', catno = '' } = {}) {
   const vt = item.snippet?.title || '';
