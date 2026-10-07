@@ -4,6 +4,7 @@ import TrackPlayer from './TrackPlayer'
 import { AddToPlaylistButton } from './Collect'
 import { toEmbedSrc } from '../lib/embeds'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
+import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 
 // A Discogs release opened in place (2026-10-06, gabriel: "like on the
 // spotlights, see the release tracklist and embeds here to keep traffic on
@@ -58,7 +59,9 @@ export default function ReleasePreview({ release, artistName = '' }) {
     const tt = normT(t.title)
     const video = tt && (full.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
     const link = saved?.links?.[keys[ti]]
-    return { position: t.position, linkKey: keys[ti], title: t.title, duration: t.duration, artists: t.artists, url: video?.url || link?.url || '', knownMiss: !!link && !link.url }
+    return { position: t.position, linkKey: keys[ti],
+      added: link?.by ? { by: link.by, id: link.submissionId } : null,
+      suggestion: saved?.suggestions?.[keys[ti]] || null, mine: saved?.mine?.[keys[ti]] || null, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || link?.url || '', knownMiss: !!link && !link.url }
   })
   const urlOf = (t, i) => t.url || (found[i] && found[i] !== 'none' && found[i] !== 'capped' ? found[i] : '')
 
@@ -140,6 +143,15 @@ export default function ReleasePreview({ release, artistName = '' }) {
                   <span aria-hidden="true" style={{ fontFamily: MONO, fontSize: 12, color: isPlaying ? 'var(--theme-accent)' : TER, textAlign: 'right' }}>{state}</span>
                   <span style={{ textAlign: 'right' }}>{url && <AddToPlaylistButton tracks={[tr]} label="+" align="right" style={{ fontFamily: MONO, fontSize: 12, color: TER }} />}</span>
                 </div>
+                {miss && t.linkKey && (
+                  <AddLinkRow releaseId={releaseId} linkKey={t.linkKey} title={t.title}
+                    artist={(t.artists || []).map(a => a.name).join(', ') || (full.artists || []).map(a => a.name).join(', ') || artistName}
+                    suggestion={t.suggestion} mine={t.mine}
+                    onDone={() => { qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] }); setFound(m => { const n = { ...m }; delete n[i]; return n }) }} />
+                )}
+                {url && t.added && (
+                  <UserLinkNote by={t.added.by} submissionId={t.added.id} onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
+                )}
                 {isPlaying && toEmbedSrc(playing.url) && (
                   <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260, margin: '8px 0 10px', borderRadius: 12, overflow: 'hidden' }}>
                     <TrackPlayer key={playing.url} src={toEmbedSrc(playing.url)} title={t.title} autoplay onEnded={() => playNext(i)} />

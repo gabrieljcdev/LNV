@@ -10,6 +10,7 @@ import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlists
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
+import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -1916,7 +1917,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
             const video = tt && (selectedFull.videos || []).find(v => /youtu/.test(v.url || '') && normT(v.title).includes(tt))
             const posted = tt && (onSitePost?.tracks || []).find(pt => normT(pt.title) === tt)
             const saved = savedLinks?.links?.[releaseKeys[ti]]
-            return { position: t.position, linkKey: releaseKeys[ti], title: t.title, duration: t.duration, artists: t.artists, url: video?.url || posted?.stream_url || posted?.youtube_url || saved?.url || '', knownMiss: !!saved && !saved.url }
+            return { position: t.position, linkKey: releaseKeys[ti],
+              added: saved?.by ? { by: saved.by, id: saved.submissionId } : null,
+              suggestion: savedLinks?.suggestions?.[releaseKeys[ti]] || null, mine: savedLinks?.mine?.[releaseKeys[ti]] || null, title: t.title, duration: t.duration, artists: t.artists, url: video?.url || posted?.stream_url || posted?.youtube_url || saved?.url || '', knownMiss: !!saved && !saved.url }
           })
         : []
 
@@ -2173,6 +2176,17 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                               })()}
                             </span>
                           </div>
+                          {/* Nothing found for this track: a listener can add a link (checked first). */}
+                          {miss && t.linkKey && trackReleaseId && (
+                            <AddLinkRow releaseId={trackReleaseId} linkKey={t.linkKey} title={t.title}
+                              artist={(t.artists || []).map(a => a.name).join(', ') || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''}
+                              suggestion={t.suggestion} mine={t.mine}
+                              onDone={() => { queryClient.invalidateQueries({ queryKey: ['release-track-links', trackReleaseId] }); setFoundUrls(m => { const n = { ...m }; delete n[trackKey]; return n }) }} />
+                          )}
+                          {url && t.added && (
+                            <UserLinkNote by={t.added.by} submissionId={t.added.id}
+                              onDone={() => queryClient.invalidateQueries({ queryKey: ['release-track-links', trackReleaseId] })} />
+                          )}
                           {/* The player opens right under the track that was clicked. */}
                           {isPlaying && (playing.embed || toEmbedSrc(playing.url)) && (
                             <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 240, margin: '8px 0 10px', borderRadius: DESIGN_BASE.artRadius, overflow: 'hidden' }}>

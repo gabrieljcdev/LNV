@@ -547,16 +547,19 @@ function spendQuota(units, provider = 'youtube') {
 // accents folded, Discogs' "(2)" artist suffix dropped, punctuation and case
 // ignored. Rows saved before this (plain lowercase artist|title) are still
 // read — see searchTrackVideo.
+// Letters of any script count (a key of only a-z turned every Russian or
+// Greek title into "" and they all shared one row); accents are folded on
+// Latin letters only, so е/ё-style pairs elsewhere stay apart.
 export function trackKey(s) {
-  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    .replace(/\s*\(\d+\)\s*$/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  return String(s || '').normalize('NFD').replace(/(\p{Script=Latin})[\u0300-\u036f]+/gu, '$1').normalize('NFC').toLowerCase()
+    .replace(/\s*\(\d+\)\s*$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 // Is a saved video still there? YouTube's oEmbed answers 4xx (400 unknown id,
 // 401 private / embedding off, 404 removed) for ones that won't play; a rate
 // limit (429), a server error or a network error counts as alive, so a bad
 // moment never throws a good link away.
-async function videoAlive(url) {
+export async function videoAlive(url) {
   try {
     const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
     return !(res.status >= 400 && res.status < 500 && res.status !== 429);
@@ -577,6 +580,28 @@ const TITLE_NOISE = /\s*[\(\[]\s*(?:original(?:\s+(?:mix|version|edit))?|album\s
 // Spotify writes the same noise after a dash: "Lost In A Moment - Original Mix".
 const TITLE_DASH_NOISE = /\s+-\s+(?:original(?:\s+(?:mix|version|edit))?|album\s+version|single\s+version|radio\s+edit)\s*$/i;
 export const coreTitle = t => String(t || '').replace(TITLE_NOISE, '').replace(TITLE_DASH_NOISE, '').replace(/\s+/g, ' ').trim() || String(t || '').trim();
+
+// How well a link someone pasted fits the track it was pasted for (services/
+// trackLinks.js): the link's real title against the track's artist and title.
+//   strong   — the whole title shows AND the artist (in the title or the uploader)
+//   weak     — the title fits but the artist doesn't show / it may be another version
+//   rejected — the title doesn't fit (or is too short to mean anything alone)
+const MARKS = /\b(remix|live|cover|karaoke|tribute|instrumental|acapella|mashup)\b/;
+export function linkVerdict({ fetchedTitle = '', author = '', trackTitle = '', artist = '' }) {
+  const tt = trackKey(coreTitle(trackTitle)), vt = trackKey(fetchedTitle), au = trackKey(author);
+  if (!tt || !vt) return { verdict: 'rejected', reason: "We couldn't read that link's title." };
+  const words = tt.split(' ').filter(w => w.length > 2);
+  const full = vt.includes(tt);
+  const partial = !full && words.length > 0 && words.filter(w => vt.includes(w)).length / words.length >= 0.7;
+  if (!full && !partial) return { verdict: 'rejected', reason: "That doesn't look like this track — its title is different." };
+  const names = [...new Set([artist, ...String(artist || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with|and|x)\s+|\s*[&+]\s*/i)].map(trackKey).filter(n => n.length > 2))];
+  const artistHit = names.some(n => vt.includes(n) || au.includes(n));
+  // A very short title ("7") fits almost any video: the artist has to show.
+  if (tt.length < 5 && !artistHit) return { verdict: 'rejected', reason: "That title is very short and the artist's name isn't there, so we can't tell it's the right track." };
+  const otherVersion = MARKS.test(vt) && !MARKS.test(tt);
+  if (full && artistHit && !otherVersion) return { verdict: 'strong', reason: '' };
+  return { verdict: 'weak', reason: otherVersion ? 'It may be a different version (remix, live…).' : "We can't see the artist's name there." };
+}
 
 function searchScore(item, trackTitle, artist, { label = '', catno = '' } = {}) {
   const vt = item.snippet?.title || '';
@@ -656,7 +681,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
     const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a, extras);
     if (sc > localScore) { localScore = sc; localBest = v; }
   }
-  if (localBest && localScore >= (a ? 65 : 30)) {
+  if (localBest && localScore >= (a ? 65 : 30) && await videoAlive(`https://www.youtube.com/watch?v=${localBest.video_id}`)) {
     const url = `https://www.youtube.com/watch?v=${localBest.video_id}`;
     setCache(cacheKey, url, localBest.title);
     return { youtube_url: url, youtube_title: localBest.title, cached: false, local: true };
@@ -668,7 +693,9 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
   const q = a ? `${mainArtist(a)} ${title}` : `${title} ${label}`.trim();
   let data;
   try {
-    data = await ytApi('search', { part: 'snippet', type: 'video', maxResults: '5', q });
+    // videoEmbeddable: only videos whose owner allows playing them on other
+    // sites (free filter) — a blocked one would show "Video unavailable".
+    data = await ytApi('search', { part: 'snippet', type: 'video', maxResults: '5', videoEmbeddable: 'true', q });
   } catch (e) {
     // Out of quota at Google's end: treat as capped, don't cache a false miss.
     if (/quota/i.test(e.message)) return { youtube_url: null, youtube_title: null, capped: true };

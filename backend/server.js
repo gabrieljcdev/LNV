@@ -25,6 +25,8 @@ import { startCatalogueComber } from './services/catalogueComber.js';
 import { startChannelKeeper } from './services/youtubeService.js';
 import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
+import trackLinkRoutes from './routes/trackLinks.js';
+import { startLinkHealth } from './services/linkHealth.js';
 
 dotenv.config();
 const app = express();
@@ -38,6 +40,7 @@ app.use('/api', attachUser); // req.user from the Bearer token (or null)
 app.use('/api', requestLogger); // writes, failures and slow requests -> admin log
 app.use('/api/auth',    authRoutes);
 app.use('/api/discogs', discogsRoutes);
+app.use('/api/track-links', trackLinkRoutes);
 app.use('/api/media',   mediaRoutes);
 app.use('/api/posts',   postsRoutes);
 app.use('/api/users',   usersRoutes);
@@ -70,6 +73,8 @@ app.listen(PORT, () => {
   // Read artists' and labels' Discogs profiles for their YouTube channels
   // (crawled for free lookups), Bandcamp and SoundCloud links.
   startProfileKeeper();
+  // Re-check saved YouTube links that stopped playing (free).
+  startLinkHealth();
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
 });
