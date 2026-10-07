@@ -3,6 +3,8 @@ import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDisco
 import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
 import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
 import db from '../db/database.js';
+try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_url TEXT'); } catch { /* already there */ }
+try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_title TEXT'); } catch { /* already there */ }
 import { combSoon } from '../services/catalogueComber.js';
 
 const router = express.Router();
@@ -122,29 +124,53 @@ for (const kind of ['artist', 'label']) {
 // actually searched).
 router.get('/youtube/search', async (req, res, next) => {
   try {
-    const { artist = '', title, label = '', release_id, position, listen } = req.query;
+    const { artist = '', title, label = '', catno = '', release_id, position, listen } = req.query;
     if (!title) return res.status(400).json({ error: 'title required' });
     // SPOTIFY-FALLBACK (2026-10-06, gabriel) — revisit when the YouTube quota
     // increase lands (handover TODO): with YouTube's day 80% spent, only the
     // free checks run (cache, crawled uploads) and a miss plays the track as
     // a Spotify player instead (full track for people signed in to Spotify,
-    // a 30-second preview otherwise). A fallback is never saved as the
-    // track's link, so YouTube gets its turn again tomorrow.
+    // a 30-second preview otherwise). A fallback is saved only as a
+    // provisional placeholder (below), never as the track's real link.
+    // Saved first (2026-10-07): a link already found for this very release +
+    // track is never searched for again, whoever posts it — a known miss
+    // (30 days) and, for listening, a saved Spotify placeholder count too.
+    if (release_id && position) {
+      const saved = db.prepare(`SELECT youtube_url, youtube_title, spotify_url, spotify_title,
+                                       fetched_at > datetime('now', '-30 days') AS fresh
+                                FROM release_track_links WHERE release_id = ? AND position = ?`).get(Number(release_id), String(position));
+      if (saved?.youtube_url) return res.json({ youtube_url: saved.youtube_url, youtube_title: saved.youtube_title, cached: true, saved: true });
+      if (saved?.spotify_url && listen === '1') return res.json({ youtube_url: null, youtube_title: null, spotify_url: saved.spotify_url, spotify_title: saved.spotify_title, fallback: true, saved: true });
+      if (saved && !saved.spotify_url && saved.fresh && listen !== '1') return res.json({ youtube_url: null, youtube_title: null, cached: true, saved: true });
+    }
     // Spotify first (2026-10-06, YouTube savings): someone just listening
     // (`listen=1` — spotlights, drawer previews) gets the free checks, then
     // Spotify, and only then a paid YouTube search. Compose leaves it off: a
     // post wants a real YouTube link where there is one.
     const ytCap = Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+    // Release-level breaker (2026-10-07): an album that isn't on YouTube made
+    // 27 searches in a row find nothing (Pan Assembly). Once a release has 3
+    // searched misses and more than 3 per find, stop PAYING for the rest of
+    // its tracks — free checks (and Spotify) still run. Saved misses age out
+    // after 30 days, so the breaker resets itself.
+    let held = false;
+    if (release_id) {
+      const t = db.prepare(`SELECT SUM(youtube_url IS NOT NULL) hits,
+                                   SUM(youtube_url IS NULL AND spotify_url IS NULL AND fetched_at > datetime('now', '-30 days')) misses
+                            FROM release_track_links WHERE release_id = ?`).get(Number(release_id));
+      held = (t.misses || 0) >= 3 && (t.misses || 0) > (t.hits || 0) * 3;
+    }
     const ytBusy = quotaUsed() >= ytCap * 0.8;
     const spotifyFirst = listen === '1' && spotifyConfigured();
     const trySpotify = async () => {
       const sp = await spotifySearchTrack(artist, title).catch(() => null);
       return sp && { youtube_url: null, youtube_title: null, spotify_url: sp.url, spotify_title: `${sp.artists.join(', ')} – ${sp.name}`, fallback: true };
     };
-    let result = await searchTrackVideo(artist, title, { label, localOnly: ytBusy || spotifyFirst });
-    if (!result.youtube_url && spotifyFirst) result = (await trySpotify()) || (ytBusy ? result : await searchTrackVideo(artist, title, { label }));
+    let result = await searchTrackVideo(artist, title, { label, catno, localOnly: ytBusy || held || spotifyFirst });
+    if (!result.youtube_url && spotifyFirst) result = (await trySpotify()) || (ytBusy || held ? result : await searchTrackVideo(artist, title, { label, catno }));
     else if (!result.youtube_url && (ytBusy || result.capped) && spotifyConfigured()) result = (await trySpotify()) || result;
     if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
+    else if (held && !result.youtube_url && !result.spotify_url) result = { ...result, held: true };
     if (release_id && position && !result.capped && !result.fallback && !result.localOnly) {
       db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
                   VALUES (?, ?, ?, ?, ?, 'youtube-search', datetime('now'))
@@ -152,6 +178,15 @@ router.get('/youtube/search', async (req, res, next) => {
                     title = excluded.title, youtube_url = excluded.youtube_url,
                     youtube_title = excluded.youtube_title, source = excluded.source, fetched_at = excluded.fetched_at`)
         .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null);
+    }
+    // A Spotify placeholder is saved too (2026-10-07) — kept apart from the
+    // YouTube columns, so the real link replaces it the moment one is found.
+    if (release_id && position && result.fallback && result.spotify_url) {
+      db.prepare(`INSERT INTO release_track_links (release_id, position, title, source, fetched_at, spotify_url, spotify_title)
+                  VALUES (?, ?, ?, 'spotify-placeholder', datetime('now'), ?, ?)
+                  ON CONFLICT(release_id, position) DO UPDATE SET
+                    spotify_url = excluded.spotify_url, spotify_title = excluded.spotify_title`)
+        .run(Number(release_id), String(position), title, result.spotify_url, result.spotify_title || null);
     }
     res.json(result);
   } catch (err) {
@@ -166,12 +201,15 @@ router.get('/youtube/search', async (req, res, next) => {
 router.get('/release/:id/track-links', (req, res, next) => {
   try {
     const rows = db.prepare(`
-      SELECT position, youtube_url, youtube_title FROM release_track_links
+      SELECT position, youtube_url, youtube_title, spotify_url, spotify_title FROM release_track_links
       WHERE release_id = ?
-        AND (youtube_url IS NOT NULL OR fetched_at > datetime('now', '-30 days'))
+        AND (youtube_url IS NOT NULL OR spotify_url IS NOT NULL OR fetched_at > datetime('now', '-30 days'))
     `).all(Number(req.params.id));
     const links = {};
-    for (const r of rows) links[r.position] = { url: r.youtube_url, title: r.youtube_title };
+    // A Spotify placeholder fills in until a YouTube link is found (provisional).
+    for (const r of rows) links[r.position] = r.youtube_url || !r.spotify_url
+      ? { url: r.youtube_url, title: r.youtube_title }
+      : { url: r.spotify_url, title: r.spotify_title, provisional: true };
     res.json({ links });
   } catch (err) {
     next(err);

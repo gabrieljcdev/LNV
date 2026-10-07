@@ -65,8 +65,9 @@ export default function ReleasePreview({ release, artistName = '' }) {
     if (searching != null) return 'busy'
     setSearching(i)
     try {
-      const artist = (t.artists || []).map(a => a.name).join(' ') || (full?.artists || []).map(a => a.name).join(' ') || artistName
-      const q = new URLSearchParams({ artist, title: t.title || '', label: '', listen: '1' })
+      const artist = (t.artists || []).map(a => a.name).join(', ') || (full?.artists || []).map(a => a.name).join(', ') || artistName
+      const rel = full?.labels?.[0]
+      const q = new URLSearchParams({ artist, title: t.title || '', label: rel?.name || '', catno: rel?.catno && !/^none$/i.test(rel.catno) ? rel.catno : '', listen: '1' })
       if (releaseId && t.position) { q.set('release_id', releaseId); q.set('position', t.position) }
       const d = await (await fetch(`${API}/discogs/youtube/search?${q}`)).json()
       // A Spotify fallback (SPOTIFY-FALLBACK) isn't the track's link — don't save it.

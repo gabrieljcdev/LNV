@@ -374,10 +374,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  for (let i = 0; i < updated.length; i++) {
  if (stale()) return
  if (updated[i].stream_url) continue
- const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(' ') || releaseArtist
+ const trackArtist = (updated[i].artists || []).map(a => a.name).filter(Boolean).join(', ') || releaseArtist
  setFetchStatus(`SEARCHING YOUTUBE · ${updated[i].position || i + 1} ${(updated[i].title || '').toUpperCase()}...`)
  try {
- const q = new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '' })
+ const q = new URLSearchParams({ artist: trackArtist, title: updated[i].title || '', label: fLabel || '', catno: fCatno || '' })
  if (releaseId && updated[i].position) { q.set('release_id', releaseId); q.set('position', updated[i].position) }
  const r = await fetch(`${API}/discogs/youtube/search?${q}`)
  const d = await r.json()

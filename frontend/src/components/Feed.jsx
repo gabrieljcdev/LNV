@@ -1924,9 +1924,10 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     if (searching === trackKey) return 'busy'
     setSearching(trackKey)
     try {
-      const artist = (t.artists || []).map(a => a.name).join(' ')
+      const artist = (t.artists || []).map(a => a.name).join(', ')
         || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''
-      const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : '', listen: '1' })
+      const rel = openRow?.kind === 'release' ? selectedFull?.labels?.[0] : null
+      const q = new URLSearchParams({ artist, title: t.title || '', label: type === 'label' ? name : (rel?.name || ''), catno: rel?.catno && !/^none$/i.test(rel.catno) ? rel.catno : '', listen: '1' })
       if (openRow?.kind === 'release' && trackReleaseId && t.position) { q.set('release_id', trackReleaseId); q.set('position', t.position) }
       const r = await fetch(`${API}/discogs/youtube/search?${q}`)
       const d = await r.json()
