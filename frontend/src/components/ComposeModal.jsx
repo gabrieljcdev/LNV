@@ -171,7 +171,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (cancelled) return
  const found = d.sources || []
  // Nothing playable yet? Take the best free one; a link already there is left alone.
- setTracks(prev => prev.map(x => (x.title === t.title && x.position === t.position ? { ...x, sources: found, stream_url: x.stream_url || found[0]?.url || '' } : x)))
+ setTracks(prev => prev.map(x => (x.title === t.title && x.position === t.position ? { ...x, sources: found, origUrl: x.stream_url || '', stream_url: x.stream_url || found[0]?.url || '' } : x)))
  } catch { /* one failed lookup shouldn't stop the rest */ }
  }
  }, 1200)
@@ -634,8 +634,9 @@ Click to edit`}
  {(() => {
  // "Play from" — what this track's link can be switched to. The link it has
  // already (say a YouTube video) is one of the choices.
- const have = platformOf(t.stream_url)
- const list = [...(t.stream_url && have && !(t.sources || []).some(x => x.platform === have) ? [{ platform: have, url: t.stream_url }] : []), ...(t.sources || [])]
+ const base = t.origUrl || t.stream_url // the link it came with stays a choice after another is picked
+ const have = platformOf(base)
+ const list = [...(base && have && !(t.sources || []).some(x => x.platform === have) ? [{ platform: have, url: base }] : []), ...(t.sources || [])]
  if (list.length < 2) return null
  return (
  <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 38, marginTop: 3 }}>
