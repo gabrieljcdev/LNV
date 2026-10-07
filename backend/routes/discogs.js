@@ -6,6 +6,7 @@ import db from '../db/database.js';
 try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_url TEXT'); } catch { /* already there */ }
 try { db.exec('ALTER TABLE release_track_links ADD COLUMN spotify_title TEXT'); } catch { /* already there */ }
 import { combSoon } from '../services/catalogueComber.js';
+import { adoptProfileLinks } from '../services/profileLinks.js';
 
 const router = express.Router();
 
@@ -75,6 +76,7 @@ router.get('/master/:id', async (req, res, next) => {
 router.get('/artist/:id', async (req, res, next) => {
   try {
     const artist = await getArtist(Number(req.params.id));
+    adoptProfileLinks('artist', Number(req.params.id), artist.urls);
     res.json(artist);
   } catch (err) {
     next(err);
@@ -85,6 +87,7 @@ router.get('/artist/:id', async (req, res, next) => {
 router.get('/label/:id', async (req, res, next) => {
   try {
     const label = await getLabel(Number(req.params.id));
+    adoptProfileLinks('label', Number(req.params.id), label.urls);
     res.json(label);
   } catch (err) {
     next(err);

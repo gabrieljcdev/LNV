@@ -136,26 +136,28 @@ export async function getMaster(masterId, { background = false } = {}) {
 // has one). Same cache table/TTL as releases; profile photos and logos
 // change rarely enough that 30 days is fine here too.
 
-export async function getArtist(artistId) {
+// background: the profile sweep's own fetches don't count as site traffic.
+// A cached profile from before 2026-10-07 has no `urls`, so it is fetched again.
+export async function getArtist(artistId, { background = false } = {}) {
   const key = `artist:${artistId}`;
   const cached = getCached(key);
-  if (cached) return cached;
+  if (cached && Array.isArray(cached.urls)) return cached;
 
   const url = `${DISCOGS_BASE}/artists/${artistId}`;
-  const res = await fgFetch(url, { headers: getHeaders() });
+  const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch artist ${artistId}: ${res.status}`);
   const data = normaliseProfile(await res.json());
   setCache(key, data);
   return data;
 }
 
-export async function getLabel(labelId) {
+export async function getLabel(labelId, { background = false } = {}) {
   const key = `label:${labelId}`;
   const cached = getCached(key);
-  if (cached) return cached;
+  if (cached && Array.isArray(cached.urls)) return cached;
 
   const url = `${DISCOGS_BASE}/labels/${labelId}`;
-  const res = await fgFetch(url, { headers: getHeaders() });
+  const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch label ${labelId}: ${res.status}`);
   const data = normaliseProfile(await res.json());
   setCache(key, data);
@@ -216,6 +218,9 @@ function normaliseProfile(data) {
     discogsId: data.id,
     name: data.name,
     profile: data.profile || null,
+    // The profile's own links (website, YouTube, Bandcamp, SoundCloud…) —
+    // see services/profileLinks.js.
+    urls: (data.urls || []).map(u => String(u).trim()).filter(Boolean),
     imageUrl: primary?.uri150 || primary?.uri || null,
   };
 }

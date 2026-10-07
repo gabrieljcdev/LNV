@@ -425,6 +425,94 @@ export async function getChannelUploads(videoId, { offset = 0, limit = 100, q = 
   };
 }
 
+// ─── Channels named by Discogs profiles (2026-10-07) ─────────────────────────
+// An artist's or label's Discogs profile often links their YouTube channel
+// (services/profileLinks.js). Resolving it costs 1-2 units and the crawler
+// then reads every upload at 1 unit per 50 — so their tracks are found by a
+// free database lookup instead of a 100-unit search. Every answer, including
+// "no such channel", is remembered in yt_channel_urls so a URL is never
+// resolved twice; a channel too big to crawl blind is remembered and left.
+
+db.exec(`CREATE TABLE IF NOT EXISTS yt_channel_urls (
+  url TEXT PRIMARY KEY,
+  channel_id TEXT,
+  checked_at TEXT DEFAULT (datetime('now'))
+)`);
+const MAX_AUTO_CRAWL = 20000;   // uploads; HÖR (10k) is about 200 units
+const NOT_A_CHANNEL = new Set(['watch', 'playlist', 'results', 'feed', 'shorts', 'embed', 'channel', 'user', 'c',
+  'hashtag', 'redirect', 'about', 'live', 'gaming', 'premium', 'music', 'post', 'source', 'attribution_link']);
+
+// What a YouTube URL names: { id } | { handle, username } | null (a video, a playlist…).
+export function parseChannelUrl(raw) {
+  let u;
+  try { u = new URL(/^https?:/i.test(raw) ? raw : `https://${raw}`); } catch { return null; }
+  if (!/(^|\.)youtube\.com$/i.test(u.hostname)) return null;
+  let seg;
+  try { seg = u.pathname.split('/').filter(Boolean).map(decodeURIComponent); } catch { return null; }
+  if (!seg.length) return null;
+  const [a, b] = seg;
+  if (a === 'channel') return /^UC[\w-]{20,}$/.test(b || '') ? { id: b } : null;
+  if (a.startsWith('@')) return a.length > 1 ? { handle: a.slice(1) } : null;
+  if (a === 'user') return b ? { username: b } : null;
+  if (a === 'c') return b ? { handle: b, username: b } : null;
+  if (seg.length === 1 && !NOT_A_CHANNEL.has(a.toLowerCase())) return { handle: a, username: a }; // youtube.com/richiehawtin
+  return null;
+}
+
+// Whether the crawl's share of today's quota still has room.
+export const crawlBudgetLeft = () => quotaUsed() < dailyCap() * CRAWL_QUOTA_SHARE;
+
+// Resolve a profile's YouTube URL and start crawling its channel.
+// -> the channel row, or null (not a channel / not found / too big / no budget today).
+export async function adoptChannelUrl(url) {
+  const p = parseChannelUrl(url);
+  if (!p) return null;
+
+  const known = db.prepare('SELECT channel_id, checked_at FROM yt_channel_urls WHERE url = ?').get(url);
+  if (known?.channel_id) {
+    const row = channelRow(known.channel_id);
+    if (row) crawlChannel(row.channel_id);   // already ours: just keep it going
+    return row || null;
+  }
+  // Not found last time: not asked again for 30 days.
+  if (known && Date.now() - new Date(`${known.checked_at}Z`).getTime() < 30 * 24 * 60 * 60 * 1000) return null;
+
+  if (p.id) {
+    const row = channelRow(p.id);
+    if (row) {
+      db.prepare('INSERT OR REPLACE INTO yt_channel_urls (url, channel_id) VALUES (?, ?)').run(url, p.id);
+      crawlChannel(row.channel_id);
+      return row;
+    }
+  }
+  if (!crawlBudgetLeft()) return null;       // nothing is remembered: asked again another day
+
+  const lookups = p.id ? [{ id: p.id }] : [p.handle && { forHandle: p.handle }, p.username && { forUsername: p.username }].filter(Boolean);
+  let item = null;
+  for (const q of lookups) {
+    if (!spendQuota(1)) return null;
+    const ch = await ytApi('channels', { part: 'contentDetails,snippet,statistics', ...q });
+    item = ch.items?.[0] || null;
+    if (item) break;
+  }
+  const remember = id => db.prepare('INSERT OR REPLACE INTO yt_channel_urls (url, channel_id) VALUES (?, ?)').run(url, id);
+  if (!item) { remember(null); return null; }
+
+  remember(item.id);
+  const existing = channelRow(item.id);
+  if (existing) { crawlChannel(existing.channel_id); return existing; }
+  const uploadsId = item.contentDetails?.relatedPlaylists?.uploads;
+  const total = Number(item.statistics?.videoCount) || 0;
+  if (!uploadsId || total > MAX_AUTO_CRAWL) return null;
+
+  db.prepare('INSERT OR IGNORE INTO yt_channels (channel_id, uploads_id, title, thumb, total) VALUES (?, ?, ?, ?, ?)')
+    .run(item.id, uploadsId, item.snippet?.title || '', item.snippet?.thumbnails?.default?.url || null, total || null);
+  saveChannelStats(item);
+  logEvent('info', 'crawl', `YouTube channel from a Discogs profile: ${item.snippet?.title || item.id} (${total} uploads)`);
+  crawlChannel(item.id);   // not awaited
+  return channelRow(item.id);
+}
+
 // ─── Track search (YouTube Data API search.list) ──────────────────────────────
 // Fills tracklist rows that Discogs' own videos[] didn't cover. search.list is
 // the one expensive YouTube call — 100 units against a 10,000/day project
@@ -551,9 +639,16 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
   // DB first (2026-10-02): uploads the channel crawler already collected.
   // Scored like a real search result (the channel title stands in for
   // snippet.channelTitle); a hit costs no quota at all.
+  // Nearest first: uploads from a channel (or with a title) naming the artist,
+  // then the label's channel — with more crawled channels the cap of 50 must
+  // not drop the right one.
+  const near = (mainArtist(a) || '\uffff').toLowerCase(), byLabel = (label || '\uffff').toLowerCase();
   const local = db.prepare(`SELECT v.video_id, v.title, c.title channel FROM yt_channel_videos v
                             JOIN yt_channels c ON c.channel_id = v.channel_id
-                            WHERE instr(lower(v.title), ?) > 0 LIMIT 50`).all(title.toLowerCase());
+                            WHERE instr(lower(v.title), ?) > 0
+                            ORDER BY (instr(lower(c.title), ?) > 0 OR instr(lower(v.title), ?) > 0) DESC,
+                                     (instr(lower(c.title), ?) > 0) DESC
+                            LIMIT 50`).all(title.toLowerCase(), near, near, byLabel);
   let localBest = null, localScore = -Infinity;
   for (const v of local) {
     const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a, extras);

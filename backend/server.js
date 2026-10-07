@@ -24,6 +24,7 @@ import { startCatalogueKeeper } from './services/discogsService.js';
 import { startCatalogueComber } from './services/catalogueComber.js';
 import { startChannelKeeper } from './services/youtubeService.js';
 import { startGapSweeper } from './services/gapSweeper.js';
+import { startProfileKeeper } from './services/profileLinks.js';
 
 dotenv.config();
 const app = express();
@@ -66,6 +67,9 @@ app.listen(PORT, () => {
   // Fold duplicate pressings in the catalogues, checked against Discogs.
   startCatalogueComber();
   startChannelKeeper();
+  // Read artists' and labels' Discogs profiles for their YouTube channels
+  // (crawled for free lookups), Bandcamp and SoundCloud links.
+  startProfileKeeper();
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
 });
