@@ -3,7 +3,9 @@ import { searchDiscogs, getRelease, getMaster, getArtist, getLabel, resolveDisco
 import { searchTrackVideo, quotaUsed } from '../services/youtubeService.js';
 import { spotifyConfigured, spotifySearchTrack } from '../services/spotifyService.js';
 import { ensureReleaseSpotify } from '../services/releaseSpotify.js';
+import { searchBudget } from '../services/searchBudget.js';
 import db from '../db/database.js';
+try { db.exec('ALTER TABLE release_track_links ADD COLUMN paid INTEGER NOT NULL DEFAULT 0'); } catch { /* already there */ }   // paid YouTube searches made for this track
 import { combSoon } from '../services/catalogueComber.js';
 import { adoptProfileLinks } from '../services/profileLinks.js';
 import { suggestionsFor, mineFor, userLinkInfo } from '../services/trackLinks.js';
@@ -151,19 +153,14 @@ router.get('/youtube/search', async (req, res, next) => {
     // Spotify, and only then a paid YouTube search. Compose leaves it off: a
     // post wants a real YouTube link where there is one.
     const ytCap = Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
-    // Release-level breaker (2026-10-07): an album that isn't on YouTube made
-    // 27 searches in a row find nothing (Pan Assembly). Once a release has 3
-    // searched misses and more than 3 per find, stop PAYING for the rest of
-    // its tracks — free checks (and Spotify) still run. Saved misses age out
-    // after 30 days, so the breaker resets itself.
-    let held = false;
-    if (release_id) {
-      const t = db.prepare(`SELECT SUM(youtube_url IS NOT NULL) hits,
+    // Who may spend YouTube units (services/searchBudget.js): listening gets
+    // 70% of the day and new posts the rest; 3 paid searches per release at
+    // most; and the release breaker (an album that isn't on YouTube stops
+    // paying after a few misses). Free steps and Spotify always run.
+    const rel = release_id ? db.prepare(`SELECT COALESCE(SUM(paid), 0) paid, SUM(youtube_url IS NOT NULL) hits,
                                    SUM(youtube_url IS NULL AND spotify_url IS NULL AND fetched_at > datetime('now', '-30 days')) misses
-                            FROM release_track_links WHERE release_id = ?`).get(Number(release_id));
-      held = (t.misses || 0) >= 3 && (t.misses || 0) > (t.hits || 0) * 3;
-    }
-    const ytBusy = quotaUsed() >= ytCap * 0.8;
+                            FROM release_track_links WHERE release_id = ?`).get(Number(release_id)) : null;
+    const { busy: ytBusy, held } = searchBudget({ used: quotaUsed(), cap: ytCap, listening: listen === '1', release: rel });
     const spotifyFirst = listen === '1' && spotifyConfigured();
     const trySpotify = async () => {
       const sp = await spotifySearchTrack(artist, title).catch(() => null);
@@ -177,14 +174,17 @@ router.get('/youtube/search', async (req, res, next) => {
     if (ytBusy && !result.youtube_url && !result.spotify_url) result = { ...result, capped: true };
     else if (held && !result.youtube_url && !result.spotify_url) result = { ...result, held: true };
     if (release_id && position && !result.capped && !result.fallback && !result.localOnly) {
-      db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at)
-                  VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      // paid: a real YouTube search was made for this track (not the cache, not a crawled channel)
+      const paid = result.cached === false && !result.local ? 1 : 0;
+      db.prepare(`INSERT INTO release_track_links (release_id, position, title, youtube_url, youtube_title, source, fetched_at, paid)
+                  VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
                   ON CONFLICT(release_id, position) DO UPDATE SET
                     title = excluded.title, youtube_url = excluded.youtube_url,
-                    youtube_title = excluded.youtube_title, source = excluded.source, fetched_at = excluded.fetched_at
+                    youtube_title = excluded.youtube_title, source = excluded.source, fetched_at = excluded.fetched_at,
+                    paid = release_track_links.paid + excluded.paid
                   WHERE NOT (release_track_links.source = 'user' AND release_track_links.youtube_url IS NOT NULL)`)
         // where it came from: a crawled channel (free) or a real search (paid)
-        .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null, result.local ? 'youtube-channel' : 'youtube-search');
+        .run(Number(release_id), String(position), title, result.youtube_url || null, result.youtube_title || null, result.local ? 'youtube-channel' : 'youtube-search', paid);
     }
     // A Spotify placeholder is saved too (2026-10-07) — kept apart from the
     // YouTube columns, so the real link replaces it the moment one is found.
