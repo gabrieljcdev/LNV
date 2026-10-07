@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LNV compose mockup</title>
+<!--
+  Compose / pick-a-username mockup (2026-09-30). Dev-only page, not linked
+  from the app: http://localhost:5173/compose-mockup.html. Three candidate
+  "add a link" boxes over a stand-in feed, all on the site's own palettes
+  (themeService) and the feed's card tokens (FLOAT_RADIUS 14, FLOAT_SHADOW,
+  artRadius, DESIGN_BASE type sizes). Pasting a real link and pressing Enter
+  runs the real resolver on :3001; if that fails it shows a sample post.
+  Nothing is ever posted.
+-->
+<script>
+  if (location.protocol === 'file:') location.replace('http://localhost:5173/compose-mockup.html')
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Tokens mirrored from Feed.jsx — same names, same values */
+  :root {
+    --sans: 'Barlow', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --float-radius: 14px;                                   /* FLOAT_RADIUS */
+    --float-gap: 28px;                                      /* FLOAT_GAP */
+    --float-shadow: 0 0 48px rgba(0,0,0,0.11), 0 30px 60px -12px rgba(0,0,0,0.19), 0 2px 6px rgba(0,0,0,0.06); /* FLOAT_SHADOW */
+    --art-radius: 40px;                                     /* DESIGN_BASE.artRadius */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--theme-bg, #08090B); font-family: var(--sans); transition: background .6s; }
+  button { font-family: inherit; }
+
+  /* ── stand-in feed ─────────────────────────────────────────────────── */
+  #feed { position: absolute; inset: 0; display: flex; padding-left: 360px; overflow: hidden; }
+  #intro { position: absolute; left: 0; top: 0; bottom: 0; width: 360px; background: var(--theme-showcase); border-top-right-radius: var(--float-radius); border-bottom-right-radius: var(--float-radius); padding: 90px 40px; }
+  #intro h1 { margin: 0; font: 900 64px/.9 var(--sans); letter-spacing: -.04em; color: rgba(255,255,255,.9); }
+  #intro p { font: 500 11px/1.5 var(--mono); letter-spacing: .09em; color: rgba(255,255,255,.5); text-transform: uppercase; }
+  .fcard { flex: 0 0 800px; height: 100%; margin: 0 14px; border-radius: var(--float-radius); box-shadow: var(--float-shadow); padding: 90px 32px; display: flex; gap: 32px; }
+  .fcard .art { width: 390px; height: 390px; border-radius: var(--art-radius); background: #000 center/cover; flex-shrink: 0; }
+  .fcard .a { font: 700 30px/1.02 var(--sans); letter-spacing: -.022em; color: var(--ink1); }
+  .fcard .t { font: 700 30px/1.02 var(--sans); letter-spacing: -.022em; color: var(--ink2); }
+  .fcard:nth-child(3n+1) { background: var(--theme-dark1); } .fcard:nth-child(3n+2) { background: var(--theme-dark2); } .fcard:nth-child(3n) { background: var(--theme-dark3); }
+  .chrome-search { position: absolute; top: 16px; right: 16px; z-index: 5; display: flex; align-items: center; gap: 6px; background: var(--theme-dark3); border: 1px solid var(--theme-border); border-radius: 99px; padding: 6px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.2); font: 400 12px var(--sans); color: var(--theme-text-ter); width: 262px; }
+  .chrome-plus { position: absolute; bottom: 16px; left: 16px; z-index: 30; width: 36px; height: 36px; border-radius: 50%; background: var(--theme-accent); border: none; color: #fff; font-size: 18px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.2); cursor: pointer; transition: transform .25s, opacity .2s; }
+
+  #scrim { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,.45); backdrop-filter: blur(3px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  body.open #scrim { opacity: 1; pointer-events: auto; }
+  body.open.v-C #scrim { opacity: .35; backdrop-filter: none; }
+
+  /* ── shared bits ───────────────────────────────────────────────────── */
+  .ink { --ink1: rgba(255,255,255,.94); --ink2: rgba(255,255,255,.66); --ink3: rgba(255,255,255,.42); --line: rgba(255,255,255,.14); --field: rgba(255,255,255,.07); }
+  .ink.light { --ink1: rgba(0,0,0,.86); --ink2: rgba(0,0,0,.6); --ink3: rgba(0,0,0,.4); --line: rgba(0,0,0,.12); --field: rgba(0,0,0,.05); }
+  .badge { display: inline-block; font: 600 9px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; background: var(--line); color: var(--ink2); }
+  .mono { font: 500 11px/1.45 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--ink3); }
+  .plats { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .plats span { font: 500 10px/1 var(--mono); letter-spacing: .08em; color: var(--ink3); transition: color .2s; }
+  .plats span.on { color: var(--ink1); }
+  .go { flex-shrink: 0; height: 40px; min-width: 40px; padding: 0 16px; border-radius: 99px; border: none; background: var(--theme-accent); color: #fff; font: 600 12px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+  .go.round { width: 40px; padding: 0; font-size: 18px; letter-spacing: 0; }
+  .go:disabled { opacity: .35; cursor: default; }
+  .chip { flex-shrink: 0; font: 600 9px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; padding: 5px 8px; border-radius: 3px; color: #fff; }
+  .err { font: 500 11px/1.45 var(--mono); letter-spacing: .09em; color: #ff8a65; text-transform: uppercase; min-height: 16px; }
+  input.bare { background: transparent; border: none; outline: none; color: var(--ink1); font-family: var(--sans); min-width: 0; }
+  input.bare::placeholder { color: var(--ink3); }
+
+  /* ── A · command bar ───────────────────────────────────────────────── */
+  #boxA { position: absolute; z-index: 40; left: 50%; top: 34%; width: 680px; transform: translate(-50%, -50%); display: none; }
+  body.v-A.open #boxA { display: block; }
+  #boxA .bar { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 12px 0 24px; border-radius: 99px; background: var(--theme-dark3); border: 1px solid var(--theme-border); box-shadow: var(--float-shadow), 0 2px 8px rgba(0,0,0,.2); }
+  #boxA .bar .lead { font: 300 26px/1 var(--sans); color: var(--ink3); width: 18px; text-align: center; }
+  #boxA .bar input { flex: 1; font-size: 18px; }
+  #boxA .under { display: flex; justify-content: space-between; padding: 12px 24px 0; }
+  #boxA .under .plats { max-width: 480px; }
+  body.v-A.step-preview #boxA { top: 80px; transform: translate(-50%, 0); }
+  body.v-A.step-preview #boxA .under { display: none; }
+
+  /* ── B · card ──────────────────────────────────────────────────────── */
+  #boxB { position: absolute; z-index: 40; left: 50%; top: 50%; width: 560px; transform: translate(-50%, -50%); display: none; background: var(--theme-showcase); border-radius: var(--float-radius); box-shadow: var(--float-shadow); padding: 48px 60px 44px; }
+  body.v-B.open:not(.step-preview) #boxB { display: block; }
+  #boxB h2 { margin: 14px 0 28px; font: 700 30px/1.02 var(--sans); letter-spacing: -.022em; color: var(--ink1); }
+  #boxB .field { display: flex; align-items: center; gap: 12px; border-bottom: 1.5px solid var(--line); padding: 0 0 10px; margin-bottom: 14px; transition: border-color .2s; }
+  #boxB .field:focus-within { border-color: var(--ink2); }
+  #boxB .field input { flex: 1; font-size: 20px; font-weight: 500; }
+  #boxB .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; }
+  .x { position: absolute; top: 18px; right: 20px; background: none; border: none; color: var(--ink3); font-size: 22px; cursor: pointer; }
+
+  /* ── C · grows out of the + button ─────────────────────────────────── */
+  #boxC { position: absolute; z-index: 40; left: 16px; bottom: 16px; display: none; align-items: center; gap: 10px; width: 560px; height: 52px; padding: 0 6px 0 20px; border-radius: 99px; background: var(--theme-accent); box-shadow: var(--float-shadow), 0 2px 8px rgba(0,0,0,.25); transform-origin: 18px 50%; animation: grow .28s cubic-bezier(.2,.8,.2,1); }
+  @keyframes grow { from { width: 36px; opacity: .4 } to { width: 560px; opacity: 1 } }
+  body.v-C.open #boxC { display: flex; }
+  body.v-C.open .chrome-plus { opacity: 0; }
+  #boxC input { flex: 1; font-size: 15px; }
+  #boxC .go { background: rgba(0,0,0,.28); height: 40px; }
+  #boxC .hint { position: absolute; left: 20px; bottom: 62px; white-space: nowrap; }
+
+  /* ── preview (after the link resolves) — a feed card you edit in place ── */
+  #preview { position: absolute; z-index: 39; display: none; width: 900px; max-width: calc(100vw - 32px); background: var(--theme-dark2); border-radius: var(--float-radius); box-shadow: var(--float-shadow); padding: 44px 48px 28px; }
+  body.open.step-preview #preview, body.open.step-fetching #preview { display: block; }
+  body.v-A #preview { left: 50%; top: 172px; transform: translateX(-50%); max-height: calc(100vh - 188px); overflow: auto; }
+  body.v-B #preview { left: 50%; top: 50%; transform: translate(-50%, -50%); max-height: calc(100vh - 64px); overflow: auto; }
+  body.v-C #preview { left: 16px; bottom: 84px; max-height: calc(100vh - 100px); overflow: auto; }
+  #preview .grid { display: grid; grid-template-columns: 300px 1fr; gap: 36px; }
+  #preview .cover { width: 300px; height: 300px; border-radius: var(--art-radius); background: var(--field) center/cover no-repeat; position: relative; }
+  #preview .cover .swap { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); opacity: 0; transition: opacity .2s; }
+  #preview .cover:hover .swap { opacity: 1; }
+  .ghostbtn { background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 99px; padding: 6px 12px; font: 600 9px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; cursor: pointer; }
+  .types { display: flex; gap: 6px; }
+  .types button { border: 1px solid var(--line); background: transparent; color: var(--ink3); font: 600 9px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; padding: 5px 8px; border-radius: 3px; cursor: pointer; }
+  .types button.on { background: var(--ink1); border-color: var(--ink1); color: var(--theme-dark2); }
+  [contenteditable] { outline: none; border-radius: 4px; transition: background .15s; }
+  [contenteditable]:hover { background: var(--field); }
+  [contenteditable]:focus { background: var(--field); box-shadow: 0 0 0 4px var(--field); }
+  [contenteditable]:empty::before { content: attr(data-ph); color: var(--ink3); }
+  #pArtist { margin-top: 15px; font: 700 30px/1.02 var(--sans); letter-spacing: -.022em; color: var(--ink1); }
+  #pTitle { font: 700 30px/1.02 var(--sans); letter-spacing: -.022em; color: var(--ink2); }
+  #pMeta { margin-top: 11px; }
+  #pMeta span { color: var(--ink2); }
+  .genres { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .genres span { font: 500 11px/1 var(--sans); padding: 3px 10px; border-radius: 99px; background: var(--line); color: var(--ink2); cursor: pointer; }
+  .genres span:hover::after { content: ' ×'; }
+  .genres span.add { background: transparent; border: 1px dashed var(--line); color: var(--ink3); }
+  .genres span.add:hover::after { content: ''; }
+  .zl { margin: 22px 0 8px; font: 600 9px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink3); display: flex; justify-content: space-between; }
+  .tracks { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 28px; }
+  .tracks li { break-inside: avoid; display: grid; grid-template-columns: 28px 1fr 10px; gap: 10px; align-items: baseline; padding: 3.5px 0; font: 400 13px/1.3 var(--sans); color: var(--ink2); }
+  .tracks li b { font: 500 10px/1 var(--mono); color: var(--ink3); }
+  .tracks li i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); align-self: center; }
+  .tracks li i.yes { background: #4caf50; }
+  .tracks li i.hunt { background: var(--ink3); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2 } }
+  #pDesc { margin-top: 6px; min-height: 60px; padding: 12px 14px; border-radius: 10px; background: var(--field); font: 400 13px/1.5 var(--sans); color: var(--ink1); }
+  #pDesc:hover { background: var(--field); }
+  .pfoot { display: flex; align-items: center; justify-content: space-between; margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .pfoot .by { font: 600 11.5px/1 var(--sans); color: var(--ink2); }
+  .pfoot .by em { font: 500 10px/1 var(--mono); font-style: normal; letter-spacing: .08em; color: var(--ink3); margin-left: 8px; text-transform: uppercase; }
+  .pfoot .acts { display: flex; gap: 10px; align-items: center; }
+  .linkbtn { background: none; border: none; color: var(--ink3); font: 600 11px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+  .linkbtn:hover { color: var(--ink1); }
+
+  /* fetching skeleton */
+  body.step-fetching #preview .cover, body.step-fetching #preview .sk { background: var(--field); animation: pulse 1.2s infinite; }
+  body.step-fetching #preview .real { visibility: hidden; }
+  body:not(.step-fetching) #preview .sk { display: none; }
+  .sk { height: 26px; border-radius: 6px; margin-top: 12px; }
+  @keyframes pulse { 50% { opacity: .45 } }
+  #status { margin-top: 16px; }
+
+  /* dupe notice */
+  #dupe { display: none; margin-bottom: 20px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); font: 400 13px/1.5 var(--sans); color: var(--ink1); }
+  #dupe.show { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+
+  #toast { position: absolute; z-index: 60; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; transition: .3s; background: var(--theme-dark3); color: var(--theme-text-pri); border: 1px solid var(--theme-border); border-radius: 99px; padding: 10px 18px; font: 600 11px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ── mockup controls (not part of the design) ─────────────────────── */
+  #ctl { position: absolute; z-index: 100; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; background: rgba(0,0,0,.72); padding: 6px; border-radius: 10px; font: 500 11px/1 var(--mono); color: #aaa; }
+  #ctl button { background: transparent; color: #ccc; border: 1px solid #444; border-radius: 6px; padding: 6px 9px; font: inherit; cursor: pointer; }
+  #ctl button.on { background: #fff; color: #000; border-color: #fff; }
+  #ctl .sep { width: 1px; height: 18px; background: #444; margin: 0 4px; }
+</style>
+</head>
+<body class="v-A step-name open">
+
+<div id="feed"><div id="intro" class="ink"><h1>LATE<br>NIGHT<br>VIBES</h1><p>stand-in feed behind the mockup</p></div></div>
+<div class="chrome-search">⌕ <span>search artists, genres, labels, tracks…</span></div>
+<button class="chrome-plus" id="plus" title="Compose">+</button>
+<div id="scrim"></div>
+
+<!-- A · command bar ---------------------------------------------------- -->
+<div id="boxA" class="ink">
+  <div class="bar">
+    <span class="lead" data-lead></span>
+    <input class="bare" data-in autocomplete="off" spellcheck="false" />
+    <span class="chip" data-chip hidden></span>
+    <button class="go round" data-go>→</button>
+  </div>
+  <div class="under">
+    <div data-under></div>
+    <span class="mono">ENTER ↵ · ESC</span>
+  </div>
+</div>
+
+<!-- B · card ----------------------------------------------------------- -->
+<div id="boxB" class="ink">
+  <button class="x" data-close>×</button>
+  <span class="badge" data-badge></span>
+  <h2 data-head></h2>
+  <div class="field">
+    <input class="bare" data-in autocomplete="off" spellcheck="false" />
+    <span class="chip" data-chip hidden></span>
+  </div>
+  <div data-under></div>
+  <div class="foot">
+    <span class="err" data-err></span>
+    <button class="go" data-go></button>
+  </div>
+</div>
+
+<!-- C · out of the + button -------------------------------------------- -->
+<div id="boxC" class="ink">
+  <span class="mono hint" data-under-c></span>
+  <input class="bare" data-in autocomplete="off" spellcheck="false" />
+  <span class="chip" data-chip hidden></span>
+  <button class="go round" data-go>→</button>
+</div>
+
+<!-- preview: a feed card, edited in place ------------------------------ -->
+<div id="preview" class="ink">
+  <div id="dupe"><span>Already on the board — <b id="dupeTitle"></b>, posted by @<span id="dupeBy"></span>.</span><button class="linkbtn" id="dupeGo">Post anyway</button></div>
+  <div class="grid">
+    <div class="cover" id="pCover"><button class="ghostbtn swap real">Change cover</button></div>
+    <div>
+      <div class="sk" style="width:40%"></div><div class="sk" style="width:80%;height:32px"></div><div class="sk" style="width:65%;height:32px"></div><div class="sk" style="width:50%"></div>
+      <div class="mono" id="status"></div>
+      <div class="real">
+        <div class="types" id="pTypes"><button data-t="album">Album</button><button data-t="single">Single</button><button data-t="livemix">Live set</button></div>
+        <div id="pArtist" contenteditable data-ph="Artist"></div>
+        <div id="pTitle" contenteditable data-ph="Title"></div>
+        <div class="mono" id="pMeta"><span contenteditable data-ph="LABEL" id="pLabel"></span> · <span contenteditable data-ph="CAT NO" id="pCat"></span> · <span contenteditable data-ph="YEAR" id="pYear"></span></div>
+        <div class="genres" id="pGenres"></div>
+      </div>
+    </div>
+  </div>
+  <div class="real">
+    <div class="zl"><span>Tracklist</span><span id="pLinks"></span></div>
+    <ul class="tracks" id="pTracks"></ul>
+    <div class="zl"><span>Description</span><span>optional</span></div>
+    <div id="pDesc" contenteditable data-ph="What makes this record special…"></div>
+    <div class="pfoot">
+      <span class="by">@<span id="pBy"></span><em>posting as</em></span>
+      <div class="acts"><button class="linkbtn" id="pBack">Different link</button><button class="go" id="pPost">Post ▶</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="ctl">
+  <span>BOX</span>
+  <button data-v="A">A · bar</button><button data-v="B">B · card</button><button data-v="C">C · from +</button>
+  <span class="sep"></span><span>STEP</span>
+  <button data-s="name">username</button><button data-s="link">link</button><button data-s="fetching">fetching</button><button data-s="preview">preview</button>
+  <span class="sep"></span>
+  <button id="pal">palette ◐</button>
+</div>
+
+<script type="module">
+import { PALETTES, applyPalette, getAutoIndex } from '/src/services/themeService.js'
+
+const API = 'http://localhost:3001/api'
+const $ = s => document.querySelector(s)
+const $$ = s => [...document.querySelectorAll(s)]
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+// Same list as ComposeModal's PLATFORMS (label + brand colour + matcher).
+const PLATFORMS = [
+  ['Discogs', '#333', /discogs\.com/i], ['YouTube', '#ff0000', /(?:youtube\.com|youtu\.be)/i], ['Bandcamp', '#1da0c3', /bandcamp\.com/i],
+  ['SoundCloud', '#ff5500', /soundcloud\.com/i], ['Spotify', '#1db954', /open\.spotify\.com/i], ['Mixcloud', '#5000ff', /mixcloud\.com/i],
+  ['Apple Music', '#fc3c44', /music\.apple\.com/i], ['Deezer', '#a238ff', /deezer\.com/i], ['Beatport', '#01a86b', /beatport\.com/i],
+  ['Tidal', '#000', /tidal\.com/i], ['RA', '#f03', /(?:ra\.co|residentadvisor\.net)/i], ['Boiler Room', '#111', /boilerroom\.tv/i],
+]
+const detect = url => PLATFORMS.find(p => p[2].test(url || '')) || null
+
+// ── state ────────────────────────────────────────────────────────────────
+let variant = 'A', step = 'name', user = '', draft = null, sample = null
+const COPY = {
+  name: { lead: '@', ph: 'pick a username', badge: 'Welcome', head: 'Pick a username.', go: 'Continue', under: 'No password. Your posts are signed with this name.' },
+  link: { lead: '+', ph: 'paste anything, from any platform', badge: 'New post', head: 'Add a link.', go: 'Fetch', under: null },
+}
+
+function setStep(s) {
+  step = s
+  document.body.className = document.body.className.replace(/\bstep-\w+/g, '').trim() + ' step-' + s
+  $$('#ctl [data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === s))
+  const c = COPY[s === 'name' ? 'name' : 'link']
+  $$('[data-in]').forEach(i => { i.placeholder = c.ph; i.value = s === 'name' ? user : (draft?.url || '') })
+  $$('[data-lead]').forEach(e => e.textContent = c.lead)
+  $$('[data-badge]').forEach(e => e.textContent = c.badge)
+  $$('[data-head]').forEach(e => e.textContent = c.head)
+  $$('#boxB [data-go]').forEach(e => e.textContent = c.go + ' →')
+  const under = s === 'name' ? `<span class="mono">${c.under}</span>` : `<div class="plats">${PLATFORMS.map(p => `<span data-p="${p[0]}">${p[0].toUpperCase()}</span>`).join('')}</div>`
+  $$('[data-under]').forEach(e => e.innerHTML = under)
+  $('[data-under-c]').textContent = s === 'name' ? 'FIRST, A USERNAME — NO PASSWORD' : 'DISCOGS · YOUTUBE · BANDCAMP · SOUNDCLOUD · SPOTIFY · MIXCLOUD · RA …'
+  $$('[data-err]').forEach(e => e.textContent = '')
+  onType()
+  if (s === 'preview' || s === 'fetching') renderPreview()
+  if (s === 'name' || s === 'link') setTimeout(() => activeInput()?.focus(), 30)
+  inkAll()
+}
+function setVariant(v) {
+  variant = v
+  document.body.className = document.body.className.replace(/\bv-\w\b/g, '').trim() + ' v-' + v
+  $$('#ctl [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === v))
+  setStep(step)
+}
+const activeInput = () => $(`#box${variant} [data-in]`)
+function open() { document.body.classList.add('open'); setStep(user ? 'link' : 'name') }
+function close() { document.body.classList.remove('open') }
+
+function onType() {
+  const val = activeInput()?.value || ''
+  const p = step === 'link' ? detect(val) : null
+  $$('[data-chip]').forEach(c => { c.hidden = !p; if (p) { c.textContent = p[0]; c.style.background = p[1] } })
+  $$('.plats span').forEach(s => s.classList.toggle('on', !!p && s.dataset.p === p[0]))
+  $$('[data-go]').forEach(b => b.disabled = !val.trim())
+}
+
+async function submit() {
+  const val = activeInput().value.trim()
+  if (!val) return
+  if (step === 'name') { user = val.replace(/^@/, ''); setStep('link'); return }
+  if (!detect(val)) { $$('[data-err]').forEach(e => e.textContent = 'Not a link we know yet'); flash('Not a link we know yet'); return }
+  draft = { url: val }
+  setStep('fetching')
+  $('#status').textContent = `Fetching from ${detect(val)[0]}…`
+  const got = await resolve(val).catch(() => null)
+  draft = { url: val, ...(got || sample || {}) }
+  if (!got) draft.note = 'resolver unreachable — showing a sample post'
+  setStep('preview')
+}
+
+// Real resolver, same calls ComposeModal makes. Never posts.
+async function resolve(url) {
+  const ctrl = new AbortController(); setTimeout(() => ctrl.abort(), 15000)
+  const id = url.match(/release\/(\d+)/)?.[1]
+  if (/discogs\.com/i.test(url) && id) {
+    const d = await (await fetch(`${API}/discogs/release/${id}`, { signal: ctrl.signal })).json()
+    const parts = (d.title || '').split(' - ')
+    return { artist: (d.artists || []).map(a => a.name).join(', '), title: parts.length > 1 ? parts.slice(1).join(' - ') : d.title, label: d.labels?.[0]?.name, catNo: d.labels?.[0]?.catno, year: d.year, cover: d.coverImage || d.thumbImage, genres: [...(d.genres || []), ...(d.styles || [])].slice(0, 6), tracks: (d.tracklist || []).map(t => ({ position: t.position, title: t.title, link: false })), type: (d.tracklist || []).length >= 6 ? 'album' : 'single', source: 'Discogs' }
+  }
+  const r = await fetch(`${API}/media/resolve?url=${encodeURIComponent(url)}`, { signal: ctrl.signal })
+  if (!r.ok) throw new Error(r.status)
+  const d = await r.json()
+  if (!d.title) throw new Error('empty')
+  return { artist: d.artist, title: d.title, label: d.label, catNo: d.catNo, year: d.year, cover: d.cover_image, genres: (d.genres || []).slice(0, 6), tracks: (d.tracks || []).map(t => ({ position: t.position, title: t.title, link: !!t.stream_url })), type: d.detected_type || 'album', source: d.source === 'discogs' ? 'Discogs match' : detect(url)[0] }
+}
+
+function renderPreview() {
+  const d = draft && step === 'preview' ? draft : (sample || {})
+  $('#pCover').style.backgroundImage = d.cover ? `url('${d.cover}')` : ''
+  $('#pArtist').textContent = d.artist || ''
+  $('#pTitle').textContent = d.title || ''
+  $('#pLabel').textContent = d.label || ''
+  $('#pCat').textContent = d.catNo || ''
+  $('#pYear').textContent = d.year || ''
+  $$('#pTypes button').forEach(b => b.classList.toggle('on', b.dataset.t === (d.type || 'album')))
+  $('#pGenres').innerHTML = (d.genres || []).map(g => `<span>${esc(g)}</span>`).join('') + '<span class="add">+ genre</span>'
+  const tracks = d.tracks || []
+  // A few rows "still searching" so the live YouTube hunt shows in the mockup.
+  $('#pTracks').innerHTML = tracks.map((t, i) => `<li><b>${esc(t.position || i + 1)}</b><span>${esc(t.title)}</span><i class="${t.link ? 'yes' : 'hunt'}" title="${t.link ? 'playable link found' : 'searching YouTube…'}"></i></li>`).join('')
+  $('#pLinks').textContent = tracks.length ? `${tracks.filter(t => t.link).length} / ${tracks.length} playable` : ''
+  $('#pLinks').parentElement.style.display = tracks.length ? '' : 'none'
+  $('#pBy').textContent = user || 'you'
+  $('#dupe').classList.toggle('show', !!d.dupe)
+  if (d.dupe) { $('#dupeTitle').textContent = d.title; $('#dupeBy').textContent = d.dupe }
+  if (step === 'preview') $('#status').textContent = d.note || ''
+}
+
+// Ink per surface, same rule as the feed (FloatSlot / useCardInk).
+function inkFor(el) {
+  const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g)
+  if (!m) return
+  const [r, g, b] = m.slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+  el.classList.toggle('light', 0.2126 * r + 0.7152 * g + 0.0722 * b >= 0.18)
+}
+function inkAll() { $$('.ink, .fcard').forEach(el => { el.classList.add('ink'); inkFor(el) }); const bar = $('#boxA .bar'); if (bar) { inkFor(bar); $('#boxA').classList.toggle('light', bar.classList.contains('light')); bar.classList.remove('light') } }
+
+function flash(t) { const e = $('#toast'); e.textContent = t; e.classList.add('show'); setTimeout(() => e.classList.remove('show'), 1800) }
+
+// ── stand-in feed from real posts ──────────────────────────────────────────
+async function loadFeed() {
+  try {
+    const j = await (await fetch(`${API}/posts?limit=8`)).json()
+    const posts = Array.isArray(j) ? j : j.posts || []
+    $('#feed').insertAdjacentHTML('beforeend', posts.slice(0, 6).map(p => `<div class="fcard"><div class="art" style="background-image:url('${esc(p.cover_image)}')"></div><div><div class="a">${esc((p.artists || []).map(a => a.artist_name).join(' & '))}</div><div class="t">${esc(p.title)}</div></div></div>`).join(''))
+    const p = posts.find(p => (p.tracks || []).length >= 4) || posts[0]
+    if (p) sample = {
+      artist: (p.artists || []).map(a => a.artist_name).join(', '), title: p.title, label: p.labels?.[0]?.label_name, catNo: p.labels?.[0]?.catalogue_number, year: p.year,
+      cover: p.cover_image, genres: (p.genres || []).map(g => g.name || g.genre_name || g).slice(0, 6), type: p.post_type || 'album',
+      tracks: (p.tracks || []).map((t, i) => ({ position: t.position, title: t.title, link: !!(t.stream_url || t.youtube_url) && i % 5 !== 3 })),
+    }
+  } catch { /* backend down: the boxes still work */ }
+  inkAll(); renderPreview()
+}
+
+// ── wiring ─────────────────────────────────────────────────────────────────
+$$('[data-in]').forEach(i => { i.addEventListener('input', onType); i.addEventListener('keydown', e => { if (e.key === 'Enter') submit() }) })
+$$('[data-go]').forEach(b => b.onclick = submit)
+$$('[data-close]').forEach(b => b.onclick = close)
+$('#scrim').onclick = close
+$('#plus').onclick = open
+addEventListener('keydown', e => { if (e.key === 'Escape') close() })
+$$('#pTypes button').forEach(b => b.onclick = () => $$('#pTypes button').forEach(x => x.classList.toggle('on', x === b)))
+$('#pGenres').onclick = e => { if (e.target.classList.contains('add')) { const g = prompt('Genre'); if (g) e.target.insertAdjacentHTML('beforebegin', `<span>${esc(g)}</span>`) } else if (e.target.tagName === 'SPAN') e.target.remove() }
+$('#pBack').onclick = () => setStep('link')
+$('#pPost').onclick = () => { close(); flash('Posted to the board (mockup — nothing saved)') }
+$('#dupeGo').onclick = () => $('#dupe').classList.remove('show')
+$$('#ctl [data-v]').forEach(b => b.onclick = () => { document.body.classList.add('open'); setVariant(b.dataset.v) })
+$$('#ctl [data-s]').forEach(b => b.onclick = () => { document.body.classList.add('open'); if (b.dataset.s === 'fetching') $('#status').textContent = 'Fetching from YouTube… → Discogs match'; setStep(b.dataset.s) })
+let pal = getAutoIndex(); applyPalette(pal)
+$('#pal').onclick = () => { pal = (pal + 1) % PALETTES.length; applyPalette(pal); flash(PALETTES[pal].name); setTimeout(inkAll, 650) }
+
+setVariant('A')
+loadFeed()
+</script>
+</body>
+</html>

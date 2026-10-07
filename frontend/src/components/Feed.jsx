@@ -16,6 +16,7 @@ import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 import TrackPlayer from './TrackPlayer'
 import { toEmbedSrc } from '../lib/embeds'
+import { SOURCE_SHORT, SOURCE_NAME, useSourcePref, urlForTrack, platformOf } from '../lib/sources'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -584,6 +585,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
   const { openD3, registerPostRef } = useLayout() || {}
   const [activeTrackUrl, setActiveTrackUrl] = useState(null)
   const [hoveredTrack, setHoveredTrack] = useState(null)
+  const [srcPref, setSrcPref] = useSourcePref() // the listener's preferred source (lib/sources.js)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   // 2026-08-29 (round 10) — dynamic bottom-plate art alignment. See the
@@ -657,8 +659,9 @@ function PostCard({ post, cardBg, d, onEdit }) {
   // size=large/minimal=true player is the square artwork with a play button.
   // A clicked Bandcamp track carries its own player (track id); otherwise
   // it's the post's album/track player.
-  const activeTrack = activeTrackUrl ? tracks.find(t => (t.stream_url || t.youtube_url) === activeTrackUrl) : null
-  const bcEmbed = /bandcamp\.com\/EmbeddedPlayer/i.test(activeTrack?.embed_url || '')
+  const activeTrack = activeTrackUrl ? tracks.find(t => urlForTrack(t, srcPref) === activeTrackUrl) : null
+  const activeIsOwn = !!activeTrack && activeTrackUrl === (activeTrack.stream_url || activeTrack.youtube_url) // another source's link has no Bandcamp embed
+  const bcEmbed = activeIsOwn && /bandcamp\.com\/EmbeddedPlayer/i.test(activeTrack?.embed_url || '')
     ? activeTrack.embed_url
     : /bandcamp\.com/i.test(streamUrl) && /bandcamp\.com\/EmbeddedPlayer/i.test(post.embed_url || '')
       ? post.embed_url : null
@@ -673,7 +676,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
     ? `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&color=%23e85d04&auto_play=false&hide_related=true&show_comments=false&show_user=true&visual=${isLiveMix ? 'false' : 'true'}`
     : mcUrl
     ? `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(mcUrl.replace('https://www.mixcloud.com',''))}`
-    : null
+    : toEmbedSrc(streamUrl) // Spotify, Deezer, Apple Music (free sources) — null for anything else
 
   // The embed's size comes from the platform actually detected in the post's
   // URL, not from the designer's preset — the preset only picks which one the
@@ -735,7 +738,8 @@ function PostCard({ post, cardBg, d, onEdit }) {
   // row does — flips to its player and highlights the row. Falls back to the
   // first track that has a link, then the post's own link. Once flipped the
   // iframe takes the clicks, so flipping back stays on the active row.
-  const firstTrackUrl = tracks.map(t => t.stream_url || t.youtube_url).find(Boolean)
+  const postLinkKeys = linkKeys(tracks)
+  const firstTrackUrl = tracks.map(t => urlForTrack(t, srcPref)).find(Boolean)
     || post.stream_url || post.embed_url || null
   const playFromArt = !isLiveMix && !albumFlipped && firstTrackUrl
     ? () => setActiveTrackUrl(firstTrackUrl)
@@ -810,7 +814,7 @@ function PostCard({ post, cardBg, d, onEdit }) {
           <div ref={trackListRef} data-inner-scroll={trackFit.overflows ? '' : undefined} onScroll={trackFit.onScroll}
             style={{ minHeight: 0, overflowY: trackFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(trackFit) }}>
             {tracks.map((t, i) => {
-              const tUrl = t.stream_url || t.youtube_url || null
+              const tUrl = urlForTrack(t, srcPref)
               const isActive = activeTrackUrl && tUrl && activeTrackUrl === tUrl
               const isHovered = hoveredTrack === i
               const numEl = (
@@ -830,17 +834,21 @@ function PostCard({ post, cardBg, d, onEdit }) {
               // (byline), not each track's — 2026-10-06.
               const actEl = tUrl ? (
                 <span key="act" style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline', flexShrink: 0 }}>
+                  <SourceChips track={t} activeUrl={activeTrackUrl} pref={srcPref} d={d} onPick={s => { setSrcPref(s.platform); setActiveTrackUrl(s.url) }} />
                   <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align={d.plateAlign === 'left' ? 'left' : 'right'} style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: textTer }} />
                 </span>
               ) : null
               const order = d.plateAlign === 'left' ? [titleEl, durEl, numEl, actEl] : [actEl, numEl, durEl, titleEl]
               return (
-                <div key={i}
+                <div key={i}>
+                <div
                   onClick={() => { if (tUrl) setActiveTrackUrl(isActive ? null : tUrl) }}
                   onMouseEnter={() => setHoveredTrack(i)}
                   onMouseLeave={() => setHoveredTrack(h => h === i ? null : h)}
                   style={{ display: 'flex', justifyContent: railJustify, gap: d.trackGap, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, cursor: tUrl ? 'pointer' : 'default', background: (isActive || isHovered) ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                   {order}
+                </div>
+                {isActive && <PreviewPrompt post={post} track={t} linkKey={postLinkKeys[i]} activeUrl={activeTrackUrl} indent={0} />}
                 </div>
               )
             })}
@@ -1270,6 +1278,44 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   )
 }
 
+// Under the track being played when the only thing we have is a 30-second
+// preview (Spotify, Deezer, Apple): ask for a YouTube link. The link goes
+// through the usual check (TrackLinkAdd / services/trackLinks.js) and, once
+// live, replaces the preview on every post of the release — and costs no quota.
+const FULL_SOURCES = new Set(['youtube', 'soundcloud', 'bandcamp'])
+function PreviewPrompt({ post, track, linkKey, activeUrl, indent = 30 }) {
+  const queryClient = useQueryClient()
+  const playing = platformOf(activeUrl)
+  const have = [platformOf(track.stream_url || track.youtube_url), ...(track.sources || []).map(s => s.platform)].filter(Boolean)
+  if (!post.discogs_id || !linkKey || !playing || FULL_SOURCES.has(playing) || have.some(p => FULL_SOURCES.has(p))) return null
+  return <AddLinkRow releaseId={post.discogs_id} linkKey={linkKey} title={track.title} artist={artistName(post)} indent={indent}
+    prompt="＋ only a 30-second preview here — know the full track? add a YouTube link"
+    signInText="only a 30-second preview here — sign in and help us find the full track"
+    onDone={() => queryClient.invalidateQueries({ queryKey: ['posts'] })} />
+}
+
+// The places a track can be played, as small chips on its row (2026-10-07):
+// click one to play it from there — and to make it your default where a track
+// has it. Only shown when there's a choice (two or more sources).
+function SourceChips({ track, activeUrl, pref, onPick, d }) {
+  const list = track.sources || []
+  if (list.length < 2) return null
+  const own = track.stream_url || track.youtube_url
+  const current = activeUrl ? platformOf(activeUrl) : (pref && list.some(s => s.platform === pref) ? pref : platformOf(own))
+  return (
+    <span style={{ display: 'inline-flex', gap: 3 }} onClick={e => e.stopPropagation()}>
+      {list.map(s => {
+        const on = s.platform === current
+        return (
+          <button key={s.platform} onClick={() => onPick(s)}
+            title={`${SOURCE_NAME[s.platform] || s.platform}${s.full ? '' : ' — 30-second preview unless you are signed in there'}`}
+            style={{ fontFamily: d.monoFf, fontSize: 8.5, lineHeight: 1, letterSpacing: '0.04em', padding: '2px 3px', borderRadius: 3, cursor: 'pointer', border: '1px solid var(--lv-line)', background: on ? 'var(--theme-showcase)' : 'transparent', color: on ? '#fff' : 'var(--lv-ter)', opacity: s.full ? 1 : 0.85 }}>{SOURCE_SHORT[s.platform] || s.platform}</button>
+        )
+      })}
+    </span>
+  )
+}
+
 // ── Album card (2026-09-26) ────────────────────────────────────────────────────
 // From the card mockup's "C · record out" template, which gabriel picked for
 // albums, reworked with gabriel 2026-09-26: the sleeve with the post
@@ -1300,7 +1346,9 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   const cardRef = useRef(null)
 
   const tracks = post.tracks || []
-  const urlOf = t => t.stream_url || t.youtube_url || null
+  // The listener's preferred source wins where a track has it (lib/sources.js).
+  const [srcPref, setSrcPref] = useSourcePref()
+  const urlOf = t => urlForTrack(t, srcPref)
   const artist = artistName(post)
   const label = labelName(post)
   const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
@@ -1314,8 +1362,11 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
   // The active track's own player (Bandcamp tracks carry one); the post's
   // own Bandcamp link plays its album player.
+  // A track's own embed (Bandcamp) only applies to its own link, not to another source's.
+  const activeTrack = activeUrl ? tracks.find(t => urlOf(t) === activeUrl) : null
+  const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
   const playingSrc = !activeUrl ? null
-    : trackEmbedSrc(tracks.find(t => urlOf(t) === activeUrl), toEmbedSrc)
+    : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
       || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
   function playNext() {
     const urls = tracks.map(urlOf)
@@ -1348,19 +1399,24 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, textDecoration: 'none' }
   const half = Math.ceil(tracks.length / 2)
   const indexed = tracks.map((t, i) => ({ t, i }))
+  const linkKeyList = linkKeys(tracks)
   const trackCol = list => (
     <div style={{ minWidth: 0 }}>
       {list.map(({ t, i }) => {
         const u = urlOf(t)
         const active = !!activeUrl && u === activeUrl
         return (
-          <div key={i} onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+          <div key={i}>
+          <div onClick={() => { if (u) setActiveUrl(active ? null : u) }}
             style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr) auto', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
             <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400 }}>{t.title}</span>
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
+              <SourceChips track={t} activeUrl={activeUrl} pref={srcPref} d={d} onPick={s => { setSrcPref(s.platform); setActiveUrl(s.url) }} />
               {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
             </span>
+          </div>
+          {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
           </div>
         )
       })}

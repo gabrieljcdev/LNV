@@ -1,3 +1,4 @@
+import { sourcesFor, queuePostSources } from '../services/trackSources.js';
 import express from 'express';
 import db from '../db/database.js';
 import { enrichPostTracks } from '../services/youtubeService.js';
@@ -29,7 +30,10 @@ function getFullPost(postId) {
   const artists = db.prepare('SELECT * FROM post_artists WHERE post_id = ?').all(postId);
   const labels = db.prepare('SELECT * FROM post_labels WHERE post_id = ?').all(postId);
   const genres = db.prepare('SELECT genre FROM post_genres WHERE post_id = ?').all(postId).map(g => g.genre);
-  const tracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
+  const rawTracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
+  // Every place each track can be played (services/trackSources.js), best first.
+  const srcs = sourcesFor(rawTracks.map(t => t.id));
+  const tracks = rawTracks.map(t => ({ ...t, sources: srcs[t.id] || [] }));
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
@@ -288,6 +292,8 @@ router.post('/', requireAuth, (req, res, next) => {
     for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
     // A link that can't play (embedding switched off, removed) is cleared a moment after saving.
     setTimeout(() => checkPostLinks(postId).catch(() => {}), 1500);
+    // Look for every free place the tracks can be played, in the background.
+    queuePostSources(postId);
     // triggerSpotlights(postId); — disabled 2026-08-24: spotlights are now
     // computed client-side per feed load (Feed.jsx buildSpotlightPool),
     // every SPOTLIGHT_EVERYth post, randomized and not repeated within a

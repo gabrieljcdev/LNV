@@ -11,6 +11,11 @@ export function toEmbedSrc(streamUrl) {
   // a 30-second preview otherwise.
   const sp = streamUrl.match(/open\.spotify\.com\/(?:intl-[\w-]+\/)?(track|album)\/([A-Za-z0-9]+)/)
   if (sp) return `https://open.spotify.com/embed/${sp[1]}/${sp[2]}?utm_source=generator`
+  // Deezer and Apple Music (2026-10-07, free sources): a 30-second preview
+  // unless the listener is signed in to the service.
+  const dz = streamUrl.match(/deezer\.com\/(?:[a-z]{2}\/)?(track|album)\/(\d+)/i)
+  if (dz) return `https://widget.deezer.com/widget/dark/${dz[1].toLowerCase()}/${dz[2]}?tracklist=false`
+  if (/^https?:\/\/music\.apple\.com\//i.test(streamUrl)) return streamUrl.replace('://music.apple.com', '://embed.music.apple.com')
   if (/mixcloud\.com/i.test(streamUrl)) return `https://www.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(streamUrl.replace('https://www.mixcloud.com',''))}`
   return null
 }

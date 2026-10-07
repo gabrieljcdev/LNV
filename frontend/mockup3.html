@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LNV album/single card ideas</title>
+<!--
+  Album + single card ideas (2026-10-07). Dev-only page, not linked from the app:
+  http://localhost:5173/mockup3.html. Spotlights, intros and live sets are kept
+  as they are (gabriel) — this only explores the ALBUM and SINGLE record card.
+  Renders real posts from http://localhost:3001/api/posts in the site palettes.
+-->
+<script>if (location.protocol === 'file:') location.replace('http://localhost:5173/mockup3.html')</script>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,300;1,400&family=Barlow+Condensed:wght@600;800&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Caveat:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { --sans: 'Barlow', sans-serif; --cond: 'Barlow Condensed', sans-serif; --mono: 'IBM Plex Mono', monospace; --serif: 'Instrument Serif', Georgia, serif; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--theme-bg, #111); color: var(--theme-text-pri); font-family: var(--sans); transition: background .6s; }
+  #shelf { display: flex; align-items: center; height: 100vh; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity; }
+  #shelf::-webkit-scrollbar { display: none; }
+  .card { flex: 0 0 auto; height: 100vh; position: relative; overflow: hidden; scroll-snap-align: center; transition: background .6s; }
+  .bg1 { background: var(--theme-dark1); } .bg2 { background: var(--theme-dark2); } .bg3 { background: var(--theme-dark3); }
+  .bgS { background: var(--theme-showcase); }
+  body[data-size="m"] .card { zoom: .7; border-radius: 12px; } body[data-size="s"] .card { zoom: .5; border-radius: 14px; }
+  body[data-size="m"] #shelf { gap: 28px; padding: 0 56px; } body[data-size="s"] #shelf { gap: 22px; padding: 0 44px; }
+  .tag { position: absolute; top: 14px; right: 16px; z-index: 9; font: 500 10px/1 var(--mono); letter-spacing: .08em; padding: 5px 8px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; }
+  body.nolabels .tag { display: none; }
+  .cover { background: #000 center/cover no-repeat; }
+  .artist { font: 700 38px/1 var(--sans); letter-spacing: -.01em; color: var(--theme-text-pri); }
+  .title { font: italic 300 28px/1.1 var(--sans); color: var(--theme-text-pri); }
+  .meta { font: 500 11px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--theme-text-sec); }
+  .pill { display: inline-block; font: 600 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; border-radius: 3px; background: var(--theme-border); color: var(--theme-text-sec); margin-right: 4px; }
+  .pill.on { background: var(--theme-showcase); color: #fff; }
+  .genres span { display: inline-block; margin: 0 6px 6px 0; font: 500 11px/1 var(--sans); padding: 6px 10px; border-radius: 20px; background: var(--theme-border); color: var(--theme-text-sec); }
+  .desc p { margin: 0; font: 400 16px/1.55 var(--sans); color: var(--theme-text-sec); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .desc p.none { font-style: italic; color: var(--theme-text-ter); }
+  .desc h6 { margin: 0 0 8px; font: 500 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .pnum { font: 500 12px/1 var(--mono); letter-spacing: .1em; color: var(--theme-accent, #e85d04); }
+  .J .pnum { position: absolute; top: 18px; left: 22px; z-index: 2; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+  .play { width: 64px; height: 64px; border-radius: 50%; background: var(--theme-showcase); display: grid; place-items: center; flex-shrink: 0; cursor: pointer; }
+  .play::after { content: ''; border-left: 18px solid #fff; border-top: 11px solid transparent; border-bottom: 11px solid transparent; margin-left: 5px; }
+
+  /* H — Liner sheet: the tracklist IS the card. Bars show relative track length. */
+  .H { width: 820px; padding: 52px 52px 40px; display: flex; flex-direction: column; }
+  .H .top { display: flex; gap: 24px; align-items: flex-end; }
+  .H .top .cover { width: 170px; height: 170px; flex-shrink: 0; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+  .H .rows { flex: 1; min-height: 0; margin: 28px 0 22px; display: flex; flex-direction: column; justify-content: center; }
+  .H .row { position: relative; display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--theme-border); font: 500 21px/1.15 var(--sans); color: var(--theme-text-pri); cursor: pointer; }
+  .H .row::before { content: ''; position: absolute; left: 0; bottom: -1px; height: 2px; width: var(--w); background: var(--theme-showcase); }
+  .H .row b { font: 500 11px/1 var(--mono); color: var(--theme-text-ter); } .H .row i { font: 400 12px/1 var(--mono); font-style: normal; color: var(--theme-text-ter); }
+  .H .row:hover b { color: var(--theme-showcase); }
+  .H .desc p { -webkit-line-clamp: 3; font-size: 15px; }
+
+  /* I — Split sleeve: cover bleeds edge to edge on the left, info on the right */
+  .I { width: 1000px; display: grid; grid-template-columns: 52% 1fr; }
+  .I .cover { height: 100%; }
+  .I .side { padding: 56px 44px 40px 40px; display: flex; flex-direction: column; min-width: 0; }
+  .I .side .artist { font-size: 44px; margin-top: 18px; } .I .side .title { font-size: 28px; margin-top: 6px; }
+  .I .side .desc { margin: 26px 0; }
+  .I .mini { margin-top: auto; list-style: none; padding: 0; margin-bottom: 0; }
+  .I .mini li { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--theme-border); font: 400 13.5px/1.2 var(--sans); color: var(--theme-text-sec); }
+  .I .mini li b { font: 500 10px/1.6 var(--mono); color: var(--theme-text-ter); width: 24px; }
+  .I .foot { display: flex; align-items: center; gap: 16px; margin-top: 22px; }
+
+  /* J — Ambient glass: blurred cover fills the card, glass panel floats on it */
+  .J { width: 860px; display: flex; flex-direction: column; justify-content: flex-end; padding: 40px; color: #fff; --theme-text-pri: #fff; --theme-text-sec: rgba(255,255,255,.75); --theme-text-ter: rgba(255,255,255,.5); --theme-border: rgba(255,255,255,.18); }
+  .J .bgblur { position: absolute; inset: -60px; background: center/cover no-repeat; filter: blur(46px) saturate(1.5) brightness(.7); transform: scale(1.1); }
+  .J .art { position: relative; margin: 0 auto auto; width: 62%; aspect-ratio: 1; box-shadow: 0 30px 70px rgba(0,0,0,.55); }
+  .J .glass { position: relative; margin-top: 36px; padding: 24px 28px; border-radius: 16px; background: rgba(255,255,255,.1); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.18); display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; align-items: center; }
+  .J .glass .artist { font-size: 32px; } .J .glass .title { font-size: 22px; }
+  .J .chips { grid-column: 1 / -1; margin-top: 4px; }
+  .J .art { flex: 1 1 0; min-height: 0; width: auto; max-width: 100%; aspect-ratio: 1; align-self: center; margin: 0; background-size: cover; }
+  .J .glass { flex-shrink: 0; }
+  .J .jcom { font: 400 13px/1.4 var(--sans); display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--theme-border); padding-left: 22px; }
+  .J .jlist { max-height: 140px; overflow-y: auto; scrollbar-width: thin; }
+  .J .jcom p { margin: 0 0 4px; color: rgba(255,255,255,.85); } .J .jcom p b { font-weight: 600; color: #fff; margin-right: 6px; }
+  .J .jcom .reply { margin-top: auto; padding-top: 6px; border: 1px solid var(--theme-border); border-radius: 20px; padding: 6px 14px; color: rgba(255,255,255,.5); font-size: 12px; }
+  .J .jhead { display: flex; align-items: center; gap: 16px; grid-column: 1 / -1; } .J .jhead > div:first-child { flex: 1; min-width: 0; }
+  .J .jcols { grid-column: 1 / -1; display: grid; grid-template-columns: 1.15fr 1fr; gap: 26px; margin-top: 8px; }
+  .J .jtracks { list-style: none; margin: 8px 0 0; padding: 0; columns: 2; column-gap: 28px; grid-column: 1 / -1; max-height: 150px; overflow-y: auto; scrollbar-width: thin; }
+  .J .jtracks li { break-inside: avoid; display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--theme-border); font: 400 13px/1.25 var(--sans); color: rgba(255,255,255,.88); }
+  .J .jtracks li b { font: 500 10px/1 var(--mono); color: rgba(255,255,255,.5); } .J .jtracks li i { font: 400 10px/1 var(--mono); font-style: normal; color: rgba(255,255,255,.5); }
+
+  /* K — Poster: oversized condensed type, cover cropped as a band through it */
+  .K { width: 780px; padding: 44px 0 36px; display: flex; flex-direction: column; }
+  .K .big { font: 800 150px/.82 var(--cond); text-transform: uppercase; letter-spacing: -.01em; color: var(--theme-text-pri); padding: 0 40px; overflow: hidden; max-height: 330px; word-break: break-word; }
+  .K .band { flex: 1; min-height: 0; margin: 20px 0; position: relative; }
+  .K .band .cover { position: absolute; inset: 0; mix-blend-mode: luminosity; opacity: .95; background-position: center 40%; }
+  .K .band::after { content: ''; position: absolute; inset: 0; background: var(--theme-showcase); mix-blend-mode: multiply; }
+  .K .under { padding: 0 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: end; }
+  .K .under .title { font-size: 26px; }
+
+  /* L — Contact print: taped, tilted print with handwritten notes and a ticket-stub tracklist */
+  .L { width: 880px; display: flex; align-items: center; padding: 0 56px; gap: 48px; }
+  .L .print { flex: 0 0 380px; background: #f6f3ea; padding: 16px 16px 58px; transform: rotate(-3deg); box-shadow: 0 18px 40px rgba(0,0,0,.4); position: relative; }
+  .L .print .cover { aspect-ratio: 1; } .L .print::before { content: ''; position: absolute; top: -14px; left: 50%; width: 110px; height: 28px; margin-left: -55px; background: rgba(255,230,150,.7); transform: rotate(2deg); }
+  .L .print em { position: absolute; left: 22px; right: 22px; bottom: 14px; font: 500 28px/1 'Caveat', cursive; color: #222; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .L .right { flex: 1; min-width: 0; }
+  .L .note { font: 500 25px/1.3 'Caveat', cursive; color: var(--theme-text-pri); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; margin: 18px 0 24px; }
+  .L .stub { border: 1.5px dashed var(--theme-text-ter); border-radius: 6px; padding: 14px 16px; position: relative; }
+  .L .stub li { list-style: none; display: flex; justify-content: space-between; gap: 10px; font: 500 12px/1.9 var(--mono); color: var(--theme-text-sec); text-transform: uppercase; }
+  .L .stub ul { margin: 0; padding: 0; }
+
+  /* M — Turntable: record slides out of the sleeve; play button on the label; timeline underneath */
+  .M { width: 960px; padding: 56px; display: flex; flex-direction: column; }
+  .M .deck { position: relative; height: 380px; flex-shrink: 0; }
+  .M .deck .vinyl { position: absolute; left: 190px; top: 10px; height: 360px; aspect-ratio: 1; border-radius: 50%; background: repeating-radial-gradient(circle, #141414 0 2px, #0a0a0a 2px 4px); display: grid; place-items: center; animation: spin 9s linear infinite; }
+  .M .deck .vinyl .label { width: 36%; aspect-ratio: 1; border-radius: 50%; background-size: cover; background-position: center; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .M .deck .cover { position: absolute; left: 0; top: 0; width: 380px; height: 380px; box-shadow: 8px 0 30px rgba(0,0,0,.5); }
+  .M .deck .ctrl { position: absolute; right: 0; top: 40px; width: 270px; }
+  .M .timeline { display: flex; height: 38px; gap: 3px; margin: 34px 0 10px; }
+  .M .timeline span { flex: var(--f); background: var(--theme-border); border-radius: 3px; position: relative; overflow: hidden; }
+  .M .timeline span:first-child { background: var(--theme-showcase); }
+  .M .tl-names { display: flex; gap: 3px; } .M .tl-names span { flex: var(--f); font: 400 11px/1.3 var(--sans); color: var(--theme-text-sec); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .M .bottom { display: grid; grid-template-columns: 1.3fr 1fr; gap: 36px; margin-top: auto; }
+
+  /* N — Catalogue card: a library index card. Label colour band, mono type, stamped catalogue number */
+  .N { width: 720px; padding: 48px; display: flex; flex-direction: column; }
+  .N .sheet { flex: 1; min-height: 0; border: 1.5px solid var(--theme-text-ter); border-radius: 4px; display: flex; flex-direction: column; position: relative; }
+  .N .sheet .hd { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1.5px solid var(--theme-text-ter); font: 500 12px/1 var(--mono); letter-spacing: .1em; color: var(--theme-text-sec); }
+  .N .sheet .main { display: flex; gap: 20px; padding: 20px 18px; border-bottom: 1.5px solid var(--theme-text-ter); }
+  .N .sheet .main .cover { width: 200px; height: 200px; flex-shrink: 0; filter: grayscale(.2) contrast(1.05); }
+  .N .sheet .main .artist { font: 700 30px/1.05 var(--mono); letter-spacing: -.03em; } .N .sheet .main .title { font: 400 17px/1.3 var(--mono); font-style: normal; margin-top: 8px; color: var(--theme-text-sec); }
+  .N .sheet .fields { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1.5px solid var(--theme-text-ter); }
+  .N .sheet .fields div { padding: 10px 18px; border-right: 1.5px solid var(--theme-text-ter); font: 500 13px/1.2 var(--mono); color: var(--theme-text-pri); } .N .sheet .fields div:last-child { border: 0; }
+  .N .sheet .fields span { display: block; font-size: 9px; letter-spacing: .12em; color: var(--theme-text-ter); margin-bottom: 5px; }
+  .N .sheet .body { padding: 16px 18px; flex: 1; min-height: 0; overflow: hidden; }
+  .N .sheet .body li { list-style: none; display: grid; grid-template-columns: 34px 1fr auto; font: 400 13px/1.9 var(--mono); color: var(--theme-text-sec); } .N .sheet .body ul { margin: 0; padding: 0; }
+  .N .stamp { position: absolute; right: 20px; bottom: 20px; font: 800 44px/1 var(--cond); letter-spacing: .06em; color: var(--theme-showcase); border: 3px solid var(--theme-showcase); padding: 6px 12px; transform: rotate(-8deg); opacity: .85; max-width: 60%; overflow: hidden; white-space: nowrap; }
+
+  /* O — Single: one track, huge. Cover is the circle on a duotone field; the title is the hero */
+  .O { width: 640px; padding: 48px; display: flex; flex-direction: column; justify-content: space-between; background-blend-mode: normal; }
+  .O .disc { width: 78%; aspect-ratio: 1; border-radius: 50%; margin: 20px auto 0; box-shadow: 0 0 0 14px var(--theme-border), 0 24px 60px rgba(0,0,0,.4); }
+  .O .hero { font: 300 italic 60px/.98 var(--serif); letter-spacing: -.01em; color: var(--theme-text-pri); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .O .row { display: flex; align-items: center; gap: 18px; }
+
+  /* P — Single: lyric-sheet. Description is the star set as big editorial text, tiny cover tab */
+  .P { width: 700px; padding: 48px 52px; display: flex; flex-direction: column; }
+  .P .tab { display: flex; gap: 14px; align-items: center; } .P .tab .cover { width: 76px; height: 76px; }
+  .P .story { flex: 1; min-height: 0; margin: 30px 0; font: 400 31px/1.25 var(--serif); color: var(--theme-text-pri); overflow: hidden; }
+  .P .story.none { color: var(--theme-text-ter); font-style: italic; }
+  .P .hl { background: linear-gradient(transparent 60%, var(--theme-showcase) 60%); }
+
+
+  /* Q — 7-inch: sleeve with the record sliding out, A/B side rows */
+  .Q { width: 760px; padding: 52px 48px 40px; display: flex; flex-direction: column; }
+  .Q .deck { position: relative; height: 330px; flex-shrink: 0; margin-top: 8px; }
+  .Q .deck .vinyl { position: absolute; left: 150px; top: 6px; height: 318px; aspect-ratio: 1; border-radius: 50%; background: repeating-radial-gradient(circle, #141414 0 2px, #0a0a0a 2px 4px); display: grid; place-items: center; animation: spin 9s linear infinite; }
+  .Q .deck .vinyl .label { width: 34%; aspect-ratio: 1; border-radius: 50%; background-size: cover; background-position: center; }
+  .Q .deck .cover { position: absolute; left: 0; top: 0; width: 330px; height: 330px; box-shadow: 8px 0 30px rgba(0,0,0,.5); }
+  .Q .deck .side { position: absolute; right: 0; top: 0; width: 250px; }
+  .Q .sides { margin: 26px 0 18px; }
+  .Q .sides .s { display: grid; grid-template-columns: 54px 1fr auto; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--theme-border); }
+  .Q .sides .s b { font: 800 44px/1 var(--cond); color: var(--theme-showcase); } .Q .sides .s span { font: 500 22px/1.15 var(--sans); color: var(--theme-text-pri); }
+  .Q .sides .s i { font: 400 12px/1 var(--mono); font-style: normal; color: var(--theme-text-ter); }
+  .Q .desc { margin-top: auto; } .Q .desc p { -webkit-line-clamp: 3; }
+
+  /* R — Title over cover: full-bleed cover fades into the card colour, huge title sits on the fade */
+  .R { width: 700px; display: flex; flex-direction: column; }
+  .R .hero { position: relative; flex: 1; min-height: 0; background-size: cover; background-position: center; }
+  .R .hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 40%, var(--card-bg) 96%); }
+  .R .pnum { position: absolute; top: 20px; left: 24px; z-index: 2; }
+  .R .over { position: relative; z-index: 2; margin: -150px 40px 0; }
+  .R .over .t { font: 800 78px/.9 var(--cond); text-transform: uppercase; letter-spacing: -.005em; color: var(--theme-text-pri); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .R .info { padding: 18px 40px 36px; display: grid; gap: 14px; }
+  .R .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+  .R .rows div { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--theme-border); font: 500 15px/1.2 var(--sans); color: var(--theme-text-sec); } .R .rows b { font: 500 11px/1.6 var(--mono); color: var(--theme-text-ter); }
+
+  /* S — Sides: typography only. Each side is a huge line you can press; cover is a small chip */
+  .S { width: 720px; padding: 48px 48px 36px; display: flex; flex-direction: column; }
+  .S .chip { display: flex; gap: 16px; align-items: center; } .S .chip .cover { width: 92px; height: 92px; flex-shrink: 0; border-radius: 6px; }
+  .S .sd { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+  .S .sd .line { padding: 22px 0; border-bottom: 1.5px solid var(--theme-border); cursor: pointer; }
+  .S .sd .line:first-child { border-top: 1.5px solid var(--theme-border); }
+  .S .sd .line em { display: block; font: 500 11px/1 var(--mono); font-style: normal; letter-spacing: .14em; color: var(--theme-showcase); margin-bottom: 10px; }
+  .S .sd .line span { font: 300 italic 54px/1 var(--serif); color: var(--theme-text-pri); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .S .foot { display: flex; align-items: center; gap: 18px; margin-top: 22px; }
+
+
+  .J .jfoot { display: flex; align-items: center; flex-wrap: wrap; } .J .jfoot .g { display: inline-block; margin: 0 6px 0 0; font: 500 11px/1 var(--sans); padding: 6px 10px; border-radius: 20px; background: var(--theme-border); color: var(--theme-text-sec); }
+  .cbtn { margin-left: auto; font: 600 12px var(--sans); color: #fff; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 7px 14px; cursor: pointer; } .cbtn:hover { background: var(--theme-showcase); }
+  #cmodal { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); }
+  #cmodal.open { display: grid; }
+  #cmodal .box { width: min(560px, 92vw); max-height: 80vh; display: flex; flex-direction: column; border-radius: 18px; background: #1b1d21; color: #fff; border: 1px solid rgba(255,255,255,.14); box-shadow: 0 30px 80px rgba(0,0,0,.6); overflow: hidden; }
+  #cmodal .hd { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  #cmodal .hd img { width: 46px; height: 46px; object-fit: cover; border-radius: 6px; } #cmodal .hd b { font: 700 16px/1.2 var(--sans); display: block; } #cmodal .hd span { font: 400 13px var(--sans); color: rgba(255,255,255,.6); }
+  #cmodal .hd button { margin-left: auto; background: none; border: 0; color: #fff; font-size: 22px; cursor: pointer; }
+  #cmodal .list { flex: 1; overflow-y: auto; padding: 8px 20px; min-height: 120px; }
+  #cmodal .list p { margin: 0; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.08); font: 400 14.5px/1.45 var(--sans); color: rgba(255,255,255,.85); } #cmodal .list p b { display: block; font: 600 12px var(--sans); color: #fff; margin-bottom: 3px; }
+  #cmodal .list .none { color: rgba(255,255,255,.45); font-style: italic; border: 0; }
+  #cmodal .reply { display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid rgba(255,255,255,.12); } #cmodal .reply input { flex: 1; border-radius: 20px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: #fff; padding: 9px 16px; font: 400 14px var(--sans); outline: none; } #cmodal .reply button { border: 0; border-radius: 20px; background: var(--theme-showcase); color: #fff; padding: 9px 18px; font: 600 13px var(--sans); }
+
+  #bar { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; gap: 6px; padding: 6px; border-radius: 10px; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); }
+  #bar button, #bar select { font: 500 12px var(--sans); color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); border-radius: 6px; padding: 6px 10px; cursor: pointer; } #bar select option { color: #000; }
+  #err { position: fixed; inset: 0; display: grid; place-items: center; font: 500 16px var(--mono); color: #fff; }
+</style>
+</head>
+<body>
+<div id="shelf"></div>
+<div id="cmodal"><div class="box"><div class="hd"><img alt=""><div><b></b><span></span></div><button aria-label="Close">×</button></div><div class="list"></div><div class="reply"><input placeholder="reply…"><button>reply</button></div></div></div>
+<div id="bar">
+  <select id="size"><option value="f">Full size</option><option value="m" selected>Medium</option><option value="s">Compact</option></select>
+  <select id="mode">
+    <option value="auto">Auto mix</option>
+    <option value="H">H · Liner sheet (album)</option>
+    <option value="I">I · Split sleeve (album)</option>
+    <option value="J">J · Ambient glass (any)</option>
+    <option value="K">K · Poster type (any)</option>
+    <option value="L">L · Contact print (any)</option>
+    <option value="M">M · Turntable (album)</option>
+    <option value="N">N · Catalogue card (album)</option>
+    <option value="O">O · Single hero (single)</option>
+    <option value="P">P · Story sheet (single)</option>
+    <option value="Q">Q · 7-inch (single)</option>
+    <option value="R">R · Title over cover (single)</option>
+    <option value="S">S · Sides (single)</option>
+    <option value="singles">Singles: Q / R / S mix</option>
+  </select>
+  <button id="labels">Labels</button><button id="pal">Palette ◐</button>
+</div>
+<script type="module">
+import { PALETTES, applyPalette, getAutoIndex } from '/src/services/themeService.js'
+const API = 'http://localhost:3001/api'
+let pal = getAutoIndex(); applyPalette(pal)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const ytId = u => (u || '').match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1]
+const secs = d => { const m = String(d || '').match(/(\d+):(\d+)/); return m ? +m[1] * 60 + +m[2] : 0 }
+
+function norm(p) {
+  const artist = ((p.artists || []).map(a => a.artist_name).filter(Boolean).join(' & ')).replace(/ - Topic$/, '')
+  const vid = ytId(p.stream_url)
+  const isSet = p.post_type === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title)
+  const cover = p.cover_image || (vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '')
+  return { id: p.id, p, artist, title: p.title, label: p.labels?.[0]?.label_name || '', catno: p.labels?.[0]?.catalogue_number || '', year: p.year || '',
+    tracks: p.tracks || [], genres: p.genres || [], notes: (p.notes || '').replace(/https?:\/\/\S+/g, '').trim(), cover, platform: p.platform || '', isSet,
+    commentCount: p.commentCount || 0, single: (p.tracks || []).length <= 2 && !/album|lp|ep/i.test(p.post_type || '') }
+}
+const pills = x => `<span class="pill on">${x.single ? 'single' : esc(x.p.post_type || 'album')}</span>${x.platform ? `<span class="pill">${esc(x.platform)}</span>` : ''}${x.p.discogs_id ? '<span class="pill">◈ Discogs</span>' : ''}`
+const metaLine = x => [x.label, x.catno, x.year].filter(Boolean).map(esc).join(' · ')
+const desc = (x, n = 360) => `<div class="desc"><h6>Post description</h6>${x.notes ? `<p>${esc(x.notes.slice(0, n))}${x.notes.length > n ? '…' : ''}</p>` : '<p class="none">No description yet</p>'}</div>`
+const genres = x => x.genres.length ? `<div class="genres">${x.genres.slice(0, 4).map(g => `<span>${esc(g)}</span>`).join('')}</div>` : ''
+const bg = x => `style="background-image:url('${x.cover}')"`
+const num = x => `<span class="pnum">#${x.id}</span>`
+const TAGS = { H: 'H · liner sheet', I: 'I · split sleeve', J: 'J · ambient glass', K: 'K · poster type', L: 'L · contact print', M: 'M · turntable', N: 'N · catalogue card', O: 'O · single hero', Q: 'Q · 7-inch', R: 'R · title over cover', S: 'S · sides', P: 'P · story sheet' }
+
+const R = {
+  H: x => { const max = Math.max(...x.tracks.map(t => secs(t.duration)), 1)
+    return `<div class="top"><div class="cover" ${bg(x)}></div><div><div class="meta">${metaLine(x)}</div><div class="artist" style="margin:10px 0 6px">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div><div style="margin-top:12px">${pills(x)}</div></div></div>
+    <div class="rows">${x.tracks.slice(0, 9).map((t, i) => `<div class="row" style="--w:${Math.round(secs(t.duration) / max * 100) || 20}%"><b>${esc(t.position || i + 1)}</b><span>${esc(t.title)}</span><i>${esc(t.duration || '')}</i></div>`).join('') || '<div class="title" style="opacity:.5">No tracklist</div>'}</div>${desc(x, 200)}` },
+  I: x => `<div class="cover" ${bg(x)}></div><div class="side">${num(x)}<div class="meta" style="margin-top:14px">${metaLine(x)}</div><div class="artist">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div>${desc(x, 300)}
+    <ul class="mini">${x.tracks.slice(0, 6).map((t, i) => `<li><b>${esc(t.position || i + 1)}</b><span>${esc(t.title)}</span></li>`).join('')}</ul>
+    <div class="foot"><div class="play"></div><div>${pills(x)}</div></div></div>`,
+  J: x => `${num(x)}<div class="bgblur" ${bg(x)}></div><div class="art cover" ${bg(x)}></div>
+    <div class="glass"><div class="jhead"><div><div class="artist">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div></div><div class="play"></div></div>
+    ${x.tracks.length ? `<ul class="jtracks">${x.tracks.map((t, i) => `<li><b>${esc(t.position || i + 1)}</b><span>${esc(t.title)}</span><i>${esc(t.duration || '')}</i></li>`).join('')}</ul>` : ''}
+    <div class="chips">${pills(x)} <span class="meta" style="margin-left:6px">${metaLine(x)}</span></div>
+    <div class="chips jfoot">${x.genres.slice(0, 5).map(g => `<span class="g">${esc(g)}</span>`).join('')}<button class="cbtn" data-pid="${x.id}">💬 ${x.commentCount ? `${x.commentCount} comment${x.commentCount > 1 ? 's' : ''}` : 'Comment'}</button></div></div>`,
+  K: x => `<div class="big">${esc(x.artist)}</div><div class="band"><div class="cover" ${bg(x)}></div></div>
+    <div class="under"><div><div class="title">${esc(x.title)}</div><div class="meta" style="margin-top:10px">${metaLine(x)}</div><div style="margin-top:10px">${pills(x)}</div></div>${desc(x, 150)}</div>`,
+  L: x => `<div class="print"><div class="cover" ${bg(x)}></div><em>${esc(x.artist)} — ${esc(x.title)}</em></div>
+    <div class="right"><div class="meta">${metaLine(x)}</div><div style="margin-top:8px">${pills(x)}</div>
+    <div class="note">${x.notes ? esc(x.notes.slice(0, 190)) : 'no notes — just press play.'}</div>
+    <div class="stub"><ul>${(x.tracks.length ? x.tracks : [{ title: x.title }]).slice(0, 6).map((t, i) => `<li><span>${esc(t.position || i + 1)} ${esc(t.title)}</span><span>${esc(t.duration || '')}</span></li>`).join('')}</ul></div></div>`,
+  M: x => { const ts = x.tracks.slice(0, 12), f = t => Math.max(secs(t.duration), 60)
+    return `<div class="deck"><div class="vinyl"><div class="label" ${bg(x)}></div></div><div class="cover" ${bg(x)}></div>
+      <div class="ctrl"><div class="meta">${metaLine(x)}</div><div class="artist" style="margin:10px 0 6px;font-size:34px">${esc(x.artist)}</div><div class="title" style="font-size:22px">${esc(x.title)}</div><div style="margin-top:16px;display:flex;gap:12px;align-items:center"><div class="play"></div>${pills(x)}</div></div></div>
+    <div class="timeline">${ts.map(t => `<span style="--f:${f(t)}"></span>`).join('')}</div>
+    <div class="tl-names">${ts.map(t => `<span style="--f:${f(t)}">${esc(t.title)}</span>`).join('')}</div>
+    <div class="bottom">${desc(x, 300)}<div>${genres(x)}</div></div>` },
+  N: x => `<div class="sheet"><div class="hd"><span>LNV · RECORD INDEX</span><span class="pnum">#${x.id}</span></div>
+    <div class="main"><div class="cover" ${bg(x)}></div><div><div class="artist">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div><div style="margin-top:14px">${pills(x)}</div></div></div>
+    <div class="fields"><div><span>LABEL</span>${esc(x.label || '—')}</div><div><span>CAT NO</span>${esc(x.catno || '—')}</div><div><span>YEAR</span>${esc(x.year || '—')}</div></div>
+    <div class="body"><ul>${x.tracks.slice(0, 8).map((t, i) => `<li><span>${esc(t.position || i + 1)}</span><span>${esc(t.title)}</span><span>${esc(t.duration || '')}</span></li>`).join('')}</ul></div>
+    <div class="stamp">${esc(x.catno || x.genres[0] || 'ON FILE')}</div></div>`,
+  O: x => `<div><div class="meta">${metaLine(x)}</div><div style="margin-top:10px">${pills(x)}</div></div><div class="disc cover" ${bg(x)}></div>
+    <div><div class="hero">${esc(x.tracks[0]?.title || x.title)}</div><div class="row" style="margin-top:22px"><div class="play"></div><div><div class="artist" style="font-size:26px">${esc(x.artist)}</div><div class="meta" style="margin-top:4px">${esc(x.title)}</div></div></div></div>`,
+  P: x => `<div class="tab"><div class="cover" ${bg(x)}></div><div><div class="artist" style="font-size:24px">${esc(x.artist)}</div><div class="meta" style="margin-top:6px">${esc(x.tracks[0]?.title || x.title)} · ${metaLine(x)}</div></div></div>
+    <div class="story ${x.notes ? '' : 'none'}">${x.notes ? `<span class="hl">${esc(x.notes.slice(0, 60))}</span>${esc(x.notes.slice(60, 330))}${x.notes.length > 330 ? '…' : ''}` : 'Nothing written yet — the track speaks for itself.'}</div>
+    <div style="display:flex;align-items:center;gap:16px"><div class="play"></div>${pills(x)}${genres(x)}</div>`,
+  Q: x => { const ts = x.tracks.length ? x.tracks.slice(0, 2) : [{ title: x.title }]
+    return `<div style="display:flex;justify-content:space-between;align-items:center">${num(x)}<span class="meta">${metaLine(x)}</span></div>
+    <div class="deck" style="margin-top:22px"><div class="vinyl"><div class="label" ${bg(x)}></div></div><div class="cover" ${bg(x)}></div></div>
+    <div style="display:flex;align-items:center;gap:18px;margin-top:22px"><div style="flex:1;min-width:0"><div class="artist" style="font-size:34px">${esc(x.artist)}</div><div class="title" style="font-size:22px;margin-top:6px">${esc(x.title)}</div></div><div class="play"></div></div>
+    <div class="sides">${ts.map((t, i) => `<div class="s"><b>${'AB'[i]}</b><span>${esc(t.title)}</span><i>${esc(t.duration || '')}</i></div>`).join('')}</div>
+    <div style="margin-bottom:12px">${pills(x)}</div>${genres(x)}${desc(x, 220)}` },
+  R: x => { const ts = x.tracks.slice(0, 4)
+    return `<div class="hero" ${bg(x)}>${num(x)}</div>
+    <div class="over"><div class="meta" style="margin-bottom:10px">${metaLine(x)}</div><div class="t">${esc(x.tracks[0]?.title || x.title)}</div><div class="artist" style="font-size:28px;margin-top:10px">${esc(x.artist)}</div></div>
+    <div class="info">${ts.length > 1 ? `<div class="rows">${ts.map((t, i) => `<div><b>${esc(t.position || i + 1)}</b>${esc(t.title)}</div>`).join('')}</div>` : ''}${desc(x, 200)}<div style="display:flex;align-items:center;gap:14px"><div class="play" style="width:52px;height:52px"></div>${pills(x)}</div>${genres(x)}</div>` },
+  S: x => { const ts = x.tracks.length ? x.tracks.slice(0, 2) : [{ title: x.title }]
+    return `<div class="chip"><div class="cover" ${bg(x)}></div><div><div>${num(x)}</div><div class="artist" style="font-size:30px;margin-top:8px">${esc(x.artist)}</div><div class="meta" style="margin-top:6px">${esc(x.title)} · ${metaLine(x)}</div></div></div>
+    <div class="sd">${ts.map((t, i) => `<div class="line"><em>SIDE ${'AB'[i]}${t.duration ? ' · ' + esc(t.duration) : ''}</em><span>${esc(t.title)}</span></div>`).join('')}</div>
+    ${desc(x, 180)}<div class="foot"><div class="play"></div>${pills(x)}</div>${genres(x)}` }
+}
+const ALBUM = ['H', 'I', 'N', 'M'], SINGLE = ['O', 'P'], ANY = ['J', 'K', 'L']
+const bgs = ['bg1', 'bg2', 'bg3', 'bg2', 'bgS', 'bg1', 'bg3']
+let items = [], n = 0
+function render() {
+  const mode = document.getElementById('mode').value, c = { a: 0, s: 0, y: 0 }
+  document.getElementById('shelf').innerHTML = items.map((x, i) => {
+    let t = mode
+    // gabriel's picks (2026-10-07): single → split sleeve, album → ambient glass,
+    // Various Artists compilation → catalogue card.
+    if (mode === 'singles') t = x.single ? 'QRS'[i % 3] : (/^various( artists)?$/i.test(x.artist.trim()) ? 'N' : 'J')
+    else if (mode === 'auto') t = x.single ? 'Q' : /^various( artists)?$/i.test(x.artist.trim()) ? 'N' : 'J'
+    if (t === 'M' && !x.tracks.length) t = 'J'
+    return `<div class="card ${t} ${bgs[i % bgs.length]}"><div class="tag">${TAGS[t]} · #${x.id}</div>${R[t](x)}</div>`
+  }).join('')
+  inkAll()
+}
+function inkFor(el) {
+  el.style.setProperty('--card-bg', getComputedStyle(el).backgroundColor)
+  const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g); if (!m) return
+  const [r, g, b] = m.map(Number).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4 })
+  const dark = .2126 * r + .7152 * g + .0722 * b < .35
+  const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)'] : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
+  ;['--theme-text-pri', '--theme-text-sec', '--theme-text-ter', '--theme-border'].forEach((v, i) => { if (!el.classList.contains('J')) el.style.setProperty(v, ink[i]) })
+}
+const inkAll = () => document.querySelectorAll('.card').forEach(inkFor)
+document.getElementById('mode').onchange = render
+document.getElementById('labels').onclick = () => document.body.classList.toggle('nolabels')
+document.getElementById('pal').onclick = () => { pal = (pal + 1) % PALETTES.length; applyPalette(pal); document.querySelectorAll('.card').forEach(el => ['--theme-text-pri', '--theme-text-sec', '--theme-text-ter', '--theme-border'].forEach(v => el.style.removeProperty(v))); setTimeout(inkAll, 650) }
+const sz = document.getElementById('size'); sz.onchange = () => document.body.dataset.size = sz.value; document.body.dataset.size = sz.value
+document.getElementById('shelf').addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); e.currentTarget.scrollLeft += e.deltaY * 1.5 } }, { passive: false })
+
+// Comments popup: the card only carries a button; the thread lives in a window.
+const cm = document.getElementById('cmodal')
+const closeModal = () => cm.classList.remove('open')
+cm.addEventListener('click', e => { if (e.target === cm) closeModal() })
+cm.querySelector('.hd button').onclick = closeModal
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal() })
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.cbtn'); if (!b) return
+  const x = items.find(i => i.id == b.dataset.pid); if (!x) return
+  cm.querySelector('.hd img').src = x.cover; cm.querySelector('.hd b').textContent = x.artist || x.title; cm.querySelector('.hd span').textContent = x.title
+  const list = cm.querySelector('.list'); list.innerHTML = '<p class="none">Loading…</p>'; cm.classList.add('open')
+  try { const cs = await (await fetch(`${API}/posts/${x.id}/comments`)).json(); const arr = cs.comments || cs
+    list.innerHTML = arr.length ? arr.map(c => `<p><b>${esc(c.username)}</b>${esc(c.content)}</p>`).join('') : '<p class="none">No comments yet — be the first.</p>' } catch { list.innerHTML = '<p class="none">Could not load comments.</p>' }
+})
+try {
+  const d = await (await fetch(`${API}/posts?limit=60`)).json()
+  items = (d.posts || d).map(norm).filter(x => !x.isSet && x.p.post_type !== 'spotlight' && x.p.post_type !== 'intro' && x.cover)
+  render()
+} catch (e) { document.body.insertAdjacentHTML('beforeend', `<div id="err">Couldn't reach the backend on :3001 — ${esc(e.message)}</div>`) }
+</script>
+</body>
+</html>

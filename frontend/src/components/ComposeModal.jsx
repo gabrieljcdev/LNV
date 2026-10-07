@@ -4,6 +4,7 @@ import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
 import { isHeadingRow, linkKeys } from '../lib/tracklist'
+import { SOURCE_SHORT, SOURCE_NAME, platformOf } from '../lib/sources'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -146,6 +147,36 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  // Bumped whenever the tracklist is replaced; a running backgroundYTSearch
  // from before the bump stops instead of writing into the new list.
  const searchGen = useRef(0)
+ // Where each track can be played (2026-10-07): once the tracklist is in,
+ // every track is looked up on the free sources (Spotify, Deezer, Apple — no
+ // YouTube quota) and shown as "play from" chips; the poster picks which one
+ // the track is saved with. The rest are found again in the background after
+ // posting, so listeners can pick too (backend/services/trackSources.js).
+ const srcTried = useRef(new Set())
+ const tracksKey = tracks.map(t => t.title).join('|')
+ useEffect(() => {
+ if (!tracks.length || isLiveMix) return
+ const releaseArtist = /^various( artists)?$/i.test((artist || '').trim()) ? '' : (artist || '')
+ let cancelled = false
+ const timer = setTimeout(async () => {
+ for (let i = 0; i < tracks.length && !cancelled; i++) {
+ const t = tracks[i]
+ const who = (t.artists || []).map(a => a.name).filter(Boolean).join(', ') || releaseArtist
+ const k = `${who}|${t.title}`
+ if (!t.title?.trim() || !who || t.sources || srcTried.current.has(k) || isHeadingRow(t, tracks)) continue
+ srcTried.current.add(k)
+ try {
+ const r = await fetch(`${API}/discogs/track-sources?${new URLSearchParams({ artist: who, title: t.title })}`)
+ const d = await r.json()
+ if (cancelled) return
+ const found = d.sources || []
+ // Nothing playable yet? Take the best free one; a link already there is left alone.
+ setTracks(prev => prev.map(x => (x.title === t.title && x.position === t.position ? { ...x, sources: found, stream_url: x.stream_url || found[0]?.url || '' } : x)))
+ } catch { /* one failed lookup shouldn't stop the rest */ }
+ }
+ }, 1200)
+ return () => { cancelled = true; clearTimeout(timer) }
+ }, [tracksKey, artist]) // eslint-disable-line
 
  // Names come from whatever is in the fields right now; ids are re-attached
  // from the book by name (see rememberIds above). backend/routes/posts.js
@@ -387,7 +418,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (d.capped) { capped = true; break }
  if (d.youtube_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.youtube_url }; setUrl(i, d.youtube_url) }
  // No YouTube link: a Spotify placeholder, so the post has something to play (upgraded later).
- else if (d.spotify_url && !stale()) { updated[i] = { ...updated[i], stream_url: d.spotify_url }; setUrl(i, d.spotify_url) }
+ else if ((d.spotify_url || d.fallback_url) && !stale()) { const u = d.spotify_url || d.fallback_url; updated[i] = { ...updated[i], stream_url: u }; setUrl(i, u) }
  } catch { /* one failed row shouldn't stop the rest */ }
  }
  if (stale()) return
@@ -600,6 +631,23 @@ Click to edit`}
  <span style={{ ...mono, fontSize: 10, textTransform: 'none', letterSpacing: 0, color: 'var(--theme-text-ter)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{shortLink(t.stream_url)}</span>
  </button>
  )}
+ {(() => {
+ // "Play from" — what this track's link can be switched to. The link it has
+ // already (say a YouTube video) is one of the choices.
+ const have = platformOf(t.stream_url)
+ const list = [...(t.stream_url && have && !(t.sources || []).some(x => x.platform === have) ? [{ platform: have, url: t.stream_url }] : []), ...(t.sources || [])]
+ if (list.length < 2) return null
+ return (
+ <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 38, marginTop: 3 }}>
+ <span style={{ ...mono, fontSize: 8, color: 'var(--theme-text-ter)' }}>PLAY FROM</span>
+ {list.map(x => {
+ const on = x.url === t.stream_url
+ return <button key={x.platform} onClick={() => updateTrack(i, { stream_url: x.url })} title={`${SOURCE_NAME[x.platform] || x.platform}${x.full === false ? ' — usually a 30-second preview unless the listener is signed in there' : ''}`}
+ style={{ ...mono, fontSize: 8.5, letterSpacing: '0.04em', padding: '2px 4px', borderRadius: 3, cursor: 'pointer', border: '1px solid var(--theme-border)', background: on ? 'var(--theme-showcase)' : 'transparent', color: on ? '#fff' : 'var(--theme-text-ter)' }}>{SOURCE_SHORT[x.platform] || x.platform}</button>
+ })}
+ </div>
+ )
+ })()}
  {openTrack === i && <input className="lnvc-f" autoFocus value={t.stream_url} onChange={e => updateTrack(i, { stream_url: e.target.value })} onKeyDown={e => e.key === 'Enter' && setOpenTrack(null)} placeholder="paste a link to this track" style={{ ...mono, fontSize: 10, textTransform: 'none', width: 'calc(100% - 38px)', marginLeft: 38, marginTop: 4, color: 'var(--theme-text-sec)' }} />}
  </div>
  )

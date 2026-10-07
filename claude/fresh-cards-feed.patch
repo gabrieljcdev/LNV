@@ -1,0 +1,274 @@
+diff --git a/frontend/src/components/Feed.jsx b/frontend/src/components/Feed.jsx
+index b234f7f..9291f2a 100644
+--- a/frontend/src/components/Feed.jsx
++++ b/frontend/src/components/Feed.jsx
+@@ -1478,6 +1478,260 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
+   )
+ }
+ 
++// ── Fresh record cards (2026-10-07, gabriel) ──────────────────────────────────
++// Replaces PostCard/AlbumCard for everything that isn't a live set (those,
++// spotlights and introductions are unchanged):
++//   split — singles: cover bleeds down the left, info on the right
++//   glass — albums: blurred cover behind a big square sleeve + glass panel
++//   index — Various Artists compilations: a library index card
++// Rolled out beside the old cards: `?cards=old` in the address brings them
++// back (remembered in localStorage until `?cards=new`). The pre-redesign
++// commit is tagged `pre-card-redesign`. Mockups: frontend/mockup3.html.
++const FRESH_CARDS = (() => {
++  try {
++    const q = new URLSearchParams(window.location.search).get('cards')
++    if (q === 'old' || q === 'new') localStorage.setItem('lnv-cards', q)
++    return localStorage.getItem('lnv-cards') !== 'old'
++  } catch { return true }
++})()
++
++function freshVariant(p) {
++  if (isVariousArtist(artistName(p))) return 'index'
++  const n = p.tracks?.length || 0
++  return n <= 2 && !/album|lp|ep/i.test(p.post_type || '') ? 'split' : 'glass'
++}
++
++const GLASS_INK = { '--lv-pri': '#fff', '--lv-sec': 'rgba(255,255,255,0.8)', '--lv-ter': 'rgba(255,255,255,0.55)', '--lv-line': 'rgba(255,255,255,0.2)',
++  '--theme-text-pri': '#fff', '--theme-text-sec': 'rgba(255,255,255,0.8)', '--theme-text-ter': 'rgba(255,255,255,0.55)', '--theme-border': 'rgba(255,255,255,0.2)' }
++
++function FreshCard({ post, cardBg, d, variant, onEdit }) {
++  const { registerPostRef, openD3 } = useLayout() || {}
++  const { canModify, deleting, deletePost } = usePostActions(post)
++  const [activeUrl, setActiveUrl] = useState(null)
++  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
++  const [commentsOpen, setCommentsOpen] = useState(variant === 'glass' && (post.commentCount || post.comment_count || 0) > 0)
++  const descRef = useRef(null)
++  const descFit = useScrollFit(descRef, [post.notes, post.body])
++  const listRef = useRef(null)
++  const listFit = useScrollFit(listRef, [post.tracks?.length])
++
++  const tracks = post.tracks || []
++  const urlOf = t => t.stream_url || t.youtube_url || null
++  const artist = artistName(post)
++  const label = labelName(post)
++  const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
++  const note = cleanNote(post.notes || post.body)
++  const cover = coverSrc(post)
++  const glass = variant === 'glass'
++  const num = String(post.feedNumber ?? post.id).padStart(2, '0')
++
++  // Playback — same rules as AlbumCard: a track's own player, else the post's
++  // Bandcamp player, else the URL's embed.
++  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
++  const playingSrc = !activeUrl ? null
++    : trackEmbedSrc(tracks.find(t => urlOf(t) === activeUrl), toEmbedSrc)
++      || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
++  function playNext() {
++    const urls = tracks.map(urlOf)
++    const i = urls.indexOf(activeUrl)
++    const next = i >= 0 ? urls.slice(i + 1).find(Boolean) : null
++    if (next) setActiveUrl(next)
++  }
++  const togglePlay = () => { if (activeUrl) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }
++
++  const playingUrl = activeUrl || post.stream_url || ''
++  const playingPlatform = platformOfUrl(playingUrl) || post.platform || ''
++  const playingYtId = playingPlatform === 'youtube' ? ytIdOf(playingUrl) : null
++  const playingHref = playingYtId ? `https://www.youtube.com/watch?v=${playingYtId}` : (playingUrl || null)
++  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
++  const discogsHref = discogsExact || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}`
++  const buyHref = post.discogs_id ? `https://www.discogs.com/sell/release/${post.discogs_id}` : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
++
++  const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy}px ${d.badgePx}px`, borderRadius: d.badgeRadius, textDecoration: 'none' }
++  const small = { fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.1em', color: glass ? '#fff' : 'var(--theme-accent)', fontWeight: 500 }
++  const kind = variant === 'split' ? 'single' : (post.post_type || 'album')
++
++  const badges = (
++    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
++      <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
++      {playingPlatform && <a href={playingHref || undefined} target="_blank" rel="noopener noreferrer" style={{ ...badge, background: PLATFORM_COLORS[playingPlatform] || '#444', color: playingPlatform === 'beatport' ? '#000' : '#fff' }}>{playingPlatform}</a>}
++      <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
++      {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
++    </div>
++  )
++  const genrePills = post.genres?.length > 0 && (
++    <div style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap }}>
++      {post.genres.slice(0, 5).map(g => (
++        <button key={g} onClick={() => openD3?.('genres', { filter: g })}
++          style={{ fontSize: d.pillSize, background: glass ? 'rgba(255,255,255,0.14)' : 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
++      ))}
++    </div>
++  )
++  const playBtn = (size = 52) => (
++    <button onClick={togglePlay} disabled={!firstUrl} aria-label={activeUrl ? 'Stop' : 'Play'}
++      style={{ width: size, height: size, borderRadius: '50%', border: 'none', background: 'var(--theme-showcase)', color: '#fff', cursor: firstUrl ? 'pointer' : 'default', opacity: firstUrl ? 1 : 0.4, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: size * 0.36, paddingLeft: activeUrl ? 0 : size * 0.06 }}>{activeUrl ? '■' : '▶'}</button>
++  )
++  const trackRow = (t, i) => {
++    const u = urlOf(t)
++    const active = !!activeUrl && u === activeUrl
++    return (
++      <div key={i} onClick={() => { if (u) setActiveUrl(active ? null : u) }}
++        style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr) auto', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
++        <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
++        <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400 }}>{t.title}</span>
++        <span>{u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}</span>
++      </div>
++    )
++  }
++  const trackList = (cols = 1) => tracks.length > 0 && (
++    <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
++      style={{ minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', overflowX: 'hidden', columns: cols, columnGap: 24, ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
++      {tracks.map((t, i) => <div key={i} style={{ breakInside: 'avoid' }}>{trackRow(t, i)}</div>)}
++    </div>
++  )
++  const metaLine = (
++    <div style={{ fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)' }}>
++      {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
++      {label && (catNo || post.year) ? ' · ' : ''}
++      {[catNo, post.year].filter(Boolean).join(' · ')}
++    </div>
++  )
++  const artistLine = (size) => (
++    <div style={{ fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: size, lineHeight: 1.02, letterSpacing: '-0.022em', color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
++      {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
++    </div>
++  )
++  const titleLine = (size) => artist && (
++    <div style={{ fontFamily: d.artistFf, fontStyle: 'italic', fontSize: size, lineHeight: 1.05, letterSpacing: '-0.015em', color: 'var(--lv-sec)', wordBreak: 'break-word', marginTop: 4 }}>{post.title}</div>
++  )
++  const descBlock = (clampTo) => note ? (
++    <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
++      style={{ fontSize: d.descSize + 2, lineHeight: d.descLh, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, minHeight: 0, maxHeight: clampTo, overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', paddingRight: descFit.overflows ? 6 : 0, ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
++  ) : (
++    <p style={{ fontSize: d.descSize + 1, fontFamily: d.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
++  )
++  const byline = (
++    <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', flexShrink: 0 }}>
++      <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
++        <span style={{ color: glass ? '#fff' : 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
++      </button>
++      <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
++      <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
++      <FollowedTag post={post} />
++      <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
++      <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
++      <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
++      <span style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>{timeAgo(post.created_at)}</span>
++      {canModify && (
++        <span style={{ display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
++          <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
++          <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', letterSpacing: 'inherit', color: glass ? '#fff' : 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
++        </span>
++      )}
++    </div>
++  )
++  const comments = commentsOpen && (
++    <div style={{ marginTop: 8, flexShrink: 0 }}>
++      <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={glass ? 90 : 140} />
++    </div>
++  )
++  const coverImg = cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
++  const player = playingSrc && <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
++
++  const root = { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }
++  const setRef = el => { registerPostRef?.(post.id, el) }
++
++  // ── split: single ─────────────────────────────────────────────────────────
++  if (variant === 'split') {
++    return (
++      <div ref={setRef} style={{ ...root, display: 'grid', gridTemplateColumns: '52% minmax(0, 1fr)' }}>
++        <div style={{ position: 'relative', background: '#000', overflow: 'hidden' }}>
++          {playingSrc ? (
++            <div style={{ position: 'absolute', inset: 0, display: 'grid', alignContent: 'center' }}>
++              <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1' }}>{player}</div>
++            </div>
++          ) : (
++            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, cursor: firstUrl ? 'pointer' : 'default' }}>{coverImg}</div>
++          )}
++        </div>
++        <div style={{ padding: '56px 30px 24px 34px', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
++          <span style={small}>#{num}</span>
++          <div style={{ marginTop: 14 }}>{metaLine}</div>
++          <div style={{ marginTop: 14 }}>{artistLine(38)}{titleLine(26)}</div>
++          <div style={{ marginTop: 22, minHeight: 0, flex: '0 1 auto', display: 'flex', flexDirection: 'column' }}>{descBlock('34vh')}</div>
++          <div style={{ marginTop: 'auto', paddingTop: 18, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
++            {trackList(1)}
++            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 18 }}>{playBtn(56)}<div style={{ display: 'grid', gap: 8 }}>{badges}{genrePills}</div></div>
++            <div style={{ marginTop: 16 }}>{byline}</div>
++            {comments}
++          </div>
++        </div>
++      </div>
++    )
++  }
++
++  // ── glass: album ──────────────────────────────────────────────────────────
++  if (glass) {
++    return (
++      <div ref={setRef} style={{ ...root, ...GLASS_INK, display: 'flex', flexDirection: 'column', padding: '40px 40px 28px' }}>
++        {cover && <img aria-hidden="true" src={cover} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: -60, width: 'calc(100% + 120px)', height: 'calc(100% + 120px)', objectFit: 'cover', filter: 'blur(46px) saturate(1.5) brightness(0.7)', transform: 'scale(1.1)', pointerEvents: 'none' }} />}
++        <span style={{ ...small, position: 'absolute', top: 18, left: 24, zIndex: 2, textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>#{num}</span>
++        <div style={{ position: 'relative', flex: '1 1 0', minHeight: 0, aspectRatio: '1 / 1', alignSelf: 'center', maxWidth: '100%', borderRadius: 10, overflow: 'hidden', background: '#000', boxShadow: '0 30px 70px rgba(0,0,0,0.55)' }}>
++          {playingSrc ? player : (
++            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, cursor: firstUrl ? 'pointer' : 'default' }}>{coverImg}</div>
++          )}
++        </div>
++        <div style={{ position: 'relative', flexShrink: 0, marginTop: 24, padding: '18px 24px 14px', borderRadius: 16, background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
++            <div style={{ flex: 1, minWidth: 0 }}>{artistLine(30)}{titleLine(21)}</div>
++            {playBtn(54)}
++          </div>
++          <div style={{ maxHeight: 128, display: 'flex', flexDirection: 'column', minHeight: 0 }}>{trackList(2)}</div>
++          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>{badges}{metaLine}</div>
++          {genrePills}
++          {byline}
++          {comments}
++        </div>
++      </div>
++    )
++  }
++
++  // ── index: Various Artists ────────────────────────────────────────────────
++  return (
++    <div ref={setRef} style={{ ...root, padding: '48px 44px 28px', display: 'flex', flexDirection: 'column' }}>
++      <div style={{ flex: 1, minHeight: 0, border: '1.5px solid var(--lv-ter)', borderRadius: 4, display: 'flex', flexDirection: 'column' }}>
++        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1.5px solid var(--lv-ter)', fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.1em', color: 'var(--lv-sec)', flexShrink: 0 }}>
++          <span>LNV · RECORD INDEX</span><span style={small}>#{num}</span>
++        </div>
++        <div style={{ display: 'flex', gap: 20, padding: '20px 18px', borderBottom: '1.5px solid var(--lv-ter)', flexShrink: 0 }}>
++          {playingSrc ? (
++            <div style={{ position: 'relative', width: '100%', height: 300, background: '#000' }}>{player}</div>
++          ) : (<>
++            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ width: 200, height: 200, flexShrink: 0, background: '#000', cursor: firstUrl ? 'pointer' : 'default' }}>{coverImg}</div>
++            <div style={{ minWidth: 0 }}>
++              <div style={{ fontFamily: d.monoFf, fontWeight: 700, fontSize: 28, lineHeight: 1.05, letterSpacing: '-0.03em', color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist || post.title}</div>
++              <div style={{ fontFamily: d.monoFf, fontSize: 17, lineHeight: 1.3, marginTop: 8, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
++              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>{playBtn(44)}</div>
++            </div>
++          </>)}
++        </div>
++        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1.5px solid var(--lv-ter)', flexShrink: 0 }}>
++          {[['LABEL', label ? <DrawerLink kind="labels" name={label}>{label}</DrawerLink> : '—'], ['CAT NO', catNo || '—'], ['YEAR', post.year || '—']].map(([k, v], i) => (
++            <div key={k} style={{ padding: '10px 18px', borderRight: i < 2 ? '1.5px solid var(--lv-ter)' : 'none', fontFamily: d.monoFf, fontSize: 13, color: 'var(--lv-pri)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
++              <span style={{ display: 'block', fontSize: 9, letterSpacing: '0.12em', color: 'var(--lv-ter)', marginBottom: 5 }}>{k}</span>{v}
++            </div>
++          ))}
++        </div>
++        <div style={{ flex: 1, minHeight: 0, padding: '10px 18px', display: 'flex', flexDirection: 'column' }}>{trackList(1)}</div>
++        <div style={{ padding: '12px 18px', borderTop: '1.5px solid var(--lv-ter)', display: 'grid', gap: 8, flexShrink: 0 }}>{badges}{genrePills}</div>
++      </div>
++      {note && <div style={{ marginTop: 14, flexShrink: 0 }}>{descBlock('88px')}</div>}
++      <div style={{ marginTop: 14 }}>{byline}</div>
++      {comments}
++    </div>
++  )
++}
++
+ // ── Spotlight card — two variants (artist / label) ─────────────────────────────
+ // Purely client-side now — see buildSpotlightPool/buildShelfItems below.
+ // `subject` is derived from posts already loaded in this fetch; nothing is
+@@ -3585,6 +3839,8 @@ export default function Feed() {
+               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
+               : isLiveSetPost(item.post)
+                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
++                : FRESH_CARDS
++                ? <FreshCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} variant={freshVariant(item.post)} onEdit={setEditingPost} />
+                 : isAlbumPost(item.post)
+                 ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
+                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
