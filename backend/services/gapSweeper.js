@@ -105,8 +105,8 @@ async function fillFromReleases() {
       }
       if (p.year == null && rel.year) { db.prepare('UPDATE posts SET year = ? WHERE id = ? AND year IS NULL').run(rel.year, p.id); filled.years++; }
       if ((p.platform || 'discogs') === 'discogs' && !db.prepare('SELECT 1 FROM post_tracks WHERE post_id = ?').get(p.id) && rel.tracklist?.length) {
-        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration) VALUES (?, ?, ?, ?)');
-        for (const t of rel.tracklist) if (t.title) it.run(p.id, t.position || null, t.title, t.duration || null);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, artist) VALUES (?, ?, ?, ?, ?)');
+        for (const t of rel.tracklist) if (t.title) it.run(p.id, t.position || null, t.title, t.duration || null, (t.artists || []).map(a => a?.name).filter(Boolean).join(', ') || null);
         filled.tracklists++;
       }
     })();

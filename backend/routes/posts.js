@@ -14,6 +14,13 @@ import { playlistRole, playlistFeedPostIds } from './playlists.js';
 
 const router = express.Router();
 
+// A track's own artist: what the client sends as `artist`, or the names of the
+// Discogs track credits (`artists`). Null when it is just the release's artist.
+const trackArtist = t => (typeof t.artist === 'string' && t.artist.trim())
+  || (Array.isArray(t.artists) ? t.artists.map(a => a?.name).filter(Boolean).join(', ') : '')
+  || null;
+
+
 const SPOTLIGHT_EVERY = 10;
 
 // Query fragments keyed by subject type — used both when checking whether a
@@ -293,8 +300,8 @@ router.post('/', requireAuth, (req, res, next) => {
     }
     const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
     for (const g of genres) ig.run(postId, g);
-    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
     // A link that can't play (embedding switched off, removed) is cleared a moment after saving.
     setTimeout(() => checkPostLinks(postId).catch(() => {}), 1500);
     // Look for every free place the tracks can be played, in the background.
@@ -354,8 +361,8 @@ router.patch('/:id', requireAuth, (req, res, next) => {
       }
       if (Array.isArray(tracks)) {
         db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
-        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
         setTimeout(() => checkPostLinks(id).catch(() => {}), 1500);
       }
     })();

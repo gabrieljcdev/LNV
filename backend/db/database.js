@@ -203,6 +203,9 @@ const migrations = [
   // A track's own player (2026-10-02): Bandcamp tracks can't be embedded
   // from their page URL — the player needs the track id.
   'ALTER TABLE post_tracks ADD COLUMN embed_url TEXT',
+  // A track's own artist (2026-10-08): compilations credit each track to someone
+  // other than the release artist ("Various"). Shown bold and linked on the card.
+  'ALTER TABLE post_tracks ADD COLUMN artist TEXT',
   // Channel crawler (2026-10-02): every upload of a spotlighted YouTube
   // channel, collected 50 per request (1 quota unit) in the background.
   // next_page = where the backfill resumes; backfill_done once the oldest
