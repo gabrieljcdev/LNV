@@ -2089,15 +2089,6 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     enabled: type !== 'channel' && !!trackReleaseId,
     staleTime: Infinity,
   })
-  const selectedOnSite = !!selectedRelease && onSiteIds.has(selectedRelease.id)
-  // What "add this to the feed" means per type — ComposeModal's initialUrl
-  // pipeline takes any supported platform url, so a channel's uploads can be
-  // added straight from here the same way a Discogs release can.
-  const addUrl = !selectedRelease
-    ? null
-    : type === 'channel'
-      ? (selectedRelease.url || `https://www.youtube.com/watch?v=${selectedRelease.id}`)
-      : `https://www.discogs.com/${selectedRelease.type === 'master' ? 'master' : 'release'}/${selectedRelease.id}`
   const catalogueSource = type === 'channel' ? 'YouTube' : 'Discogs'
 
   // Artist headshot / label logo from Discogs, or — for channels, which have
@@ -2138,7 +2129,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   //             a click inverts the row and opens it: releases show their
   //             tracklist (each track playable in place), channel uploads
   //             open straight into the player
-  //   cta     — unchanged (+ add to feed / view all)
+  //   cta     — "view all →" (the "+ add to feed" button moved into each open row, 2026-10-08)
   // Rows come from the catalogue when there is one, otherwise from this
   // subject's own LNV posts, so every spotlight gets the same anatomy.
   // Masters come without format/label: ask for their main release's (slow
@@ -2221,11 +2212,12 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // click (playTrack) — one capped, cached YouTube search, never up front.
   const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === (trackReleaseId || openRow.id)) : null
+  const postTrackView = (p, t) => shelfTrack(t, isCompilation(p, p.tracks || []))
   const releaseRows = withoutHeadings(selectedFull?.tracklist)
   const releaseKeys = linkKeys(releaseRows)
   const openTracks = !openRow ? []
     : openRow.kind === 'post'
-      ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
+      ? (openRow.post.tracks || []).map(t => ({ position: t.position, artists: postTrackView(openRow.post, t).artists.map(name => ({ name })), title: postTrackView(openRow.post, t).title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
       : openRow.kind === 'release'
         ? releaseRows.map((t, ti) => {
             const tt = normT(t.title)
@@ -2443,6 +2435,19 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
               {open && (
                 <div style={{ padding: '10px 6px 14px', borderBottom: `1px solid ${divider}` }}>
+                  {/* "+ add to my feed" right in the row (2026-10-08, gabriel; it replaced the footer
+                      button): a release or channel upload that isn't on LNV yet goes to the composer. */}
+                  {hasCatalogue && !r.onSite && (r.kind === 'release' || r.kind === 'video') && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          onCreateFromDiscogs?.(r.kind === 'video' ? `https://www.youtube.com/watch?v=${r.id}` : `https://www.discogs.com/${r.key.startsWith('master:') ? 'master' : 'release'}/${r.id}`)
+                        }}
+                        style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '5px 14px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
+                      >+ add to my feed</button>
+                    </div>
+                  )}
                   {/* A channel upload, or one of this subject's own posts that
                       has no tracklist (a live set), opens straight into its
                       player — there's nothing to list. */}
@@ -2477,7 +2482,17 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                             title={miss ? 'no YouTube link found' : found === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}
                             style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px 36px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                             <span style={{ ...monoText, color: textTer }}>{t.position || i + 1}</span>
-                            <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
+                            <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>
+                              {(t.artists || []).filter(a => a?.name).length > 0 && (
+                                <span>
+                                  {(t.artists || []).filter(a => a?.name).map((a, k) => (
+                                    <span key={a.name + k}>{k > 0 && ', '}<DrawerLink kind="artists" name={a.name} quiet style={{ fontWeight: 700, color: textPri }}>{a.name}</DrawerLink></span>
+                                  ))}
+                                  <span style={{ margin: '0 7px', color: textTer, fontWeight: 400 }}>–</span>
+                                </span>
+                              )}
+                              {t.title}
+                            </span>
                             <span style={{ ...monoText, color: textTer, textAlign: 'right' }}>{t.duration || ''}</span>
                             <span style={{ ...monoText, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
                             {/* ♡ and + once the track has a link (2026-10-03); a track
@@ -2524,15 +2539,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         )}
       </div>
 
-      {/* cta row — unchanged behaviour: "+ add to feed" for an open
-          catalogue entry that isn't on LNV yet, otherwise "view all →". */}
+      {/* footer: "view all →" (the add-to-feed button now lives inside each open row) */}
       <div style={{ flexShrink: 0, marginTop: 15, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {hasCatalogue && selectedRelease && !selectedOnSite ? (
-          <button
-            onClick={() => addUrl && onCreateFromDiscogs?.(addUrl)}
-            style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
-          >+ add to my feed</button>
-        ) : browsable ? (
+        {browsable ? (
           <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: textPri, fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
         ) : <span />}
         <span style={{ fontSize: T.stampSize, letterSpacing: `${T.stampLs}em`, fontFamily: T.monoFf, color: textSec }}>LNV · editorial</span>
@@ -3900,6 +3909,8 @@ export default function Feed() {
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
+                : SHELF_CARDS
+                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
@@ -3909,8 +3920,6 @@ export default function Feed() {
           })
           return nodes
         })()}
-                : SHELF_CARDS
-                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
       </div>
 
       {/* Main feed / my feed / shared feeds (2026-10-03) */}
