@@ -1299,15 +1299,18 @@ function PreviewPrompt({ post, track, linkKey, activeUrl, indent = 30 }) {
 // The places a track can be played, as small chips on its row (2026-10-07):
 // click one to play it from there — and to make it your default where a track
 // has it. Only shown when there's a choice (two or more sources).
-function SourceChips({ track, activeUrl, pref, onPick, d }) {
-  const list = track.sources || []
-  if (list.length < 2) return null
+// `always` (the shelf stack card, 2026-10-08): show the chip even when there is only one place — so every
+// track says where it plays — falling back to the track's own link when no sources were stored.
+function SourceChips({ track, activeUrl, pref, onPick, d, always = false }) {
   const own = track.stream_url || track.youtube_url
   const current = activeUrl ? platformOf(activeUrl) : (pref && list.some(s => s.platform === pref) ? pref : platformOf(own))
   return (
     <span style={{ display: 'inline-flex', gap: 3 }} onClick={e => e.stopPropagation()}>
       {list.map(s => {
         const on = s.platform === current
+  let list = track.sources || []
+  if (always && list.length === 0 && platformOf(own)) list = [{ platform: platformOf(own), url: own, full: FULL_SOURCES.has(platformOf(own)) }]
+  if (list.length < (always ? 1 : 2)) return null
         return (
           <button key={s.platform} onClick={() => onPick(s)}
             title={`${SOURCE_NAME[s.platform] || s.platform}${s.full ? '' : ' — 30-second preview unless you are signed in there'}`}
@@ -1598,6 +1601,8 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [activeUrl, setActiveUrl] = useState(null)
+// Space between the big post number and the line under it (it travels with the number).
+const NUM_LINE_GAP = 14
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
 
@@ -1625,6 +1630,46 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
   const playingSrc = !activeUrl ? null
     : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
+  // Genres show on two rows at most; what doesn't fit collapses into a "+N" pill.
+  const genreBox = useRef(null)
+  useEffect(() => {
+    const el = genreBox.current
+    if (!el) return undefined
+    const fit = () => {
+      const pills = [...el.querySelectorAll('[data-g]')]
+      const more = el.querySelector('[data-more]')
+      pills.forEach(p => { p.style.display = '' })
+      more.style.display = 'none'
+      const rows = list => new Set(list.map(p => p.offsetTop)).size
+      if (rows(pills) <= 2) return
+      more.style.display = ''
+      let hidden = 0
+      while (hidden < pills.length) {
+        hidden++
+        pills[pills.length - hidden].style.display = 'none'
+        more.textContent = `+${hidden}`
+        more.title = `${hidden} more genre${hidden === 1 ? '' : 's'}`
+        if (rows([...pills.filter(p => p.style.display !== 'none'), more]) <= 2) break
+      }
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [post.genres])
+  // The big post number's size follows the room left in the right-hand column.
+  const numBox = useRef(null)
+  const [numSize, setNumSize] = useState(d.numeralSize)
+  useEffect(() => {
+    const el = numBox.current
+    if (!el) return undefined
+    const digits = Math.max(2, String(post.feedNumber ?? post.id).length)
+    const fit = () => setNumSize(Math.max(0, Math.min(d.numeralSize, Math.floor((el.clientHeight - NUM_LINE_GAP - 1 - 4) / d.numeralLh), Math.floor(el.clientWidth / (0.62 * digits)))))
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [d.numeralSize, d.numeralLh, post.feedNumber, post.id])
       || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
   function playNext() {
     const urls = tracks.map(urlOf)
@@ -1664,7 +1709,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             {v.title}
           </span>
           <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
-            <SourceChips track={t} activeUrl={activeUrl} pref={srcPref} d={d} onPick={s => { setSrcPref(s.platform); setActiveUrl(s.url) }} />
+            <SourceChips always track={t} activeUrl={activeUrl} pref={platformOf(urlOf(t))} d={d} onPick={s => { setSrcPref(s.platform); setActiveUrl(s.url) }} />
             {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
           </span>
         </div>
@@ -1686,7 +1731,6 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           ) : (
             <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
               {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-              <span style={{ position: 'absolute', top: 16, left: 18, fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.1em', color: '#fff', textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>#{num}</span>
             </div>
           )}
         </div>
@@ -1712,9 +1756,9 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             {[catNo, post.year].filter(Boolean).join(' · ')}
           </div>
           {post.genres?.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
-              {post.genres.slice(0, 6).map(g => (
-                <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+            <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+              {post.genres.map(g => (
+                <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
                   style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
               ))}
             </div>
@@ -1724,6 +1768,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               <div style={{ fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>{contributors.length} artists</div>
               {contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}
               {contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}
+              <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
             </div>
           )}
         </div>
@@ -1733,6 +1778,11 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>
           <span>Tracklist</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}</span>
+          {/* the big post number, as on the old cards, in the column's spare room (gabriel, 2026-10-08) */}
+          <div ref={numBox} aria-hidden="true" style={{ pointerEvents: 'none', flex: '1 1 0', minHeight: 0, marginTop: 8 }}>
+            {numSize >= 56 && <div style={{ whiteSpace: 'nowrap', fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: numSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>{num}</div>}
+            <div style={{ height: 1, background: 'var(--lv-line)', marginTop: numSize >= 56 ? NUM_LINE_GAP : 0 }} />
+          </div>
         </div>
         <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
           style={{ flex: '0 1 auto', minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: tracks.length > 3 ? '1fr 1fr' : '1fr', columnGap: COL_GAP, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
@@ -1740,13 +1790,14 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
         </div>
       </div>
 
-      {/* the poster's own words */}
-      <div style={{ flexShrink: 0, marginTop: 26 }}>
+      {/* the poster's own words: the description takes all the room left under the tracklist and
+          scrolls only once it has filled it (the tracklist gives way before this block drops below ~two lines) */}
+      <div style={{ flex: '1 1 0', minHeight: 92, display: 'flex', flexDirection: 'column', marginTop: 26, marginBottom: 6 }}>
         <PostTitle post={post} labelStyle={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)' }} />
         <div aria-hidden="true" style={{ height: 1, background: 'var(--lv-line)', margin: '9px 0 8px' }} />
         {note ? (
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
-            style={{ fontSize: d.descSize, lineHeight: 1.4, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, maxHeight: `${Math.round(d.descSize * 1.4 * 2)}px`, overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+            style={{ fontSize: d.descSize, lineHeight: 1.4, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, flex: '1 1 0', minHeight: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
         ) : (
           <p style={{ fontSize: d.descSize, fontFamily: d.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
         )}
