@@ -1121,6 +1121,8 @@ function liveCardWidth() {
 // like one ("Artist | Channel - Date", b2b, dj set, live at, session) —
 // several older sets were saved as "album".
 function isLiveSetPost(p) {
+  // A stored type wins; the title guess is only for untyped old posts.
+  if (p.post_type) return p.post_type === 'livemix'
   return detectType(p) === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 }
 

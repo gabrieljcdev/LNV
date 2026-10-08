@@ -41,7 +41,7 @@ function useBrowse() {
 }
 
 // Same rule as Feed.jsx's isLiveSetPost: typed as one, or titled like one.
-const isLiveSet = p => p.post_type === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
+const isLiveSet = p => p.post_type ? p.post_type === 'livemix' : /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 
 // Who played, where, and when — from the channel field when the poster
 // filled it in, otherwise read out of the title, which is where older sets
