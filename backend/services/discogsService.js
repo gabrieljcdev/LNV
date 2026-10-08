@@ -550,6 +550,53 @@ async function drainCatalogues() {
 }
 
 /**
+ * The other releases a pasted link matched (compilations, reissues, EPs) when
+ * the poster picked one of them. They are kept so none of it is lost:
+ *  - each lands in the posted artists' catalogues (role "Appearance" when its
+ *    own credit is someone else, e.g. Various), so the artist's tab shows it;
+ *  - each release's label (and any artist credited on it) is queued for a full catalogue crawl, and the release
+ *    sits in that label's catalogue straight away.
+ * `artists` = [{ name, id }] of the post; `releases` = lookup alternates
+ * ({ discogs_id, release_title, artists, label, label_id, catNo, year, cover_image, format }).
+ */
+export function recordRelatedReleases(artists = [], releases = []) {
+  const put = db.prepare(`INSERT INTO discogs_catalogue
+    (kind, entity_id, item_type, item_id, title, year, role, thumb, artist, label, format, catno, main_release)
+    VALUES (?, ?, 'release', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ON CONFLICT(kind, entity_id, item_type, item_id) DO NOTHING`);
+  const track = db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)');
+  const posted = artists.filter(a => a?.id && a.id !== 194);
+  const touched = new Set();
+  db.transaction(() => {
+    for (const r of releases) {
+      const rid = Number(r?.discogs_id);
+      if (!rid) continue;
+      const credit = r.artists?.length ? r.artists.map(a => a.name).filter(Boolean).join(', ') : (r.artist || null);
+      const title = (r.release_title?.includes(' - ') ? r.release_title.split(' - ').slice(1).join(' - ') : r.release_title) || '';
+      const format = Array.isArray(r.format) ? r.format.join(', ') : (r.format || null);
+      const row = [rid, title, r.year ? Number(r.year) : null, null, r.thumb_image || r.cover_image || null, credit, r.label || null, format, r.catNo || null];
+      const own = new Set((r.artists || []).map(a => a.id));
+      for (const a of posted) {
+        put.run('artist', a.id, ...row.slice(0, 3), own.has(a.id) ? null : 'Appearance', ...row.slice(4));
+        track.run('artist', a.id); touched.add(`artist:${a.id}`);
+      }
+      // Artists credited on the release itself (not the post's, not "Various"): new to us, so they get crawled too.
+      for (const a of r.artists || []) {
+        if (!a?.id || a.id === 194 || /^various( artists)?$/i.test(a.name || '')) continue;
+        put.run('artist', a.id, ...row.slice(0, 3), null, ...row.slice(4));
+        track.run('artist', a.id); touched.add(`artist:${a.id}`);
+      }
+      if (r.label_id) {
+        put.run('label', r.label_id, ...row);
+        track.run('label', r.label_id); touched.add(`label:${r.label_id}`);
+      }
+    }
+  })();
+  for (const key of touched) { const [kind, id] = key.split(':'); crawlCatalogue(kind, Number(id)); }
+  return touched.size;
+}
+
+/**
  * Keeps every catalogue LNV knows about filling, without being asked:
  * at startup and then hourly, queue (a) crawls a restart interrupted,
  * (b) every artist and label posted with a Discogs id that has never been

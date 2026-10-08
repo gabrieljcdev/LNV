@@ -7,6 +7,7 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
@@ -260,7 +261,7 @@ router.post('/', requireAuth, (req, res, next) => {
       discogs_id, discogs_type = 'release',
       title, year, country, cover_image, thumb_image, notes, discogs_url,
       stream_url, embed_url, platform, post_type = 'album', channel, post_title,
-      artists = [], labels = [], genres = [], tracks = [],
+      artists = [], labels = [], genres = [], tracks = [], related_releases = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     // A post goes on its poster's wall (2026-10-03) and on the main feed.
@@ -286,6 +287,10 @@ router.post('/', requireAuth, (req, res, next) => {
     for (const a of artists) ia.run(postId, a.name, a.id || null);
     const il = db.prepare('INSERT INTO post_labels (post_id, label_name, catalogue_number, discogs_label_id) VALUES (?, ?, ?, ?)');
     for (const l of labels) il.run(postId, l.name, l.catno || null, l.id || null);
+    // The other releases the link matched (compilations etc.): into the artists' and labels' catalogues.
+    if (Array.isArray(related_releases) && related_releases.length) {
+      try { recordRelatedReleases(artists, related_releases.slice(0, 10)); } catch (err) { logEvent('error', 'crawl', `Related releases of post ${postId}: ${err.message}`); }
+    }
     const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
     for (const g of genres) ig.run(postId, g);
     const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');

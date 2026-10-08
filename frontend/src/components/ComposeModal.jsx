@@ -135,6 +135,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [done, setDone] = useState(false)
  const [discogsVideos, setDiscogsVideos] = useState([])
  const [allReleases, setAllReleases] = useState(null)
+ // Every release the link matched, kept after one is picked so the rest (compilations,
+ // reissues) still reach the artists' and labels' catalogues when posting.
+ const relatedReleases = useRef([])
  // The Discogs release the fetch landed on, from ANY platform. Until
  // 2026-09-25 only pasted discogs.com links saved one, so YouTube/SoundCloud/
  // Bandcamp posts that matched Discogs were stored with discogs_id NULL.
@@ -206,7 +209,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  artistIds.current.clear(); labelIds.current.clear(); searchGen.current++
  setTitle(''); setArtist(''); setArtistsList([]); setYear(''); setLabel(''); setCatNo('')
  setGenres([]); setTracks([]); setCoverArt(''); setStreamUrl(''); setEmbedUrl(''); setChannel('')
- setFetchSource(null); setAllReleases(null); setDiscogsVideos([]); setDiscogsId(null)
+ setFetchSource(null); setAllReleases(null); relatedReleases.current = []; setDiscogsVideos([]); setDiscogsId(null)
  }
 
  function applyEnrichment(data) {
@@ -231,7 +234,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (data.channel) setChannel(data.channel)
  if (data.detected_type) setPostType(data.detected_type)
  if (data.videos?.length) setDiscogsVideos(data.videos)
- if (data.all_releases?.length > 1) setAllReleases(data.all_releases)
+ if (data.all_releases?.length > 1) { setAllReleases(data.all_releases); relatedReleases.current = data.all_releases }
  setDiscogsId(data.discogs_id || null)
  setFetchSource(data.source || 'platform')
  }
@@ -435,7 +438,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (!title.trim()) return
  setPosting(true); setFetchError('')
  try {
- const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim() }) })
+ const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
  if (!postRes.ok) { const e = await postRes.json().catch(() => ({})); throw new Error(e.error || `${editPost ? 'SAVE' : 'POST'} failed: ${postRes.status}`) }
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId || editPost?.id
