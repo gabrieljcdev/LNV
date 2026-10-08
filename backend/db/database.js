@@ -8,6 +8,16 @@ const DB_PATH = join(__dirname, 'vinyl_crate.db');
 const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
+// Tuned for a database that grows to tens of millions of catalogue rows
+// (2026-10-07). synchronous NORMAL is safe in WAL mode (a power cut can lose the
+// last moments, never corrupt the file); a 128 MB page cache and memory-mapped
+// reads keep the hot parts of the indexes in RAM; the WAL is trimmed back
+// after big crawl bursts instead of staying large.
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = -131072');          // 128 MB (was 16 MB)
+db.pragma('mmap_size = 1073741824');        // read up to 1 GB through the OS page cache
+db.pragma('journal_size_limit = 67108864'); // WAL file shrinks back to 64 MB
+db.pragma('wal_autocheckpoint = 4000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -235,6 +245,10 @@ const migrations = [
     PRIMARY KEY (kind, entity_id, item_type, item_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_discogs_catalogue_year ON discogs_catalogue(kind, entity_id, year)',
+  // The order the lists are shown in (newest year first, undated last, then
+  // title) — without it every page re-sorted the whole label (Polydor, deep
+  // in: 1.2 s; with it, ~0.1 s). 2026-10-07.
+  'CREATE INDEX IF NOT EXISTS idx_catalogue_page ON discogs_catalogue(kind, entity_id, (year IS NULL), year DESC, title)',
   `CREATE TABLE IF NOT EXISTS discogs_catalogue_crawl (
     kind TEXT NOT NULL,
     entity_id INTEGER NOT NULL,

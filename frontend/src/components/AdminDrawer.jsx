@@ -84,14 +84,15 @@ function Bar({ value, max, mark }) {
 // cheapest source first for each job, so the load spreads between them.
 function ServicesSection({ s }) {
   const rows = [
-    ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, s.youtube.used >= s.youtube.cap * 0.8 ? 'searches paused — free checks and Spotify only' : '100 units per search'],
+    ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
     ['Discogs', `${n(s.discogs.calls)} requests`, 'limit 60 a minute'],
     ['Spotify', s.spotify.on ? `${n(s.spotify.calls)} requests` : 'not connected', s.spotify.on ? 'barcodes, tracklists; player when YouTube is busy' : 'add SPOTIFY_CLIENT_ID / SECRET to backend/.env'],
+    ...(s.deezer ? [['Deezer', `${n(s.deezer.calls)} requests`, 'free link search for new posts, no key'], ['Apple', `${n(s.apple.calls)} requests`, 'iTunes search, free link search for new posts'], ['MusicBrainz', `${n(s.musicbrainz.calls)} requests`, 'filed YouTube / SoundCloud / Bandcamp links; 1 a second']] : []),
     ['Last.fm', s.lastfm.on ? `${n(s.lastfm.calls)} requests` : 'not connected', s.lastfm.on ? 'genres when Discogs has none' : 'add LASTFM_API_KEY to backend/.env'],
   ]
   return (
     <Section title="Services today">
-      <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, auto) minmax(0, 1fr)', gap: '7px 14px', alignItems: 'baseline', fontFamily: SANS, fontSize: 14, color: SEC }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, auto) minmax(0, 1fr)', gap: '7px 14px', alignItems: 'baseline', fontFamily: SANS, fontSize: 14, color: SEC }}>
         {rows.map(([name, value, note]) => [
           <span key={name + 'n'} style={{ fontWeight: 700, color: PRI }}>{name}</span>,
           <span key={name + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: PRI, whiteSpace: 'nowrap' }}>{value}</span>,
@@ -137,6 +138,53 @@ function GapsSection({ gaps }) {
         {run?.text && <span style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>{run.text}</span>}
         {run?.error && <span style={{ fontFamily: SANS, fontSize: 13, color: LEVEL.error }}>{run.error}</span>}
       </div>
+    </Section>
+  )
+}
+
+// The YouTube balance (2026-10-07): units left, paid searches left, how the
+// day is divided between listening and new posts, what was spent on what,
+// and when it resets. Same numbers the search budget uses (backend
+// services/searchBudget.js).
+function QuotaBalance({ y }) {
+  const pct = v => `${Math.min(100, (v / y.dailyCap) * 100)}%`
+  const resetIn = `${Math.floor(y.resetsInSec / 3600)}h ${String(Math.floor((y.resetsInSec % 3600) / 60)).padStart(2, '0')}m`
+  const state = y.remaining <= 0 ? ['Spent — nothing but free checks until reset', LEVEL.error]
+    : y.usedToday >= y.dailyCap * y.listenShare ? ['Listening paused — the rest is kept for new posts', LEVEL.warn]
+    : y.usedToday >= y.dailyCap * 0.5 ? ['Over half the day is gone', LEVEL.warn]
+    : ['Healthy', SEC]
+  const tile = (label, value, sub) => (
+    <div key={label} style={{ background: FILL, borderRadius: 14, padding: '10px 12px' }}>
+      <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: TER }}>{label}</div>
+      <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 24, color: PRI, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontFamily: SANS, fontSize: 12.5, color: SEC }}>{sub}</div>
+    </div>
+  )
+  const row = (k, v) => [
+    <span key={k + 'k'} style={{ fontSize: 13, color: TER }}>{k}</span>,
+    <span key={k + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: PRI, fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
+  ]
+  return (
+    <Section title="YouTube quota balance" right={<span style={{ color: state[1] }}>{state[0]}</span>}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8 }}>
+        {tile('Units left', n(y.remaining), `of ${n(y.dailyCap)} today`)}
+        {tile('Searches left', n(y.searchesLeft), '100 units each')}
+        {tile('Resets in', resetIn, 'midnight UTC')}
+      </div>
+      <div style={{ position: 'relative', height: 10, borderRadius: 99, background: FILL, overflow: 'hidden', marginTop: 12 }}>
+        <div title="Track searches" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: pct(y.searchUnits), background: 'var(--theme-accent)' }} />
+        <div title="Crawls and lookups" style={{ position: 'absolute', top: 0, bottom: 0, left: pct(y.searchUnits), width: pct(y.otherUnits), background: 'var(--theme-accent)', opacity: 0.45 }} />
+        <div title="Background crawls stop here" style={{ position: 'absolute', top: 0, bottom: 0, left: `${y.crawlShare * 100}%`, width: 2, background: PRI, opacity: 0.4 }} />
+        <div title="Listening stops here — the rest is for new posts" style={{ position: 'absolute', top: 0, bottom: 0, left: `${y.listenShare * 100}%`, width: 2, background: PRI, opacity: 0.8 }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '5px 16px', marginTop: 12, alignItems: 'baseline' }}>
+        {row('Spent on searches', `${n(y.searchUnits)} units · ${n(y.searchesToday)} paid search${y.searchesToday === 1 ? '' : 'es'}`)}
+        {row('Spent on crawls and lookups', `${n(y.otherUnits)} units`)}
+        {row('Listening can still use', `${n(y.listenRoom)} units (it stops at ${Math.round(y.listenShare * 100)}%)`)}
+        {row('Kept for new posts', `${n(y.postsReserve)} units — always available to posting`)}
+        {row('Per release', `at most ${y.perRelease} paid searches, only after Spotify, Deezer and Apple find nothing`)}
+      </div>
+      <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 8 }}>Background channel crawls stop at {Math.round(y.crawlShare * 100)}% (the thin line); listening stops at {Math.round(y.listenShare * 100)}% (the bold line). Dark = track searches, pale = crawls.</div>
     </Section>
   )
 }
@@ -196,23 +244,20 @@ function StatusTab({ onShowLogs }) {
       </button>
     </Section>
 
-    <Section title="YouTube quota today" right={`${n(youtube.usedToday)} of ${n(youtube.dailyCap)} units`}>
-      <Bar value={youtube.usedToday} max={youtube.dailyCap} mark={youtube.crawlShare} />
-      <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 6 }}>Background channel crawls stop at {Math.round(youtube.crawlShare * 100)}%; the rest is kept for track searches (100 units each). Resets at midnight UTC.</div>
-    </Section>
+    <QuotaBalance y={youtube} />
 
     {data.services && <ServicesSection s={data.services} />}
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>
       {crawls.catalogues.map(c => (
-        <div key={`${c.kind}:${c.entity_id}`} style={{ display: 'grid', gridTemplateColumns: '54px minmax(0, 1fr) 150px', gap: 10, alignItems: 'center', padding: '5px 0' }}>
+        <div key={`${c.kind}:${c.entity_id}`} style={{ display: 'grid', gridTemplateColumns: '54px minmax(0, 1fr) 210px', gap: 10, alignItems: 'center', padding: '5px 0' }}>
           <span style={{ fontFamily: MONO, fontSize: 10, textTransform: 'uppercase', color: TER, border: `1px solid ${LINE}`, borderRadius: 5, textAlign: 'center', padding: '2px 0' }}>{c.kind}</span>
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontFamily: SANS, fontWeight: 600, fontSize: 14, color: PRI, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
             {!c.done && <Bar value={c.have} max={c.total} />}
           </span>
-          <span style={{ fontFamily: MONO, fontSize: 12, color: c.done ? TER : SEC, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.done ? `${n(c.have)} · done` : `${n(c.have)} of ${n(c.total)}`}</span>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: c.stalled ? LEVEL.warn : c.done ? TER : SEC, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.done ? `${n(c.have)} · done` : `${n(c.have)} of ${n(c.total)}`}{c.skipped ? ` · ${c.skipped.split(',').length} page${c.skipped.includes(',') ? 's' : ''} skipped` : ''}{c.stalled ? ' · stalled' : ''}</span>
         </div>
       ))}
     </Section>
