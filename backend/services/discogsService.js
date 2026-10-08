@@ -89,6 +89,19 @@ const remixersOf = list => (list || [])
   .map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') }));
 
 // background: the cover queue's own fetches don't count as site traffic.
+// A background GET for the account import (services/discogsAccount.js, 2026-10-08): the shared
+// token, a timeout, and one patient wait if Discogs says 429. -> { status, data } (data null unless 200).
+export async function discogsJson(path) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let res;
+    try { res = await fetch(`${DISCOGS_BASE}${path}`, { headers: getHeaders(), signal: AbortSignal.timeout(60000) }); }
+    catch { return { status: 504, data: null }; }
+    if (res.status === 429) { await new Promise(r => setTimeout(r, 30000)); continue; }
+    return { status: res.status, data: res.ok ? await res.json().catch(() => null) : null };
+  }
+  return { status: 429, data: null };
+}
+
 export async function getRelease(releaseId, { background = false } = {}) {
   const key = `release:${releaseId}`;
   const cached = getCached(key);
