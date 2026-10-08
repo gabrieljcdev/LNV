@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
+import { DiscogsSetting } from './DiscogsConnect'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
@@ -459,6 +460,7 @@ export function WallCard({ username, compact = false, friends }) {
       )}
       {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
       {owner && friends && <BoardsSetting pri={pri} ter={ter} fill={fill} />}
+      {owner && friends && <DiscogsSetting pri={pri} ter={ter} fill={fill} />}
 
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>

@@ -5,6 +5,8 @@ import { isLoggedIn } from '../lib/auth'
 import { useFeedMode, useFollowing, wallsApi, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
 import { queue, useQueue, currentTrack } from '../lib/queue'
 import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
+import { ReleaseListView } from './DiscogsLists'
+import { DiscogsStrip } from './DiscogsConnect'
 
 // ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
 // Walls: your wall and the people you follow. Playlists: lists of tracks
@@ -214,6 +216,8 @@ export function PlaylistsDrawer({ open: initialId, token }) {
   const [name, setName] = useState('')
   if (shareToken) return <PlaylistView token={shareToken} onBack={isLoggedIn() ? () => setShareToken(null) : undefined} />
   if (!isLoggedIn()) return <SignedOut title="Playlists">Sign in to make playlists from the tracks on the feed, heart tracks, and invite friends to add to them.</SignedOut>
+  // Your Discogs collection / wantlist hold records, not tracks (DiscogsLists.jsx).
+  if (openId && playlists.find(p => p.id === openId)?.kind && ['collection', 'wantlist'].includes(playlists.find(p => p.id === openId).kind)) return <ReleaseListView id={openId} onBack={() => setOpenId(null)} />
   if (openId) return <PlaylistView id={openId} onBack={() => setOpenId(null)} />
   async function create(e) {
     e.preventDefault()
@@ -229,15 +233,16 @@ export function PlaylistsDrawer({ open: initialId, token }) {
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.is_default && <span style={{ fontFamily: MONO, fontWeight: 400, fontSize: 10.5, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', marginLeft: 8 }}>DEFAULT</span>}</span>
         <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>
-          {p.role === 'member' ? `by ${p.owner}` : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
+          {p.role === 'member' ? `by ${p.owner}` : p.release_count != null ? 'from Discogs · private' : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
         </span>
       </span>
-      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{plural(p.track_count, 'track')}</span>
+      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{p.release_count != null ? plural(p.release_count, 'record') : plural(p.track_count, 'track')}</span>
     </Row>
   )
   return <>
     <DrawerHead title="Playlists" count={plural(playlists.length, 'playlist')}><CollectNav current="playlists" /></DrawerHead>
     <DrawerBody>
+      <DiscogsStrip />
       <form onSubmit={create} style={{ display: 'flex', gap: 8, margin: '6px 0 14px' }}>
         <label style={{ flex: 1, display: 'flex', alignItems: 'center', background: FILL, border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 14px' }}>
           <input value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="Name a new playlist…" aria-label="New playlist name"

@@ -19,6 +19,7 @@ import { toEmbedSrc } from '../lib/embeds'
 import { SOURCE_SHORT, SOURCE_NAME, useSourcePref, urlForTrack, platformOf } from '../lib/sources'
 import { useListening, pickUrl } from '../lib/listening'
 import ListeningSettings from './ListeningSettings'
+import { DiscogsPrompt } from './DiscogsConnect'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -3895,6 +3896,8 @@ export default function Feed() {
         onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
       />
     )}
+    {/* Once, after signing in: add your Discogs collection and wantlist (2026-10-08) */}
+    <DiscogsPrompt />
   </>)
 
   if (phone) return (
