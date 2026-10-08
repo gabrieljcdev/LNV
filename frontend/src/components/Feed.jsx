@@ -1536,6 +1536,263 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
   )
 }
 
+// ── Shelf stack card (2026-10-08, gabriel) ────────────────────────────────────
+// One card for albums, singles and compilations (live sets, spotlights and
+// introductions are unchanged). Designed in frontend/mockup4.html from record
+// shops' release listings (Boomkat, Hard Wax, Bleep, Bandcamp), at the old
+// cards' geometry: padY 90 / bandPadX 32, a 390px sleeve with the 40px art
+// radius. Top to bottom: sleeve on the left; on the right the pills (type,
+// every place it can be heard, Discogs, buy), artist, title, label line,
+// genres and — for compilations — the contributing artists; under it the
+// whole tracklist (track artists bold + linked, a chip per source), the post
+// title and description, then the byline. Replies open as a panel that slides
+// out of the card's right edge.
+// The old cards are still in the file: `?cards=old` in the address brings
+// them back (remembered until `?cards=new`). The commit before this card is
+// tagged `pre-shelf-stack`.
+const SHELF_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'old' || q === 'new') localStorage.setItem('lnv-cards', q)
+    return localStorage.getItem('lnv-cards') !== 'old'
+  } catch { return true }
+})()
+
+// "Artist - Title" as written on compilations (Bandcamp, YouTube): split it.
+const splitTrackName = title => {
+  const m = String(title || '').match(/^(.{2,70}?)\s[-–—]\s(.+)$/)
+  return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: String(title || '') }
+}
+// A track for display: its own artist (post_tracks.artist) or the one its name carries, and the clean title.
+function shelfTrack(t, comp) {
+  let artist = (t.artist || '').trim(), title = t.title || ''
+  if (artist && title.toLowerCase().startsWith(artist.toLowerCase() + ' - ')) title = title.slice(artist.length + 3).trim()
+  else if (!artist && comp) { const sp = splitTrackName(title); artist = sp.artist; title = sp.title }
+  return { artists: artist ? artist.split(/,\s+/).filter(Boolean) : [], title }
+}
+function isCompilation(post, tracks) {
+  if (isVariousArtist(artistName(post))) return true
+  if (tracks.length < 5) return false
+  const named = tracks.filter(t => (t.artist || '').trim() || splitTrackName(t.title).artist).length
+  return named / tracks.length >= 0.6
+}
+// Every place this release can be heard: the posted link's platform plus whatever each track has found.
+const shelfColor = p => PLATFORM_COLORS[p === 'apple' ? 'applemusic' : p] || '#444'
+function shelfLocations(post, tracks) {
+  const m = new Map()
+  tracks.forEach(t => {
+    const set = new Set((t.sources || []).map(s => s.platform))
+    const own = platformOf(t.stream_url || t.youtube_url); if (own) set.add(own)
+    set.forEach(p => m.set(p, (m.get(p) || 0) + 1))
+  })
+  const posted = platformOf(post.stream_url)
+  if (posted && !m.has(posted)) m.set(posted, 0)
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p, n]) => ({ p, n }))
+}
+
+// A compilation's card is this much wider than the others (2026-10-08, gabriel): every track line
+// carries an artist, so two columns of 800px-card width got messy once the list was busy.
+const SHELF_COMP_EXTRA = 280
+
+function ShelfCard({ post, cardBg, d, onEdit }) {
+  const { registerPostRef, openD3 } = useLayout() || {}
+  const { canModify, deleting, deletePost } = usePostActions(post)
+  const [activeUrl, setActiveUrl] = useState(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+
+  const tracks = post.tracks || []
+  const [srcPref, setSrcPref] = useSourcePref()
+  const urlOf = t => urlForTrack(t, srcPref)
+  const artist = artistName(post)
+  const label = labelName(post)
+  const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
+  const note = cleanNote(post.notes || post.body)
+  const cover = coverSrc(post)
+  const comp = isCompilation(post, tracks)
+  const single = tracks.length <= 2 && !/album|lp|ep/i.test(post.post_type || '')
+  const kind = comp ? 'compilation' : (single ? 'single' : (post.post_type || 'album'))
+  const locations = shelfLocations(post, tracks)
+  const contributors = comp ? [...new Set(tracks.flatMap(t => shelfTrack(t, true).artists))] : []
+  const descRef = useRef(null)
+  const descFit = useScrollFit(descRef, [post.notes, post.body])
+  const listRef = useRef(null)
+  const listFit = useScrollFit(listRef, [tracks.length])
+
+  // Playback — the same rules as AlbumCard: a track's own player, else the post's own Bandcamp player, else the URL's embed.
+  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
+  const activeTrack = activeUrl ? tracks.find(t => urlOf(t) === activeUrl) : null
+  const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
+  const playingSrc = !activeUrl ? null
+    : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
+      || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
+  function playNext() {
+    const urls = tracks.map(urlOf)
+    const i = urls.indexOf(activeUrl)
+    const next = i >= 0 ? urls.slice(i + 1).find(Boolean) : null
+    if (next) setActiveUrl(next)
+  }
+  // A pill plays the release from that place and makes it the listener's choice.
+  function playFrom(p) {
+    const t = tracks.find(x => (x.sources || []).some(s => s.platform === p) || platformOf(x.stream_url || x.youtube_url) === p)
+    const u = t ? ((t.sources || []).find(s => s.platform === p)?.url || t.stream_url || t.youtube_url) : null
+    if (u) { setSrcPref(p); setActiveUrl(u) }
+  }
+
+  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+  const discogsHref = discogsExact || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}`
+  const buyHref = post.discogs_id ? `https://www.discogs.com/sell/release/${post.discogs_id}` : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
+  const PILL = 0.9 // the pills run a tenth smaller than the old cards' badges, to sit with the title (gabriel, 2026-10-08; 0.8 was too small)
+  const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize * PILL, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy * PILL}px ${d.badgePx * PILL}px`, borderRadius: d.badgeRadius, textDecoration: 'none', whiteSpace: 'nowrap' }
+  const linkKeyList = linkKeys(tracks)
+  const num = String(post.feedNumber ?? post.id).padStart(2, '0')
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + 300}px))`
+  const COL_GAP = 28
+  const artistLink = n => <DrawerLink key={n} kind="artists" name={n} quiet style={{ fontWeight: 700, color: 'var(--lv-pri)' }}>{n}</DrawerLink>
+
+  const row = (t, i) => {
+    const u = urlOf(t)
+    const active = !!activeUrl && u === activeUrl
+    const v = shelfTrack(t, comp)
+    return (
+      <div key={i}>
+        <div onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+          style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr) auto', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+          <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
+          <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400, minWidth: 0, overflowWrap: 'anywhere' }}>
+            {v.artists.length > 0 && <span>{v.artists.map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}<span style={{ margin: '0 7px', color: 'var(--lv-ter)' }}>–</span></span>}
+            {v.title}
+          </span>
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
+            <SourceChips track={t} activeUrl={activeUrl} pref={srcPref} d={d} onPick={s => { setSrcPref(s.platform); setActiveUrl(s.url) }} />
+            {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
+          </span>
+        </div>
+        {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+      </div>
+    )
+  }
+
+  return (
+    <div ref={el => { registerPostRef?.(post.id, el) }}
+      style={{ position: 'relative', flexShrink: 0, width: comp ? d.cardW + SHELF_COMP_EXTRA : d.cardW, height: '100%', background: cardBg, padding: `${d.padY}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+      <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
+
+      {/* top: sleeve (the player takes its place) | pills, artist, title, label, genres */}
+      <div style={{ display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, height: stageH, flexShrink: 0 }}>
+        <div style={{ position: 'relative', height: '100%', aspectRatio: '1 / 1', flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+          {playingSrc ? (
+            <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+          ) : (
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+              {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              <span style={{ position: 'absolute', top: 16, left: 18, fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.1em', color: '#fff', textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>#{num}</span>
+            </div>
+          )}
+        </div>
+        <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14, flexShrink: 0 }}>
+            <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
+            {locations.map(({ p, n }) => (
+              <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                style={{ ...badge, border: 'none', cursor: 'pointer', background: shelfColor(p), color: p === 'beatport' ? '#000' : '#fff' }}>
+                {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+              </button>
+            ))}
+            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+          </div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+          </div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+          <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+            {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+            {label && (catNo || post.year) ? ' · ' : ''}
+            {[catNo, post.year].filter(Boolean).join(' · ')}
+          </div>
+          {post.genres?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+              {post.genres.slice(0, 6).map(g => (
+                <button key={g} onClick={() => openD3?.('genres', { filter: g })}
+                  style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+              ))}
+            </div>
+          )}
+          {contributors.length > 0 && (
+            <div style={{ marginTop: 12, minHeight: 0, overflow: 'hidden', fontFamily: d.bodyFf, fontSize: 12, lineHeight: 1.6, color: 'var(--lv-sec)' }}>
+              <div style={{ fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>{contributors.length} artists</div>
+              {contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}
+              {contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* tracklist: always there, scrolls inside its own space */}
+      <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>
+          <span>Tracklist</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}</span>
+        </div>
+        <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
+          style={{ flex: '0 1 auto', minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: tracks.length > 3 ? '1fr 1fr' : '1fr', columnGap: COL_GAP, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
+          {tracks.map(row)}
+        </div>
+      </div>
+
+      {/* the poster's own words */}
+      <div style={{ flexShrink: 0, marginTop: 26 }}>
+        <PostTitle post={post} labelStyle={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)' }} />
+        <div aria-hidden="true" style={{ height: 1, background: 'var(--lv-line)', margin: '9px 0 8px' }} />
+        {note ? (
+          <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
+            style={{ fontSize: d.descSize, lineHeight: 1.4, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, maxHeight: `${Math.round(d.descSize * 1.4 * 2)}px`, overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+        ) : (
+          <p style={{ fontSize: d.descSize, fontFamily: d.bodyFf, fontStyle: 'italic', color: 'var(--lv-ter)', margin: 0 }}>No description</p>
+        )}
+      </div>
+
+      {/* byline */}
+      <div style={{ marginTop: 'auto', paddingTop: 10, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
+        <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
+          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
+        </button>
+        <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <FollowedTag post={post} />
+        <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
+        <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
+        <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
+        <span style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>{timeAgo(post.created_at)}</span>
+        {canModify && (
+          <span style={{ display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </span>
+        )}
+      </div>
+
+      {/* replies: a panel out of the card's right edge */}
+      {commentsOpen && (
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 360, zIndex: 20, background: cardBg, borderLeft: '1px solid var(--lv-line)', boxShadow: '-18px 0 40px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', animation: 'lnvShelfIn 0.28s ease-out' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--lv-line)', flexShrink: 0 }}>
+            {cover && <img src={cover} alt="" style={{ width: 44, height: 44, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontFamily: d.bodyFf, fontWeight: 700, fontSize: 15, lineHeight: 1.2, color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist || post.title}</div>
+              <div style={{ fontFamily: d.bodyFf, fontSize: 12, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.title}</div>
+            </div>
+            <span style={{ fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--lv-ter)' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
+            <button onClick={() => setCommentsOpen(false)} aria-label="Close replies" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1, color: 'var(--lv-sec)', padding: 0 }}>×</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 18px 18px', ...INNER_SCROLL_STYLE }}>
+            <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={9999} inputSize={13} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Spotlight card — two variants (artist / label) ─────────────────────────────
 // Purely client-side now — see buildSpotlightPool/buildShelfItems below.
 // `subject` is derived from posts already loaded in this fetch; nothing is
@@ -3652,6 +3909,8 @@ export default function Feed() {
           })
           return nodes
         })()}
+                : SHELF_CARDS
+                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
       </div>
 
       {/* Main feed / my feed / shared feeds (2026-10-03) */}
