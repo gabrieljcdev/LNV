@@ -17,6 +17,8 @@ import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 import TrackPlayer from './TrackPlayer'
 import { toEmbedSrc } from '../lib/embeds'
 import { SOURCE_SHORT, SOURCE_NAME, useSourcePref, urlForTrack, platformOf } from '../lib/sources'
+import { useListening, pickUrl } from '../lib/listening'
+import ListeningSettings from './ListeningSettings'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -1608,7 +1610,9 @@ const NUM_LINE_GAP = 14
 
   const tracks = post.tracks || []
   const [srcPref, setSrcPref] = useSourcePref()
-  const urlOf = t => urlForTrack(t, srcPref)
+  // The listener's own services first (lib/listening.js), then a source they picked by hand.
+  const [listening] = useListening()
+  const urlOf = t => pickUrl(t, listening, srcPref)
   const artist = artistName(post)
   const label = labelName(post)
   const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
@@ -3994,6 +3998,9 @@ export default function Feed() {
           fully collapsed (LayoutProvider sets data-show; .lnv-compose-btn
           in index.css fades it). */}
       <div ref={composeBtnRef} className="lnv-compose-btn" style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 100 }}>
+      {/* How do you listen? — which services to play from first (2026-10-08) */}
+      <ListeningSettings />
+
         <button onClick={() => setComposeOpen(true)} aria-label="New post"
           style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
       </div>
