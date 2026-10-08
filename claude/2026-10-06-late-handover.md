@@ -148,7 +148,21 @@ not built):
 
 ## TODO
 
-### Added 7 Oct (read this first — newest)
+### Added 8 Oct (read this first — newest)
+**State:** `dedupe` / PR #9 holds everything from 7–8 Oct (shelf stack card, track artists, listening panel, compose button, Discogs lists). The old cards are one switch away: `?cards=old`, tag `pre-shelf-stack`, screenshots in `claude/old-cards/`.
+
+1. **Proper Discogs login ("Connect Discogs", OAuth 1.0a) — gabriel asked for this to be on the list.** Today the Discogs account is linked by typing the username (public lists only, `ownership: unverified`; optional profile-text code check). The login replaces that and unlocks the rest:
+   - **gabriel registers a Discogs app** (discogs.com → Settings → Developers → Create an Application: name, website, callback `http://localhost:3001/api/discogs-account/oauth/callback`, later the real domain) and puts `DISCOGS_CONSUMER_KEY` / `DISCOGS_CONSUMER_SECRET` in `backend/.env`.
+   - **Build:** request token → send them to `discogs.com/oauth/authorize` → callback → access token; `GET /oauth/identity` gives the username (so ownership is verified automatically). Discogs accepts the PLAINTEXT signature over HTTPS. Keep each person's token + secret on the server only (never the browser), with a Disconnect that deletes them. Tell people on the connect screen that Discogs gives the app full access to that account; we only use collection and wantlist.
+   - **Then switch on:** reading private collections / wantlists; **sharing** the two playlists (blocked until verified); **writing back** — "＋ collection" / "♡ want" buttons on cards, spotlight rows and the Playlists drawer (`POST /users/{u}/collection/folders/1/releases/{id}`, `PUT /users/{u}/wants/{id}`, and the `DELETE`s), each also updating the imported playlist so the two stay in step. Never write with the site's own token (it belongs to gabriel's account).
+   - Cheap step with no keys: "in your collection" / "on your wantlist" markers on cards and rows from the imported lists (read-only).
+2. **Play all / shuffle for the Discogs playlists.** A queue needs a link per track, and a record has none until it's opened; chain records one after another, resolving each release only when its turn comes (free sources first).
+3. **Discogs lists, loose ends:** the playable check runs ~4s per record (1,000 records ≈ 1h); imports feed each record's artists and labels into the catalogue crawl (a big wantlist queues hundreds of crawls — watch Admin → Status); unverified accounts can't share.
+4. **Check in a real browser:** the spotlight changes (linked compilation artists, in-row "+ add to my feed", footer "view all"); a long description on #47/#48; pressing play in a Spotify embed (preview vs full detection only fires on play); the new card, ♪ panel and compose button on a phone; the Discogs dialog and drawer look.
+5. **Track artists:** older posts have none until edited or swept; searches for compilation tracks should use each track's own artist (item 4 of the 6 Oct list is still open); run the free source finder over the 217 never-checked tracks (decision pending).
+6. **Small:** "+N" genre pill could open the genres drawer; unused `.lnv-compose-btn` rule in `index.css`; unused mockup layouts in `frontend/mockup4.html`; Last.fm as a free match check (minor); hosting day (notes say Fri 10 Oct, which is a Saturday — Friday is 9 Oct).
+
+### Added 7 Oct (older)
 **State:** everything built so far is merged to `master` (PR #7, merge `1498046`). Next work starts from `master`. The `legal` branch (privacy/terms pages, reports) is still unmerged. Placeholder brand = Waxopathy (waxopathy .com / .co.uk / .uk / .org bought); the site is hosted on that for now.
 
 1. **Hosting — gabriel does the server on Friday 10 Oct.** Plan agreed in chat: one small UK/EU VPS (SQLite needs a persistent disk and one always-on process, because the background jobs run inside the backend), Caddy for HTTPS, backend kept running automatically, daily backup of `backend/db/vinyl_crate.db` with a tested restore, Cloudflare for DNS, an email provider for verification/reset mail (not chosen yet). Claude writes the deployment steps as a doc once the choice is made.
