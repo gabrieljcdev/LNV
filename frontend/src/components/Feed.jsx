@@ -296,6 +296,9 @@ const U = 100
 // between them, over the feed surface (FEED_SURFACE). Replaces full-height
 // cards joined by two-tone seams (FeedGap).
 const FLOAT_GAP = 28   // was 56; halved per gabriel 2026-09-26
+// Where the compose button locks (2026-10-08, gabriel): this far clear of the nav rail's right edge
+// (the feed starts STRIP_RADIUS under the rail), in the notch beside the rail's rounded corner.
+const COMPOSE_LOCK_GAP = 12
 // One corner radius for everything that floats: cards, the intro panel,
 // the nav strip (Strip.jsx), the compose card. 40 since 2026-09-30 (was
 // 14) — gabriel wanted the strip rounder, then all the edges uniform.
@@ -1305,14 +1308,14 @@ function PreviewPrompt({ post, track, linkKey, activeUrl, indent = 30 }) {
 // track says where it plays — falling back to the track's own link when no sources were stored.
 function SourceChips({ track, activeUrl, pref, onPick, d, always = false }) {
   const own = track.stream_url || track.youtube_url
+  let list = track.sources || []
+  if (always && list.length === 0 && platformOf(own)) list = [{ platform: platformOf(own), url: own, full: FULL_SOURCES.has(platformOf(own)) }]
+  if (list.length < (always ? 1 : 2)) return null
   const current = activeUrl ? platformOf(activeUrl) : (pref && list.some(s => s.platform === pref) ? pref : platformOf(own))
   return (
     <span style={{ display: 'inline-flex', gap: 3 }} onClick={e => e.stopPropagation()}>
       {list.map(s => {
         const on = s.platform === current
-  let list = track.sources || []
-  if (always && list.length === 0 && platformOf(own)) list = [{ platform: platformOf(own), url: own, full: FULL_SOURCES.has(platformOf(own)) }]
-  if (list.length < (always ? 1 : 2)) return null
         return (
           <button key={s.platform} onClick={() => onPick(s)}
             title={`${SOURCE_NAME[s.platform] || s.platform}${s.full ? '' : ' — 30-second preview unless you are signed in there'}`}
@@ -1598,13 +1601,13 @@ function shelfLocations(post, tracks) {
 // A compilation's card is this much wider than the others (2026-10-08, gabriel): every track line
 // carries an artist, so two columns of 800px-card width got messy once the list was busy.
 const SHELF_COMP_EXTRA = 280
+// Space between the big post number and the line under it (it travels with the number).
+const NUM_LINE_GAP = 14
 
 function ShelfCard({ post, cardBg, d, onEdit }) {
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [activeUrl, setActiveUrl] = useState(null)
-// Space between the big post number and the line under it (it travels with the number).
-const NUM_LINE_GAP = 14
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
 
@@ -1627,13 +1630,6 @@ const NUM_LINE_GAP = 14
   const descFit = useScrollFit(descRef, [post.notes, post.body])
   const listRef = useRef(null)
   const listFit = useScrollFit(listRef, [tracks.length])
-
-  // Playback — the same rules as AlbumCard: a track's own player, else the post's own Bandcamp player, else the URL's embed.
-  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
-  const activeTrack = activeUrl ? tracks.find(t => urlOf(t) === activeUrl) : null
-  const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
-  const playingSrc = !activeUrl ? null
-    : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
   // Genres show on two rows at most; what doesn't fit collapses into a "+N" pill.
   const genreBox = useRef(null)
   useEffect(() => {
@@ -1674,6 +1670,13 @@ const NUM_LINE_GAP = 14
     ro.observe(el)
     return () => ro.disconnect()
   }, [d.numeralSize, d.numeralLh, post.feedNumber, post.id])
+
+  // Playback — the same rules as AlbumCard: a track's own player, else the post's own Bandcamp player, else the URL's embed.
+  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
+  const activeTrack = activeUrl ? tracks.find(t => urlOf(t) === activeUrl) : null
+  const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
+  const playingSrc = !activeUrl ? null
+    : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
       || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
   function playNext() {
     const urls = tracks.map(urlOf)
@@ -1765,6 +1768,7 @@ const NUM_LINE_GAP = 14
                 <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
                   style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
               ))}
+              <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
             </div>
           )}
           {contributors.length > 0 && (
@@ -1772,9 +1776,13 @@ const NUM_LINE_GAP = 14
               <div style={{ fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>{contributors.length} artists</div>
               {contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}
               {contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}
-              <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
             </div>
           )}
+          {/* the big post number, as on the old cards, in the column's spare room (gabriel, 2026-10-08) */}
+          <div ref={numBox} aria-hidden="true" style={{ pointerEvents: 'none', flex: '1 1 0', minHeight: 0, marginTop: 8 }}>
+            {numSize >= 56 && <div style={{ whiteSpace: 'nowrap', fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: numSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>{num}</div>}
+            <div style={{ height: 1, background: 'var(--lv-line)', marginTop: numSize >= 56 ? NUM_LINE_GAP : 0 }} />
+          </div>
         </div>
       </div>
 
@@ -1782,11 +1790,6 @@ const NUM_LINE_GAP = 14
       <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>
           <span>Tracklist</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}</span>
-          {/* the big post number, as on the old cards, in the column's spare room (gabriel, 2026-10-08) */}
-          <div ref={numBox} aria-hidden="true" style={{ pointerEvents: 'none', flex: '1 1 0', minHeight: 0, marginTop: 8 }}>
-            {numSize >= 56 && <div style={{ whiteSpace: 'nowrap', fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: numSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>{num}</div>}
-            <div style={{ height: 1, background: 'var(--lv-line)', marginTop: numSize >= 56 ? NUM_LINE_GAP : 0 }} />
-          </div>
         </div>
         <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
           style={{ flex: '0 1 auto', minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: tracks.length > 3 ? '1fr 1fr' : '1fr', columnGap: COL_GAP, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
@@ -3424,7 +3427,7 @@ export default function Feed() {
   const clockWrapRef                  = useRef(null)
   const scrollCueRef                  = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, driveFeedScroll, composeBtnRef, scrollToPost: scrollShelfToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
+  const { feedRef, driveFeedScroll, scrollToPost: scrollShelfToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
   // Phones get one post per screen, swiped sideways (PhoneFeed in Feed.jsx,
   // 2026-10-05) — same posts, same feeds; a jump to a post moves that deck.
   const phone = usePhone()
@@ -3952,6 +3955,18 @@ export default function Feed() {
         )}
         {(() => {
           const nodes = []
+          // The compose button (48px, gabriel 2026-10-01) rides with the first post (2026-10-08): it starts in
+          // that card's lower-left corner and scrolls with the feed until it reaches the nav strip, where it
+          // locks — exactly where the old fixed button sat. A zero-size sticky anchor in the row; the button
+          // hangs off it. sticky `left` is the card slot's side padding (FLOAT_GAP / 2) negative, so the
+          // anchor pins COMPOSE_LOCK_LEFT from the scroll edge (minus where the button hangs: 16 + that padding),
+          // which puts the locked button COMPOSE_LOCK_GAP clear of the rail, tucked beside its rounded corner.
+          nodes.push(
+            <div key="compose-anchor" style={{ position: 'sticky', left: STRIP_RADIUS + COMPOSE_LOCK_GAP - (16 + FLOAT_GAP / 2), flex: '0 0 0', width: 0, height: 0, alignSelf: 'flex-end', zIndex: 100 }}>
+              <button onClick={() => setComposeOpen(true)} aria-label="New post"
+                style={{ position: 'absolute', bottom: 16, left: 16 + FLOAT_GAP / 2, width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
+            </div>
+          )
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
           withIntros(shelfItems.current, intros).forEach(item => {
             if (item.kind === 'intro') {
@@ -3983,6 +3998,9 @@ export default function Feed() {
       {/* Search — dropdown of post numbers, posts, artists/labels/genres */}
       {searchBox()}
 
+      {/* How do you listen? — which services to play from first (2026-10-08) */}
+      <ListeningSettings />
+
       {/* Theme button */}
       <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 100 }}>
         {pickerOpen && <ThemePicker currentIdx={themeIdx} onSelect={i => { setThemeIdx(i); setPickerOpen(false) }} />}
@@ -3991,18 +4009,6 @@ export default function Feed() {
         <div style={{ fontSize: 8, textAlign: 'center', color: 'var(--theme-text-ter)', marginTop: 3, fontFamily: 'VT323, monospace', letterSpacing: '0.06em' }}>
           {themeIdx === -1 ? 'AUTO' : currentPalette?.name?.split(' ')[0].toUpperCase()}
         </div>
-      </div>
-
-      {/* Compose button — 48px (36 → 72 → 48, gabriel 2026-10-01), and only on
-          the main feed: hidden over the intro, shown once the strip has
-          fully collapsed (LayoutProvider sets data-show; .lnv-compose-btn
-          in index.css fades it). */}
-      <div ref={composeBtnRef} className="lnv-compose-btn" style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 100 }}>
-      {/* How do you listen? — which services to play from first (2026-10-08) */}
-      <ListeningSettings />
-
-        <button onClick={() => setComposeOpen(true)} aria-label="New post"
-          style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
       </div>
 
       {modals}
