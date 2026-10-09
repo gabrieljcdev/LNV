@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { DiscogsSetting } from './DiscogsConnect'
+import { askText } from './Dialogs'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
@@ -121,7 +122,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
     setTimeout(() => setFlash(null), 1600)
   }
   async function addToNew() {
-    const name = window.prompt('Name the new playlist')
+    const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno, Sunday mornings', ok: 'Create', maxLength: 60 })
     if (!name || !name.trim()) return
     try { const p = await playlistsApi.create(name); await addTo(p.id, p.name) } catch (err) { setNote(err.message) }
   }

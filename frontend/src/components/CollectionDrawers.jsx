@@ -7,6 +7,7 @@ import { queue, useQueue, currentTrack } from '../lib/queue'
 import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
 import { ReleaseListView } from './DiscogsLists'
 import { DiscogsStrip } from './DiscogsConnect'
+import { askText } from './Dialogs'
 
 // ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
 // Walls: your wall and the people you follow. Playlists: lists of tracks
@@ -163,7 +164,7 @@ function PlaylistView({ id, token, onBack }) {
       {owner && showMembers && (
         <div style={{ display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button onClick={() => { const n = window.prompt('Rename the playlist', data.name); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
+            <button onClick={async () => { const n = await askText({ title: 'Rename the playlist', value: data.name, ok: 'Rename', maxLength: 60 }); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
             {data.share_token && <button onClick={() => shareLink(true)} style={pill}>new share link</button>}
             {data.invite_token && <button onClick={() => inviteLinkCopy(true)} style={pill}>new invite link</button>}
             {/* The default playlist can't be deleted (2026-10-06) — only renamed. */}

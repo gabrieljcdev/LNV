@@ -12,6 +12,7 @@ import Contact from './pages/Contact';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
 import PageNotFound from './utils/PageNotFound';
+import { DialogHost } from './components/Dialogs';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } }
@@ -40,6 +41,7 @@ export default function App() {
             </Route>
           </Routes>
         </BrowserRouter>
+        <DialogHost />
       </PlayerProvider>
     </QueryClientProvider>
   );
