@@ -232,7 +232,41 @@ router.get('/browse', (req, res, next) => {
     const labels = by('SELECT post_id, label_name, catalogue_number, discogs_label_id FROM post_labels ORDER BY id');
     const genres = by('SELECT post_id, genre FROM post_genres ORDER BY id');
     const tracks = new Map(db.prepare('SELECT post_id, COUNT(*) c FROM post_tracks GROUP BY post_id').all().map(r => [r.post_id, r.c]));
+    // Artists named on individual tracks (compilations): "Coldcut feat. Robert Owens" is two people, and
+    // both are "on the feed" through that post. Same split as the card's track lines (Feed.jsx shelfTrack).
+    const trackArtists = new Map();
+    // Tracks with no saved artist carry it in the name ("Artist - Title") on compilations, as the card reads it.
+    const SPLIT = /\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i;
+    const GENERIC_MIX = /^(original|extended|radio|club|album|single|vocal|instrumental|dub|long|short|main|full|clean|dirty|edit|lp|ep|7"|12"|remix|re-?edit|version|vip|acapella|a cappella|live|demo|mono|stereo)\b/i;
+    const remixersOf = title => {
+      const out = [];
+      for (const m of String(title || '').matchAll(/[(\[]([^()\[\]]{2,60}?)\s+(?:remix|rmx|rework|re-?edit|re-?work|mix|edit|dub|version)[)\]]/gi)) {
+        const name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim();
+        if (name && !GENERIC_MIX.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name);
+      }
+      return out;
+    };
+    const NAMED = /^(.{2,70}?)\s[-–—]\s(.+)$/;
+    const trackRows = new Map();
+    for (const r of db.prepare('SELECT post_id, title, artist FROM post_tracks').all()) {
+      if (!trackRows.has(r.post_id)) trackRows.set(r.post_id, []);
+      trackRows.get(r.post_id).push(r);
+    }
+    for (const p of posts) {
+      const rows = trackRows.get(p.id) || [];
+      const various = (artists.get(p.id) || []).some(a => /^various( artists)?$/i.test((a.artist_name || '').trim()));
+      const named = rows.filter(t => (t.artist || '').trim() || NAMED.test(t.title || '')).length;
+      const comp = various || (rows.length >= 5 && named / rows.length >= 0.6);
+      const set = new Set();
+      for (const t of rows) {
+        const a = (t.artist || '').trim() || (comp ? (NAMED.exec(t.title || '') || [])[1] || '' : '');
+        a.split(SPLIT).map(s => s.trim()).filter(Boolean).forEach(n => set.add(n));
+        remixersOf(t.title).forEach(n => set.add(n));
+      }
+      if (set.size) trackArtists.set(p.id, set);
+    }
     res.json(posts.map(p => ({
+      track_artists: [...(trackArtists.get(p.id) || [])],
       id: p.id, title: p.title, post_title: p.post_title, year: p.year,
       cover: p.thumb_image || p.cover_image || null, post_type: p.post_type,
       channel: p.channel, platform: p.platform, stream_url: p.stream_url, created_at: p.created_at,

@@ -379,7 +379,8 @@ export function ArtistsDrawer({ filter: initial }) {
   const [sort, setSort] = useState('az')
   if (isLoading || !data) return <><DrawerHead title="Artists" count="" /><Loading /></>
   const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
-  const groups = group(records, p => p.artists.filter(a => !isVarious(a)))
+  // A compilation sits under every artist on its tracks too, not only the post's own artist.
+  const groups = group(records, p => [...p.artists, ...(p.track_artists || [])].filter(a => !isVarious(a)))
 
   if (selected) {
     const ps = groups.get(selected) || []

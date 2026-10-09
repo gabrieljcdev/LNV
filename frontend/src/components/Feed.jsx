@@ -1572,13 +1572,33 @@ const splitTrackName = title => {
   const m = String(title || '').match(/^(.{2,70}?)\s[-–—]\s(.+)$/)
   return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: String(title || '') }
 }
+// "Walk A Mile In My Shoes (Henrik Schwarz Remix)" -> ['Henrik Schwarz']. Generic mixes ("Original Mix",
+// "Long Instrumental Version") name nobody. (Same rule in backend/routes/posts.js /browse.)
+const GENERIC_MIX = /^(original|extended|radio|club|album|single|vocal|instrumental|dub|long|short|main|full|clean|dirty|edit|lp|ep|7"|12"|remix|re-?edit|version|vip|acapella|a cappella|live|demo|mono|stereo)\b/i
+function remixersOf(title) {
+  const out = []
+  for (const m of String(title || '').matchAll(/[(\[]([^()\[\]]{2,60}?)\s+(?:remix|rmx|rework|re-?edit|re-?work|mix|edit|dub|version)[)\]]/gi)) {
+    const name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim()
+    if (name && !GENERIC_MIX.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name)
+  }
+  return [...new Set(out)]
+}
+// Artists shown on a spotlight / preview track row: the credited ones plus whoever the title says remixed it.
+const rowArtists = t => {
+  const have = (t.artists || []).filter(a => a?.name)
+  const extra = remixersOf(t.title).filter(n => !have.some(a => a.name.toLowerCase() === n.toLowerCase())).map(name => ({ name }))
+  return [...have, ...extra]
+}
 // A track for display: its own artist (post_tracks.artist) or the one its name carries, and the clean title.
 function shelfTrack(t, comp) {
   let artist = (t.artist || '').trim(), title = t.title || ''
   if (artist && title.toLowerCase().startsWith(artist.toLowerCase() + ' - ')) title = title.slice(artist.length + 3).trim()
   else if (!artist && comp) { const sp = splitTrackName(title); artist = sp.artist; title = sp.title }
   // "Coldcut feat. Robert Owens" is two artists, each with their own page.
-  return { artists: artist ? artist.split(/\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i).map(s => s.trim()).filter(Boolean) : [], title }
+  const artists = artist ? artist.split(/\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i).map(s => s.trim()).filter(Boolean) : []
+  // The remixer is on the track too: "(Henrik Schwarz Remix)" puts Henrik Schwarz in the artists row.
+  const remixers = remixersOf(title).filter(n => !artists.some(a => a.toLowerCase() === n.toLowerCase()))
+  return { artists, remixers, title }
 }
 function isCompilation(post, tracks) {
   if (isVariousArtist(artistName(post))) return true
@@ -1627,7 +1647,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const single = tracks.length <= 2 && !/album|lp|ep/i.test(post.post_type || '')
   const kind = comp ? 'compilation' : (single ? 'single' : (post.post_type || 'album'))
   const locations = shelfLocations(post, tracks)
-  const contributors = comp ? [...new Set(tracks.flatMap(t => shelfTrack(t, true).artists))] : []
+  const contributors = comp ? [...new Set(tracks.flatMap(t => { const v = shelfTrack(t, true); return [...v.artists, ...v.remixers] }))] : []
   const descRef = useRef(null)
   const descFit = useScrollFit(descRef, [post.notes, post.body])
   const listRef = useRef(null)
@@ -1714,7 +1734,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr) auto', gap: 8, alignItems: 'baseline', padding: `${d.trackRowpad}px 0`, borderBottom: '1px solid var(--lv-line)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
           <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
           <span style={{ fontFamily: d.bodyFf, fontSize: d.trackSize, lineHeight: 1.3, color: active ? 'var(--lv-pri)' : 'var(--lv-sec)', fontWeight: active ? 600 : 400, minWidth: 0, overflowWrap: 'anywhere' }}>
-            {v.artists.length > 0 && <span>{v.artists.map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}<span style={{ margin: '0 7px', color: 'var(--lv-ter)' }}>–</span></span>}
+            {(v.artists.length > 0 || v.remixers.length > 0) && <span>{[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}<span style={{ margin: '0 7px', color: 'var(--lv-ter)' }}>–</span></span>}
             {v.title}
           </span>
           <span style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>
@@ -2543,9 +2563,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                             style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px 36px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                             <span style={{ ...monoText, color: textTer }}>{t.position || i + 1}</span>
                             <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>
-                              {(t.artists || []).filter(a => a?.name).length > 0 && (
+                              {rowArtists(t).length > 0 && (
                                 <span>
-                                  {(t.artists || []).filter(a => a?.name).map((a, k) => (
+                                  {rowArtists(t).map((a, k) => (
                                     <span key={a.name + k}>{k > 0 && ', '}<DrawerLink kind="artists" name={a.name} quiet style={{ fontWeight: 700, color: textPri }}>{a.name}</DrawerLink></span>
                                   ))}
                                   <span style={{ margin: '0 7px', color: textTer, fontWeight: 400 }}>–</span>
