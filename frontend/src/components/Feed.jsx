@@ -4018,6 +4018,10 @@ export default function Feed() {
             // Floating card — rounded and lifted off the surface (FloatSlot).
             nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
           })
+          // Empty feed: the row after the clock panel is only the profile/welcome card slot + the empty panel
+          // (about 1,628px), shorter than a wide screen, so the scroll ran out with the clock still half in view.
+          // This room lets that card scroll right up to the rail, with only it showing (9 Oct).
+          if (!posts.length) nodes.push(<div key="end-room" aria-hidden="true" style={{ flex: '0 0 auto', width: `max(0px, calc(100% - ${2 * DESIGN_BASE.cardW + FLOAT_GAP}px))` }} />)
           return nodes
         })()}
       </div>
