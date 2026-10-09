@@ -8,6 +8,7 @@ import { readLog, logSummary, logEvent } from '../services/logService.js';
 import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } from '../services/youtubeService.js';
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
+import { runSpareQuota } from '../services/spareQuota.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
@@ -148,6 +149,11 @@ router.post('/gaps/sweep', async (req, res, next) => {
 // ── Channels (2026-10-05) ──
 // Which channels can be ♥'d and why; mark one official, not, or back to
 // the numbers (official: true | false | null).
+// Run the spare-units search by hand: { dry: true } only counts what it would search; { force: true } ignores "already ran today".
+router.post('/spare-quota', async (req, res, next) => {
+  try { res.json(await runSpareQuota({ force: !!req.body?.force, dry: !!req.body?.dry })); } catch (err) { next(err); }
+});
+
 router.get('/channels', (req, res, next) => {
   try { res.json({ channels: channelsWithVerdicts(), rule: PROPER_CHANNEL }); } catch (err) { next(err); }
 });

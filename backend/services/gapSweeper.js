@@ -23,6 +23,7 @@ import db from '../db/database.js';
 import { getRelease } from './discogsService.js';
 import { searchTrackVideo } from './youtubeService.js';
 import { logEvent } from './logService.js';
+import { quotaDay } from './quotaDay.js';
 import { lastfmConfigured, lastfmGenres } from './lastfmService.js';
 import { platformGenres } from '../routes/media.js';
 
@@ -34,7 +35,7 @@ const RECHECK = '-7 days';
 const DISCOGS_POST = "COALESCE(p.platform, 'discogs') = 'discogs'";
 const DISCOGS_GAP_MS = 3000; // well under Discogs' 60/min alongside the other jobs
 const paidPerDay = () => Number(process.env.GAP_SWEEP_YT_SEARCHES ?? 0);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => quotaDay();   // the paid-search count follows YouTube's (Pacific) quota day
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const key = s => String(s || '').toLowerCase().replace(/\s*-\s*topic$/, '').replace(/\s*\(\d+\)$/, '').replace(/[^\p{L}\p{N}]+/gu, '');
 

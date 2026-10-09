@@ -30,6 +30,7 @@ import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
 import { startLinkHealth } from './services/linkHealth.js';
+import { startSpareQuota } from './services/spareQuota.js';
 import db from './db/database.js';
 
 dotenv.config();
@@ -88,6 +89,8 @@ const server = app.listen(PORT, () => {
   startLinkHealth();
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
+  // In the last hours of YouTube's quota day, spend the units the day did not use on links people want.
+  startSpareQuota();
 });
 
 // A stop (deploy, reboot, `systemctl restart`) closes the database cleanly so the WAL is checkpointed.
