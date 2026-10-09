@@ -12,6 +12,7 @@ import { searchTrackVideo, quotaUsed } from './youtubeService.js';
 import { getRelease } from './discogsService.js';
 import { searchBudget } from './searchBudget.js';
 import { linkKeysOf } from './releaseSpotify.js';
+import { linkFromDiscogsVideos } from './discogsVideos.js';
 import { logEvent } from './logService.js';
 import { quotaDay, minutesToQuotaReset } from './quotaDay.js';
 
@@ -110,6 +111,11 @@ export async function runSpareQuota({ force = false, dry = false } = {}) {
       for await (const c of gen()) {
         if (dry ? out.searches >= budget : units() < SEARCH_COST) break;
         if (!c.title) continue;
+        if (c.releaseId && !dry) {   // Discogs' own videos first: free, and may already cover this track
+          const d = await linkFromDiscogsVideos(c.releaseId).catch(() => null);
+          if (d?.matched) out.fromDiscogs = (out.fromDiscogs || 0) + d.matched;
+          if (haveLink.get(c.releaseId, String(c.position))?.youtube_url) continue;
+        }
         if (c.releaseId) {   // a record that has had its paid searches (or keeps missing) is left alone
           const b = searchBudget({ used: 0, cap: cap(), listening: false, release: relStats.get(c.releaseId) });
           if (b.held) continue;
@@ -132,7 +138,7 @@ export async function runSpareQuota({ force = false, dry = false } = {}) {
       }
     }
     out.endUnits = quotaUsed();
-    if (!dry) logEvent('info', 'crawl', `Spare YouTube units: ${out.searches} searches found ${out.found} links (${Object.entries(out.byGroup).map(([k, v]) => `${k} ${v.found}/${v.searches}`).join(', ') || 'nothing to search'}); ${Math.max(0, cap() - out.endUnits)} units left for the day`);
+    if (!dry) logEvent('info', 'crawl', `Spare YouTube units: ${out.searches} searches found ${out.found} links (${out.fromDiscogs ? `${out.fromDiscogs} from Discogs' own videos, ` : ''}${Object.entries(out.byGroup).map(([k, v]) => `${k} ${v.found}/${v.searches}`).join(', ') || 'nothing to search'}); ${Math.max(0, cap() - out.endUnits)} units left for the day`);
     return out;
   } catch (err) {
     logEvent('error', 'crawl', `Spare-quota run: ${err.message}`);

@@ -10,6 +10,7 @@ try { db.exec('ALTER TABLE release_track_links ADD COLUMN paid INTEGER NOT NULL 
 import { combSoon } from '../services/catalogueComber.js';
 import { adoptProfileLinks } from '../services/profileLinks.js';
 import { suggestionsFor, mineFor, userLinkInfo } from '../services/trackLinks.js';
+import { linkFromDiscogsVideos } from '../services/discogsVideos.js';
 
 const router = express.Router();
 
@@ -152,6 +153,8 @@ router.get('/youtube/search', async (req, res, next) => {
     // Saved first (2026-10-07): a link already found for this very release +
     // track is never searched for again, whoever posts it — a known miss
     // (30 days) and, for listening, a saved Spotify placeholder count too.
+    // Discogs' own videos for this release come before any search (free; saved, so it is a one-off per release).
+    if (release_id && position) await linkFromDiscogsVideos(Number(release_id)).catch(() => null);
     if (release_id && position) {
       const saved = db.prepare(`SELECT youtube_url, youtube_title, spotify_url, spotify_title,
                                        fetched_at > datetime('now', '-30 days') AS fresh
@@ -242,7 +245,8 @@ router.get('/track-sources', async (req, res, next) => {
 // another try (was 14 — misses were costing searches, 2026-10-06).
 router.get('/release/:id/track-links', async (req, res, next) => {
   try {
-    // Opening a release fills it from its Spotify album first (free).
+    // Opening a release: Discogs' own videos first (free, saved for everyone), then its Spotify album (free).
+    await linkFromDiscogsVideos(Number(req.params.id)).catch(() => null);
     await ensureReleaseSpotify(Number(req.params.id)).catch(() => null);
     const rows = db.prepare(`
       SELECT position, youtube_url, youtube_title, spotify_url, spotify_title FROM release_track_links
