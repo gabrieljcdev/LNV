@@ -3946,6 +3946,13 @@ export default function Feed() {
     </>
   )
 
+  const composeAnchor = (
+    <div key="compose-anchor" style={{ position: 'sticky', left: STRIP_RADIUS + COMPOSE_LOCK_GAP - (16 + FLOAT_GAP / 2), flex: '0 0 0', width: 0, height: 0, alignSelf: 'flex-end', zIndex: 100 }}>
+      <button onClick={() => setComposeOpen(true)} aria-label="New post"
+        style={{ position: 'absolute', bottom: 16, left: 16 + FLOAT_GAP / 2, width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
+    </div>
+  )
+
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--theme-bg)', position: 'relative' }}>
 
@@ -3963,6 +3970,7 @@ export default function Feed() {
           programmatic .scrollLeft writes (which is all this ever needs), it
           just stops the browser from independently claiming wheel input. */}
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
+        {!posts.length && composeAnchor}
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {/* A wall opens on its owner's card (2026-10-05). */}
         {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
@@ -3985,12 +3993,9 @@ export default function Feed() {
           // hangs off it. sticky `left` is the card slot's side padding (FLOAT_GAP / 2) negative, so the
           // anchor pins COMPOSE_LOCK_LEFT from the scroll edge (minus where the button hangs: 16 + that padding),
           // which puts the locked button COMPOSE_LOCK_GAP clear of the rail, tucked beside its rounded corner.
-          nodes.push(
-            <div key="compose-anchor" style={{ position: 'sticky', left: STRIP_RADIUS + COMPOSE_LOCK_GAP - (16 + FLOAT_GAP / 2), flex: '0 0 0', width: 0, height: 0, alignSelf: 'flex-end', zIndex: 100 }}>
-              <button onClick={() => setComposeOpen(true)} aria-label="New post"
-                style={{ position: 'absolute', bottom: 16, left: 16 + FLOAT_GAP / 2, width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
-            </div>
-          )
+          // With no posts there is no card to ride with, so the button starts locked, first in the row
+          // (it used to sit at the far right end of the row, under the bottom-right buttons — 9 Oct).
+          if (posts.length) nodes.push(composeAnchor)
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
           withIntros(shelfItems.current, intros).forEach(item => {
             if (item.kind === 'intro') {
