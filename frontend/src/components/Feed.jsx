@@ -3970,8 +3970,9 @@ export default function Feed() {
           programmatic .scrollLeft writes (which is all this ever needs), it
           just stops the browser from independently claiming wheel input. */}
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
-        {!posts.length && composeAnchor}
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
+        {/* No posts: the button rides with the first card there is (your profile / the welcome), in its lower-left corner. */}
+        {!posts.length && composeAnchor}
         {/* A wall opens on its owner's card (2026-10-05). */}
         {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
@@ -3993,8 +3994,8 @@ export default function Feed() {
           // hangs off it. sticky `left` is the card slot's side padding (FLOAT_GAP / 2) negative, so the
           // anchor pins COMPOSE_LOCK_LEFT from the scroll edge (minus where the button hangs: 16 + that padding),
           // which puts the locked button COMPOSE_LOCK_GAP clear of the rail, tucked beside its rounded corner.
-          // With no posts there is no card to ride with, so the button starts locked, first in the row
-          // (it used to sit at the far right end of the row, under the bottom-right buttons — 9 Oct).
+          // With no posts the button is placed before the first card instead (above, 9 Oct) — it used to sit at the
+          // far right end of the row, under the bottom-right buttons.
           if (posts.length) nodes.push(composeAnchor)
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
           withIntros(shelfItems.current, intros).forEach(item => {
