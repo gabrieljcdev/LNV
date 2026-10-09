@@ -148,7 +148,26 @@ not built):
 
 ## TODO
 
-### Added 8 Oct (read this first — newest)
+### Added 9 Oct (read this first — newest)
+**State:** `dedupe` / PR #9 holds everything from 7–9 Oct, committed and pushed, PR description current (no CI, auto-merge off). What was built, the decisions and how to test/revert: **`claude/2026-10-09-handover.md`**. Old cards: `?cards=old` / tag `pre-shelf-stack` / `claude/old-cards/`.
+
+**⏹ Stopped — 9 Oct 2026.** Done since the 8 Oct note: Admin now shows artist/label names (not `#ids`); the Artists and Labels tabs include gabriel's own Discogs records, each row "N posts / M in catalogue"; the two Discogs lists show record counts on the profile and are private again (a start-up migration had made them public); the Discogs link is username-only with an optional profile-code check. Still running in the background: the playable check on the 214 records and ~260 queued catalogue crawls (Admin → Status).
+
+The complete list, in the order to take it (details are in the older blocks below):
+1. **gabriel registers the Discogs app** (Settings → Developers → Create an Application; callback `http://localhost:3001/api/discogs-account/oauth/callback`) and puts `DISCOGS_CONSUMER_KEY` / `DISCOGS_CONSUMER_SECRET` in `backend/.env` → then build the **proper Discogs login (OAuth 1.0a)**: verified ownership, private lists, **sharing** the two playlists, and **write-back** buttons (＋ collection / ♡ want) — full plan in "Added 8 Oct" item 1. Never write with the site's own token (it is gabriel's account).
+2. **PR #9: review and merge** to `master` (27 commits ahead; nothing from 7–9 Oct is on `master` yet). Decide squash vs keep; no CI to wait for.
+3. **Hosting** (the 7 Oct note says Friday 10 Oct, but 10 Oct 2026 is a Saturday — confirm the day). Decide first, because imports now queue hundreds of crawls: the catalogue split (catalogue tables into their own SQLite file via ATTACH) and dropping `thumb` on giant catalogues — see `catalogue-scale-plan` in memory.
+4. **API applications after hosting:** Bandcamp email (draft ready), YouTube quota (50,000/day; blocked on the 30-day refresh, legal pages, live site), SoundCloud (Artist Pro £6.25/mo), Apple (not researched) — "Added 7 Oct" items 2–5.
+5. **Merge the `legal` branch**, gabriel fills the [blanks].
+6. **Brand:** Waxopathy trademark search (gabriel); rename nothing in code until confirmed.
+7. **Play all / shuffle for the Discogs playlists** — chain records one after another, resolving each release only on its turn (free sources first).
+8. **Real-browser pass (gabriel):** spotlight changes (linked compilation artists, in-row "+ add to my feed", footer "view all"); a long description on #47/#48; pressing play in a Spotify embed (preview/full detection only fires on play); the new card, ♪ panel, compose button and Discogs screens on a phone (the phone feed was not touched); the Artists/Labels tabs and the Discogs drawer as gabriel sees them.
+9. **Link work still open:** nightly job that swaps Spotify placeholders for YouTube links; the 30-day YouTube refresh; "playable coverage" numbers in Admin; stricter matching for very short titles ("Meftah – 7"); searches for compilation tracks should use each track's own artist (`post_tracks.artist` now exists); check links before posting in compose; label-page header; share links on profiles.
+10. **Data:** older posts have no track artists until edited or swept; run the free source finder over the ~217 never-checked tracks (decision pending); two accounts can link the same Discogs username until OAuth.
+11. **Small:** "+N" genre pill could open the genres drawer; unused `.lnv-compose-btn` rule in `index.css`; unused layouts in `frontend/mockup4.html`; Last.fm as a free match check (minor); theme-tinted glass question (unanswered).
+12. **Before launch:** real-phone testing · email provider + domain mail · security pass + abuse controls · ★★ YouTube compliance audit + quota increase · backups, monitoring, rollback · hosting, domain, final name, purge dev data.
+
+### Added 8 Oct (older — still valid)
 **State:** `dedupe` / PR #9 holds everything from 7–8 Oct (shelf stack card, track artists, listening panel, compose button, Discogs lists). The old cards are one switch away: `?cards=old`, tag `pre-shelf-stack`, screenshots in `claude/old-cards/`.
 
 **⏹ Stopped for the day — 8 Oct 2026.** Everything built today is committed and pushed on `dedupe` (PR #9, 15 commits, description up to date; no CI on it, auto-merge off). Shipped today: the shelf stack card (number, two-row genres, source chips, roomier description), track artists as bold links (feed card and spotlights), in-row "+ add to my feed" in spotlights, the "How do you listen?" panel with Spotify preview/full detection, the compose button riding with the first post, the old-card screenshots (`claude/old-cards/`), and gabriel's Discogs collection + wantlist as two private playlists (214 records for `treebeast`). **Running in the background tonight:** the playable check on those 214 records (~4s each), and a crawl queue of ~260 new artists/labels from them (Admin → Status shows it). **First thing next session:** gabriel registers the Discogs app and puts the key + secret in `backend/.env` (item 1 below) so the proper login can be built; then item 4 (check things in a real browser) and hosting (item 6 has the date question).
@@ -236,6 +255,16 @@ not built):
 - Tidal playback in cards · live sets "where" field in compose · broken tab
   icon + page description · placeholder channel spotlight can go · unused
   files and leftover tables (10-03 §2).
+
+### Future — record scanner for the phone app (added 9 Oct, gabriel: "a big USP")
+In a record shop, point the phone at a record: see its details, listen, a link to Discogs and the price.
+- **Identify:** barcode first (Discogs searches by barcode), then catalogue number read from the label/spine, then **our own cover matching**.
+- **Cover matching, our own:** gabriel's decision — store **fingerprints (embeddings), not images**, tied to release rows; start with the releases already in our catalogue, not all of Discogs. A photo → same kind of numbers → nearest match = the release family; barcode/cat no. then picks the exact pressing.
+- **FIRST: read Discogs's current API + image terms** (images may be restricted data — not verified). Do not collect anything until that is settled.
+- **Pilot:** test on the 214 imported records with phone photos of the sleeves; measure how often the right one is top.
+- **Price:** Discogs lowest price + number for sale (suggested prices need a connected seller account). Show as "from £X, N for sale", link to Discogs.
+- **Listen:** the existing link pipeline. Start as a phone-sized web page with camera access.
+- **Fingerprint crawler (gabriel, 9 Oct):** a slow background queue over every release we hold or crawl: fetch one cover, make the fingerprint, save it, delete the image at once. One fingerprint per distinct cover (pressings share sleeves), backs off when catalogue crawls are busy, "Fingerprints N of M" line in Admin → Status. Open: image model (local vs paid API) and VPS size. Build only after the Discogs terms answer; queue + Admin line may be built first with fetching switched off.
 
 ---
 ## Added end of 6 Oct

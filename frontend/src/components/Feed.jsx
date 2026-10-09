@@ -1577,7 +1577,8 @@ function shelfTrack(t, comp) {
   let artist = (t.artist || '').trim(), title = t.title || ''
   if (artist && title.toLowerCase().startsWith(artist.toLowerCase() + ' - ')) title = title.slice(artist.length + 3).trim()
   else if (!artist && comp) { const sp = splitTrackName(title); artist = sp.artist; title = sp.title }
-  return { artists: artist ? artist.split(/,\s+/).filter(Boolean) : [], title }
+  // "Coldcut feat. Robert Owens" is two artists, each with their own page.
+  return { artists: artist ? artist.split(/\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i).map(s => s.trim()).filter(Boolean) : [], title }
 }
 function isCompilation(post, tracks) {
   if (isVariousArtist(artistName(post))) return true

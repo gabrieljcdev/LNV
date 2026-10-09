@@ -83,7 +83,7 @@ export function DrawerHead({ title, count, crumb, onBack, filter, setFilter, act
         {crumb && (
           <button onClick={onBack} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: MONO, fontSize: 12.5, color: SEC, cursor: 'pointer', flexShrink: 0 }}>← {crumb}</button>
         )}
-        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1.05, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{title}</h2>
         {action}
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{count}</span>
         <button onClick={close} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: `1px solid ${LINE}`, background: FILL, color: SEC, cursor: 'pointer', fontSize: 17, flexShrink: 0, alignSelf: 'center' }}>×</button>
