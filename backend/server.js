@@ -30,13 +30,18 @@ import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
 import { startLinkHealth } from './services/linkHealth.js';
+import db from './db/database.js';
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500 });
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+// Behind Caddy every request arrives from the proxy; trust its X-Forwarded-For so the rate limit and the
+// request log see the real visitor, not one shared address. (Only the one hop in front of us.)
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+// The site and /api share one address in production (Caddy), so CORS only matters for the dev server.
+app.use(cors({ origin: process.env.NODE_ENV === 'production' ? (process.env.FRONTEND_URL || false) : 'http://localhost:5173' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', limiter);
 app.use('/api', attachUser); // req.user from the Bearer token (or null)
@@ -64,7 +69,7 @@ app.get('/api/health', (req, res) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
   logEvent('info', 'system', 'Backend started');
   startLogPruning();
@@ -84,3 +89,12 @@ app.listen(PORT, () => {
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
 });
+
+// A stop (deploy, reboot, `systemctl restart`) closes the database cleanly so the WAL is checkpointed.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    logEvent('info', 'system', `Backend stopping (${sig})`);
+    server.close(() => { try { db.close(); } catch { /* already closed */ } process.exit(0); });
+    setTimeout(() => process.exit(0), 5000).unref();
+  });
+}
