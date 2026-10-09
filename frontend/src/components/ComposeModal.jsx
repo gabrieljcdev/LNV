@@ -3,7 +3,7 @@ import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
-import { isHeadingRow, linkKeys } from '../lib/tracklist'
+import { isHeadingRow, linkKeys, withoutHeadings } from '../lib/tracklist'
 import { SOURCE_SHORT, SOURCE_NAME, platformOf } from '../lib/sources'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -114,7 +114,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [label, setLabel] = useState(editPost?.labels?.[0]?.label_name || '')
  const [catNo, setCatNo] = useState(editPost?.labels?.[0]?.catalogue_number || '')
  const [genres, setGenres] = useState(editPost?.genres || [])
- const [tracks, setTracks] = useState(() => (editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
+ const [tracks, setTracks] = useState(() => withoutHeadings(editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
  const [comment, setComment] = useState(editPost?.notes || '')
  // The poster's own headline, shown above the description on the card.
  const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
@@ -228,7 +228,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (data.year) setYear(String(data.year))
  if (data.cover_image) setCoverArt(data.cover_image)
  if (data.genres?.length) setGenres(data.genres.slice(0, 6))
- if (data.tracks?.length) setTracks(data.tracks)
+ if (data.tracks?.length) setTracks(withoutHeadings(data.tracks))
  if (data.stream_url) setStreamUrl(data.stream_url)
  if (data.embed_url) setEmbedUrl(data.embed_url)
  if (data.channel) setChannel(data.channel)
@@ -254,7 +254,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (rel.cover_image) setCoverArt(rel.cover_image)
  if (rel.genres?.length) setGenres(rel.genres.slice(0, 6))
  if (rel.tracks?.length) {
- const mapped = rel.tracks.map(t => ({ ...t, stream_url: '' }))
+ const mapped = withoutHeadings(rel.tracks).map(t => ({ ...t, stream_url: '' }))
  searchGen.current++
  setTracks(mapped)
  setPostType(rel.tracks.length >= 6 ? 'album' : rel.tracks.length <= 2 ? 'single' : 'album')
@@ -326,7 +326,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const cleaned = (v.title || '').toLowerCase().replace(/\(official.*?\)/gi, '').replace(/\[.*?\]/gi, '').replace(/ft\..*$/gi, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
  videoMap[cleaned] = ytUrl
  })
- const rawTracks = (data.tracklist || []).map(t => {
+ const rawTracks = withoutHeadings(data.tracklist).map(t => {   // section headings ("Phase I") are not tracks
  const cl = (t.title || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
  let ytUrl = videoMap[cl] || null
  if (!ytUrl) for (const [k, v] of Object.entries(videoMap)) { if (k.includes(cl) || cl.includes(k)) { ytUrl = v; break } }
