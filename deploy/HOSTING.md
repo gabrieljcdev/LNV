@@ -73,12 +73,13 @@ cat /root/lnv_deploy.pub
 ```
 👤 GitHub → the LNV repo → Settings → Deploy keys → Add → paste that line, leave "write access" **off**. Then:
 ```
-GIT_SSH_COMMAND="ssh -i /root/lnv_deploy -o StrictHostKeyChecking=accept-new" git clone git@github.com:gabrieljcdev/LNV.git /opt/lnv-src
+GIT_SSH_COMMAND="ssh -i /root/lnv_deploy -p 443 -o StrictHostKeyChecking=accept-new" git clone -b dedupe ssh://git@ssh.github.com:443/gabrieljcdev/LNV.git /opt/lnv-src
 rm -rf /opt/lnv && mv /opt/lnv-src /opt/lnv
-cd /opt/lnv && git checkout master    # or the branch you are launching from
 chown -R lnv:lnv /opt/lnv
 ```
-> The hosting changes (this folder, `server.js`, `purge-posts.mjs`) live on `dedupe`/PR #9 until it is merged. Either merge PR #9 first, or check out `dedupe` here.
+> (UpCloud's trial blocks outbound port 22, so we reach GitHub over port 443 — `ssh.github.com:443` — which GitHub supports. Later `git pull` needs the same: run it as `GIT_SSH_COMMAND="ssh -i /root/lnv_deploy -p 443" git pull`, or set it once with `git config core.sshCommand "ssh -i /root/lnv_deploy -p 443"` and `git remote set-url origin ssh://git@ssh.github.com:443/gabrieljcdev/LNV.git`.)
+
+The hosting changes (this folder, `server.js`, `purge-posts.mjs`) live on `dedupe`/PR #9 until it is merged. Either merge PR #9 first, or check out `dedupe` here.
 
 ## 6. Install and build
 ```
@@ -146,16 +147,22 @@ curl -s http://127.0.0.1:3001/api/health
 It keeps the database it replaced as `vinyl_crate.db.before-restore`, so this test is safe.
 
 ## 10. Purge the posts, keep everything collected
+First **save the links that live only on the posts**, so reposting those records reads the database instead of searching the web:
 ```
 cd /opt/lnv/backend
-sudo -u lnv LNV_DB_PATH=/var/lib/lnv/vinyl_crate.db node purge-posts.mjs          # dry run: shows the counts
-/usr/local/bin/lnv-backup                                                          # backup first
+export LNV_DB_PATH=/var/lib/lnv/vinyl_crate.db
+sudo -E -u lnv node bank-post-links.mjs          # dry run: counts
+/usr/local/bin/lnv-backup                        # backup first
 systemctl stop lnv
-sudo -u lnv LNV_DB_PATH=/var/lib/lnv/vinyl_crate.db node purge-posts.mjs --yes
-sudo -u lnv LNV_DB_PATH=/var/lib/lnv/vinyl_crate.db node purge-posts.mjs --reset-numbers   # optional: post numbers restart at #1
+sudo -E -u lnv node bank-post-links.mjs --yes    # copies post-track links into release_track_links
+sudo -E -u lnv node purge-posts.mjs              # dry run
+sudo -E -u lnv node purge-posts.mjs --yes        # posts and what hangs off them
+sudo -E -u lnv node purge-posts.mjs --reset-numbers   # optional: post numbers restart at #1
 systemctl start lnv
 ```
-This removes posts and what hangs off them (tracks, comments, spotlights…). It **keeps** the Discogs catalogue and caches, YouTube/Spotify/Last.fm caches, saved track links, crawled channels, profile links, names, users and their Discogs lists. (Dev accounts are not deleted — decide separately; see the open questions in the handover.)
+Kept: the Discogs catalogue and caches, YouTube/Spotify/Last.fm caches, saved track links, crawled channels, profile links, names, users and their Discogs lists. (Done 9 Oct 2026: 57 posts removed, 198 links banked, 415 saved links now.)
+
+**Accounts:** `node purge-users.mjs lnv_admin` (dry run; add `--yes`) deletes every other account and what they own, keeping the named ones. `node create-user.mjs <username> [email]` makes a confirmed account with a random password printed once; `node reset-password.mjs <username>` gives an existing account a new random password.
 
 ## 11. Your own account and admin
 Dev accounts exist in the copied database. For your own login on the live site:
