@@ -72,6 +72,9 @@ try { db.exec("ALTER TABLE discogs_links ADD COLUMN ownership TEXT NOT NULL DEFA
 // linked now and the import runs (the code check is optional).
 db.prepare("UPDATE discogs_links SET verified_at = datetime('now'), state = 'verified', error = NULL WHERE verified_at IS NULL").run();
 
+// The two lists are private to their owner until sharing is switched on: not on the profile, no share link.
+db.prepare("UPDATE playlists SET on_profile = 0, share_token = NULL, invite_token = NULL WHERE kind IN ('collection', 'wantlist')").run();
+
 const USERNAME_OK = /^[A-Za-z0-9_.-]{1,60}$/;
 const PAGE_GAP_MS = 2500;      // between import pages — the shared token's 60 a minute is also the crawler's
 const CHECK_GAP_MS = 4000;     // between playable checks
@@ -315,9 +318,6 @@ export function releasesFor(playlistId, { offset = 0, limit = 100, q = '' } = {}
   return { total, releases };
 }
 
-// ── upkeep ────────────────────────────────────────────────────────────────────
-
-export function startDiscogsAccountKeeper() {
 // The viewer's own records with their artist and label ids: the Artists and Labels tabs list these
 // beside the ones from posts (2026-10-09). Private to the owner, like the playlists themselves.
 export function recordsFor(userId) {
@@ -343,6 +343,9 @@ export function seedNamesFromImports() {
   }
 }
 
+// ── upkeep ────────────────────────────────────────────────────────────────────
+
+export function startDiscogsAccountKeeper() {
   const sweep = () => {
     try {
       // Resume interrupted imports; refresh each linked account once a day.

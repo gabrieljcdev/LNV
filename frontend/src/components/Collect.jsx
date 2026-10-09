@@ -97,7 +97,8 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   if (!tracks.length) return null
   const chosen = picked ? tracks.filter((_, i) => picked.has(i)) : tracks
   const toggle = i => setPicked(prev => { const s = new Set(prev ?? tracks.map((_, k) => k)); if (s.has(i)) s.delete(i); else s.add(i); return s })
-  const lists = playlists.filter(p => p.role)
+  // Tracks can't be added to the Discogs collection / wantlist lists (they hold records): left out of the menu.
+  const lists = playlists.filter(p => p.role && p.release_count == null)
   async function addTo(id, name) {
     if (!chosen.length) return setNote('Tick at least one track.')
     try {
@@ -540,7 +541,7 @@ export function WallCard({ username, compact = false, friends }) {
             <button key={pl.id} onClick={() => openD3?.('playlists', { open: pl.id })}
               style={{ ...plain, display: 'flex', alignItems: 'baseline', gap: 12, padding: '10px 14px', borderRadius: 14, background: fill(12), color: pri, fontSize: 14, textAlign: 'left' }}>
               <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
-              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks{pl.is_default ? ' · default' : ''} · open</span>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.release_count != null ? `${pl.release_count} record${pl.release_count === 1 ? '' : 's'}` : `${pl.track_count} tracks`}{pl.is_default ? ' · default' : ''} · open</span>
             </button>
           ))}
         </div>
@@ -555,7 +556,7 @@ export function WallCard({ username, compact = false, friends }) {
           <button key={pl.id} onClick={() => openD3?.('playlists', { token: pl.share_token })}
             style={{ ...plain, display: 'flex', flexDirection: compact ? 'row' : 'column', justifyContent: 'space-between', alignItems: compact ? 'baseline' : 'flex-start', gap: 3, padding: compact ? '13px 14px' : 12, borderRadius: compact ? 14 : 16, background: fill(12), color: pri, textAlign: 'left' }}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{pl.name}</span>
-            <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.track_count} tracks · listen</span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.release_count != null ? `${pl.release_count} record${pl.release_count === 1 ? '' : 's'}` : `${pl.track_count} tracks`} · listen</span>
           </button>
         ))}
       </div>

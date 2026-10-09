@@ -431,9 +431,10 @@ const migrations = [
      AND id = (SELECT MIN(id) FROM playlists p2 WHERE p2.owner_id = playlists.owner_id AND p2.name = 'Hearted tracks')
      AND NOT EXISTS (SELECT 1 FROM playlists p3 WHERE p3.owner_id = playlists.owner_id AND p3.is_default = 1)`,
   // Every playlist public for now (2026-10-06, gabriel: privacy later):
-  // shown on its owner's profile and readable by its share link.
-  'UPDATE playlists SET on_profile = 1 WHERE on_profile = 0',
-  "UPDATE playlists SET share_token = lower(hex(randomblob(18))) WHERE share_token IS NULL",
+  // shown on its owner's profile and readable by its share link. Not the Discogs
+  // collection / wantlist lists (2026-10-09): those are private to their owner.
+  "UPDATE playlists SET on_profile = 1 WHERE on_profile = 0 AND kind NOT IN ('collection', 'wantlist')",
+  "UPDATE playlists SET share_token = lower(hex(randomblob(18))) WHERE share_token IS NULL AND kind NOT IN ('collection', 'wantlist')",
   `CREATE TABLE IF NOT EXISTS channel_status (
     name_key TEXT PRIMARY KEY,
     name TEXT NOT NULL,

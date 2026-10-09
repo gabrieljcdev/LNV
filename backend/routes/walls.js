@@ -150,6 +150,7 @@ router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
   try {
     const p = db.prepare('SELECT * FROM playlists WHERE id = ? AND owner_id = ?').get(Number(req.params.id), req.user.id);
     if (!p) return res.status(404).json({ error: 'Playlist not found.' });
+    if (p.kind === 'collection' || p.kind === 'wantlist') return res.status(400).json({ error: 'Your Discogs lists are private for now — showing them on your profile isn’t switched on yet.' });
     const shown = !!req.body?.shown;
     if (shown && !p.share_token) db.prepare('UPDATE playlists SET share_token = ? WHERE id = ?').run(newShareToken(), p.id);
     db.prepare('UPDATE playlists SET on_profile = ? WHERE id = ?').run(shown ? 1 : 0, p.id);
