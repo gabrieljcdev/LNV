@@ -18,6 +18,7 @@ import wallRoutes from './routes/walls.js';
 import playlistRoutes from './routes/playlists.js';
 import discogsAccountRoutes from './routes/discogsAccount.js';
 import { startDiscogsAccountKeeper } from './services/discogsAccount.js';
+import { startNameResolver } from './services/entityNameResolver.js';
 import communityRoutes from './routes/community.js';
 import { requestLogger, startLogPruning, logEvent } from './services/logService.js';
 import { attachUser } from './middleware/auth.js';
@@ -71,6 +72,7 @@ app.listen(PORT, () => {
   // Fill the Discogs catalogues and YouTube channels in quiet moments.
   startCatalogueKeeper();
   startDiscogsAccountKeeper();
+  startNameResolver();
   // Fold duplicate pressings in the catalogues, checked against Discogs.
   startCatalogueComber();
   startChannelKeeper();

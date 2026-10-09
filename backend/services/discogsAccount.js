@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { discogsJson, getRelease, recordRelatedReleases } from './discogsService.js';
 import { findFreeLink } from './trackSources.js';
 import { logEvent } from './logService.js';
+import { setName } from './entityNames.js';
 
 // A listener's own Discogs collection and wantlist as two playlists (2026-10-08, gabriel).
 //
@@ -317,6 +318,31 @@ export function releasesFor(playlistId, { offset = 0, limit = 100, q = '' } = {}
 // ── upkeep ────────────────────────────────────────────────────────────────────
 
 export function startDiscogsAccountKeeper() {
+// The viewer's own records with their artist and label ids: the Artists and Labels tabs list these
+// beside the ones from posts (2026-10-09). Private to the owner, like the playlists themselves.
+export function recordsFor(userId) {
+  const rows = db.prepare(`SELECT r.discogs_id, r.title, r.label, r.label_id, r.catno, r.year, r.cover, r.artists_json, p.kind AS list
+    FROM playlist_releases r JOIN playlists p ON p.id = r.playlist_id
+    WHERE p.owner_id = ? AND p.kind IN ('collection', 'wantlist') ORDER BY r.added_at DESC`).all(userId);
+  const seen = new Map();
+  for (const r of rows) {
+    const have = seen.get(r.discogs_id);
+    if (have) { have.lists.push(r.list); continue; }
+    let artists = [];
+    try { artists = JSON.parse(r.artists_json || '[]'); } catch { artists = []; }
+    seen.set(r.discogs_id, { discogs_id: r.discogs_id, title: r.title, label: r.label, label_id: r.label_id, catno: r.catno, year: r.year, cover: r.cover, artists, lists: [r.list] });
+  }
+  return { records: [...seen.values()] };
+}
+
+// Names for the artists and labels of already-imported records (they were imported before names were stored).
+export function seedNamesFromImports() {
+  for (const r of db.prepare('SELECT artists_json, label, label_id FROM playlist_releases WHERE artists_json IS NOT NULL').all()) {
+    try { for (const a of JSON.parse(r.artists_json)) if (a?.id) setName('artist', a.id, a.name); } catch { /* skip a bad row */ }
+    if (r.label_id && r.label) setName('label', r.label_id, r.label);
+  }
+}
+
   const sweep = () => {
     try {
       // Resume interrupted imports; refresh each linked account once a day.

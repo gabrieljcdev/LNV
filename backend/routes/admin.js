@@ -12,6 +12,7 @@ import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
 import { lastfmConfigured } from '../services/lastfmService.js';
+import { nameFor } from '../services/entityNames.js';
 import { LISTEN_SHARE, PAID_PER_RELEASE } from '../services/searchBudget.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
@@ -73,7 +74,7 @@ router.get('/status', (req, res, next) => {
         (c.done = 0 AND c.crawled_at < datetime('now', '-2 hours')) AS stalled,
         (SELECT COUNT(*) FROM discogs_catalogue d WHERE d.kind = c.kind AND d.entity_id = c.entity_id) have
       FROM discogs_catalogue_crawl c ORDER BY c.done, c.kind, c.entity_id`).all()
-      .map(c => ({ ...c, name: (c.kind === 'artist' ? artistName(c.entity_id) : labelName(c.entity_id)) || `#${c.entity_id}` }));
+      .map(c => ({ ...c, name: (c.kind === 'artist' ? artistName(c.entity_id) : labelName(c.entity_id)) || nameFor(c.kind, c.entity_id) || `#${c.entity_id}` }));
     const channels = db.prepare(`SELECT c.title, c.total, c.backfill_done done, c.refreshed_at,
         (SELECT COUNT(*) FROM yt_channel_videos v WHERE v.channel_id = c.channel_id) have
       FROM yt_channels c ORDER BY c.backfill_done, c.title`).all();

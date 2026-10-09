@@ -4,6 +4,7 @@ import db from '../db/database.js';
 import { setupCatalogueIndex, catalogueSearchReady, searchCatalogueRowids } from './catalogueIndex.js';
 import { logEvent } from './logService.js';
 import { countCall } from './usageService.js';
+import { setName } from './entityNames.js';
 dotenv.config();
 
 const DISCOGS_BASE = 'https://api.discogs.com';
@@ -580,6 +581,9 @@ export function recordRelatedReleases(artists = [], releases = []) {
   const track = db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)');
   const posted = artists.filter(a => a?.id && a.id !== 194);
   const touched = new Set();
+  // Every artist and label seen here gets its name stored, so the crawl lists can show it (entityNames.js).
+  for (const a of posted) setName('artist', a.id, a.name);
+  for (const r of releases) { for (const a of r?.artists || []) if (a?.id) setName('artist', a.id, a.name); if (r?.label_id) setName('label', r.label_id, r.label); }
   db.transaction(() => {
     for (const r of releases) {
       const rid = Number(r?.discogs_id);
