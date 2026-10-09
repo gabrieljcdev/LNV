@@ -86,6 +86,17 @@ router.get('/artist/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/discogs/catalogue-totals -> { artist: { [discogsId]: total }, label: { ... } }
+// The size of each crawled artist's / label's Discogs catalogue (2026-10-09): the Artists and Labels
+// tabs show it beside the post count.
+router.get('/catalogue-totals', (req, res, next) => {
+  try {
+    const out = { artist: {}, label: {} };
+    for (const r of db.prepare('SELECT kind, entity_id, total FROM discogs_catalogue_crawl WHERE total IS NOT NULL').all()) out[r.kind][r.entity_id] = r.total;
+    res.json(out);
+  } catch (err) { next(err); }
+});
+
 // GET /api/discogs/label/:id — label logo for spotlight cards (Feed.jsx).
 router.get('/label/:id', async (req, res, next) => {
   try {

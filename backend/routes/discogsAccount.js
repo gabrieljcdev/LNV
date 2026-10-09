@@ -1,6 +1,6 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { status, startLink, verifyLink, startImport, unlink } from '../services/discogsAccount.js';
+import { status, startLink, verifyLink, startImport, unlink, recordsFor } from '../services/discogsAccount.js';
 
 // Your Discogs collection and wantlist as playlists (2026-10-08) — see services/discogsAccount.js.
 const router = express.Router();
@@ -25,6 +25,9 @@ router.post('/verify', async (req, res, next) => {
     res.json(r);
   } catch (err) { next(err); }
 });
+
+// Your imported records with artist / label ids, for the Artists and Labels tabs.
+router.get('/records', (req, res, next) => { try { res.json(recordsFor(req.user.id)); } catch (err) { next(err); } });
 
 router.post('/sync', (req, res, next) => {
   try {

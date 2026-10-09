@@ -4,6 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 import { FavHeart } from './Collect'
 import ReleasePreview from './ReleasePreview'
+import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
 import { COMMUNITY_RULES } from '../lib/communityRules'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
@@ -186,10 +187,12 @@ const Loading = () => <p style={{ fontFamily: MONO, fontSize: 12.5, color: TER, 
 const matches = (q, ...fields) => !q || fields.some(f => String(f || '').toLowerCase().includes(q.toLowerCase()))
 
 // Artists or labels: A–Z with letter headings, most posted, or recently posted.
-function NameList({ groups, sort, filter, sub, onOpen, noun }) {
+// `totalOf(name, posts)`: the size of that artist's / label's Discogs catalogue, when it's known.
+const postCount = ps => ps.reduce((n, p) => n + (p.discogsOnly ? 0 : 1), 0)
+function NameList({ groups, sort, filter, sub, onOpen, noun, totalOf }) {
   let rows = [...groups.entries()].filter(([name, ps]) => matches(filter, name, sub(ps)))
-  rows.sort(sort === 'count' ? (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
-    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id
+  rows.sort(sort === 'count' ? (a, b) => postCount(b[1]) - postCount(a[1]) || a[0].localeCompare(b[0])
+    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id  // real posts come first in a group; imported records have negative ids
     : (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
   if (!rows.length) return <Empty>No {noun} match “{filter}”.</Empty>
   let last = ''
@@ -205,7 +208,10 @@ function NameList({ groups, sort, filter, sub, onOpen, noun }) {
           <span style={{ fontFamily: SANS, fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub(ps)}</span>
         </span>
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.5, fontVariantNumeric: 'tabular-nums' }}>
-          {plural(ps.length, 'post')}<br />latest {pad(ps[0].id)}
+          {(() => {
+            const total = totalOf?.(name, ps)
+            return <>{plural(postCount(ps), 'post')}<br />{total != null ? `${total.toLocaleString('en-GB')} in catalogue` : ''}</>
+          })()}
         </span>
       </Row>
     )]
@@ -366,18 +372,21 @@ function Discography({ kind, id, name, allPosts }) {
 // ── Artists ───────────────────────────────────────────────────────────────────
 export function ArtistsDrawer({ filter: initial }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
   if (isLoading || !data) return <><DrawerHead title="Artists" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.artists.filter(a => !isVarious(a)))
 
   if (selected) {
     const ps = groups.get(selected) || []
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -387,7 +396,8 @@ export function ArtistsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="newest first" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="artist" id={discogsIdOf('artist', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -399,8 +409,26 @@ export function ArtistsDrawer({ filter: initial }) {
   }
   return <>
     <DrawerHead title="Artists" count={plural(groups.size, 'artist')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} /></DrawerBody>
+    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} totalOf={(name, ps) => totals?.artist?.[discogsIdOf('artist', name, ps)] ?? null} /></DrawerBody>
   </>
+}
+
+// Your imported Discogs records under an artist or label: open one in place, like the discography rows.
+function MineRows({ records }) {
+  const [open, setOpen] = useState(null)
+  return records.map(p => (
+    <div key={p.id}>
+      <Row onClick={() => setOpen(open === p.discogs_id ? null : p.discogs_id)} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '7px 10px', ...(open === p.discogs_id ? { background: HOVER } : null) }}>
+        <Cover src={p.cover} size={40} radius={8} />
+        <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+          <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.artists.join(', '), p.labels[0]?.name, p.labels[0]?.catno].filter(Boolean).join(' · ')}</span>
+        </span>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{p.year || ''}{p.lists?.includes('wantlist') && !p.lists.includes('collection') ? ' · want' : ''}</span>
+      </Row>
+      {open === p.discogs_id && <ReleasePreview release={{ id: p.discogs_id, type: 'release', thumb: p.cover, year: p.year }} artistName={p.artists[0] || ''} />}
+    </div>
+  ))
 }
 
 const ExtLink = ({ href, children }) => (
@@ -410,18 +438,21 @@ const ExtLink = ({ href, children }) => (
 // ── Labels ────────────────────────────────────────────────────────────────────
 export function LabelsDrawer({ filter: initial }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
   if (isLoading || !data) return <><DrawerHead title="Labels" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.labels.map(l => l.name))
   const artistsOf = ps => uniq(ps.flatMap(p => p.artists.filter(a => !isVarious(a))))
 
   if (selected) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />
@@ -431,7 +462,8 @@ export function LabelsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="by year" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="label" id={discogsIdOf('label', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
@@ -440,7 +472,7 @@ export function LabelsDrawer({ filter: initial }) {
   }
   return <>
     <DrawerHead title="Labels" count={plural(groups.size, 'label')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} /></DrawerBody>
+    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} totalOf={(name, ps) => totals?.label?.[discogsIdOf('label', name, ps)] ?? null} /></DrawerBody>
   </>
 }
 

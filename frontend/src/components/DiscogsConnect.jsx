@@ -32,7 +32,7 @@ export function DiscogsConnect({ onClose, intro = false }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['discogs-account'] }); qc.invalidateQueries({ queryKey: ['playlists'] }) }
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['discogs-account'] }); qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['discogs-records'] }) }
   const step = st?.linked ? 3 : 1
   async function run(fn) {
     setBusy(true); setMsg('')
@@ -130,7 +130,7 @@ export function DiscogsStrip() {
   const [open, setOpen] = useState(false)
   // The list rows' counts follow the import.
   const imported = (st?.collection?.imported || 0) + (st?.wantlist?.imported || 0)
-  useEffect(() => { if (st?.linked) qc.invalidateQueries({ queryKey: ['playlists'] }) }, [qc, st?.linked, st?.state, imported])
+  useEffect(() => { if (st?.linked) { qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['discogs-records'] }) } }, [qc, st?.linked, st?.state, imported])
   if (!isLoggedIn() || !st) return null
   const text = !st.linked ? '＋ Add your Discogs collection & wantlist'
     : st.state === 'importing' ? `Discogs: ${st.username} · importing…`
