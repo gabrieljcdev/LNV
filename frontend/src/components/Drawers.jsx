@@ -148,7 +148,10 @@ function CoverStack({ posts }) {
 // feed to it (and closes the drawer).
 function PostRow({ post, right }) {
   const { jump } = useDrawerNav()
-  const artist = post.artists.filter(a => !isVarious(a))[0] || post.artists[0] || ''
+  // A "Various" release says who is on it: the artists named on its tracks ("A, B, C +4").
+  const named = post.artists.filter(a => !isVarious(a))[0]
+  const onIt = !named && post.track_artists?.length ? post.track_artists : null
+  const artist = onIt ? onIt.slice(0, 3).join(', ') + (onIt.length > 3 ? ` +${onIt.length - 3}` : '') : (named || post.artists[0] || '')
   return (
     <Row onClick={() => jump(post.id)}>
       {h => <>

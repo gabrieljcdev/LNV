@@ -31,12 +31,24 @@ function stop(frame) {
   } catch { /* a frame mid-navigation — nothing to stop */ }
 }
 
-/** `frame` is now the one playing: stop every other player on the page. */
-export function claimPlayback(frame) {
+// Spotify's embed is not a plain iframe the guard can pause: Spotify's own API builds it inside a wrapper and
+// hands back a controller. Players register theirs here so a new player of ANY kind can pause it, and a Spotify
+// play (pressed inside its embed) can pause the others (9 Oct: YouTube started while Spotify kept playing).
+const spotifyControllers = new Set()
+export function registerSpotify(ctrl) {
+  spotifyControllers.add(ctrl)
+  return () => spotifyControllers.delete(ctrl)
+}
+
+/** `frame` is now the one playing: stop every other player on the page. `ownSpotify`: its controller, kept playing. */
+export function claimPlayback(frame, ownSpotify = null) {
   if (!frame) return
   maybePlaying.add(frame)
   for (const other of document.querySelectorAll('iframe')) {
-    if (other !== frame) stop(other)
+    if (other !== frame && !frame.contains(other)) stop(other)
+  }
+  for (const c of spotifyControllers) {
+    if (c !== ownSpotify) { try { c.pause() } catch { /* destroyed or not ready */ } }
   }
 }
 

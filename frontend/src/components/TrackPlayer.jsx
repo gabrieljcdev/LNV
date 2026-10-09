@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { claimPlayback } from '../lib/playerGuard'
+import { claimPlayback, registerSpotify } from '../lib/playerGuard'
 import { recordPlayback } from '../lib/listening'
 
 // ── TrackPlayer (2026-09-25) ─────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
   }, [finalSrc, isYT])
   useEffect(() => {
     if (!isSp) return undefined
-    let cancelled = false, ctrl = null, inner = null, reported = false
+    let cancelled = false, ctrl = null, inner = null, reported = false, unregister = null, wasPlaying = false
     loadSpotifyApi().then(api => {
       if (cancelled || !spHolder.current) return
       inner = document.createElement('div')
@@ -76,8 +76,13 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
       api.createController(inner, { uri: `spotify:${spMatch[1]}:${spMatch[2]}`, width: '100%', height: '100%' }, c => {
         if (cancelled) { try { c.destroy?.() } catch { /* gone */ } return }
         ctrl = c
+        unregister = registerSpotify(c)
         c.addListener('playback_update', e => {
           const d = e?.data
+          // Pressed play inside the Spotify embed: everything else on the page stops.
+          const nowPlaying = !!d && !d.isPaused
+          if (nowPlaying && !wasPlaying) claimPlayback(spHolder.current, c)
+          wasPlaying = nowPlaying
           if (reported || !d || d.isPaused || !d.duration) return
           reported = true
           recordPlayback('spotify', d.duration >= 29000 && d.duration <= 31500 ? 'preview' : 'full')
@@ -85,7 +90,7 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
         if (autoplay) c.addListener('ready', () => { try { c.play() } catch { /* needs a click */ } })
       })
     })
-    return () => { cancelled = true; try { ctrl?.destroy?.() } catch { /* already gone */ } inner?.remove() }
+    return () => { cancelled = true; unregister?.(); try { ctrl?.destroy?.() } catch { /* already gone */ } inner?.remove() }
   }, [finalSrc, isSp]) // eslint-disable-line react-hooks/exhaustive-deps
   if (isSp) return <div ref={spHolder} style={{ width: '100%', height: '100%' }} />
   return (
