@@ -35,20 +35,26 @@ function stop(frame) {
 // hands back a controller. Players register theirs here so a new player of ANY kind can pause it, and a Spotify
 // play (pressed inside its embed) can pause the others (9 Oct: YouTube started while Spotify kept playing).
 const spotifyControllers = new Set()
-export function registerSpotify(ctrl) {
+// `holder` is the element its iframe lives in: focus inside it (play, seek) is Spotify's own business.
+const spotifyHolders = new Map()
+export function registerSpotify(ctrl, holder) {
   spotifyControllers.add(ctrl)
-  return () => spotifyControllers.delete(ctrl)
+  spotifyHolders.set(ctrl, holder)
+  return () => { spotifyControllers.delete(ctrl); spotifyHolders.delete(ctrl) }
 }
+const inSpotify = el => { for (const h of spotifyHolders.values()) if (h && h.contains(el)) return true; return false }
 
 /** `frame` is now the one playing: stop every other player on the page. `ownSpotify`: its controller, kept playing. */
 export function claimPlayback(frame, ownSpotify = null) {
   if (!frame) return
   maybePlaying.add(frame)
   for (const other of document.querySelectorAll('iframe')) {
-    if (other !== frame && !frame.contains(other)) stop(other)
+    if (other !== frame && !frame.contains(other) && !inSpotify(other)) stop(other)
   }
   for (const c of spotifyControllers) {
-    if (c !== ownSpotify) { try { c.pause() } catch { /* destroyed or not ready */ } }
+    const h = spotifyHolders.get(c)
+    // Focus moving into a Spotify embed (clicking play or seeking) must not pause that same embed.
+    if (c !== ownSpotify && !(h && (h === frame || h.contains(frame)))) { try { c.pause() } catch { /* destroyed or not ready */ } }
   }
 }
 

@@ -68,7 +68,7 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
   }, [finalSrc, isYT])
   useEffect(() => {
     if (!isSp) return undefined
-    let cancelled = false, ctrl = null, inner = null, reported = false, unregister = null, wasPlaying = false
+    let cancelled = false, ctrl = null, inner = null, reported = false, unregister = null, wasPlaying = false, lastPos = 0, lastDur = 0, ended = false
     loadSpotifyApi().then(api => {
       if (cancelled || !spHolder.current) return
       inner = document.createElement('div')
@@ -76,13 +76,22 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
       api.createController(inner, { uri: `spotify:${spMatch[1]}:${spMatch[2]}`, width: '100%', height: '100%' }, c => {
         if (cancelled) { try { c.destroy?.() } catch { /* gone */ } return }
         ctrl = c
-        unregister = registerSpotify(c)
+        unregister = registerSpotify(c, spHolder.current)
         c.addListener('playback_update', e => {
           const d = e?.data
           // Pressed play inside the Spotify embed: everything else on the page stops.
           const nowPlaying = !!d && !d.isPaused
           if (nowPlaying && !wasPlaying) claimPlayback(spHolder.current, c)
           wasPlaying = nowPlaying
+          // The track finished: it stops by itself with the position at (or reset from) the very end.
+          if (d && !ended && d.duration) {
+            const nearEnd = lastDur > 0 && lastPos >= lastDur - 2500
+            if ((d.isPaused && nearEnd && d.position < lastPos - 1000) || (d.position >= d.duration - 400 && d.position > 0)) {
+              ended = true
+              endedRef.current?.()
+            }
+            if (!ended) { lastPos = d.position; lastDur = d.duration }
+          }
           if (reported || !d || d.isPaused || !d.duration) return
           reported = true
           recordPlayback('spotify', d.duration >= 29000 && d.duration <= 31500 ? 'preview' : 'full')
