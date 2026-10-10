@@ -11,6 +11,8 @@ import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
+import { remixersOf } from '../services/trackArtistNames.js';
+import { resolvedArtistIds, nameKey, learnFromRelease } from '../services/artistLookup.js';
 
 // A Discogs tracklist also has HEADING rows ("Phase I", "Disc 1", "SS026"): no position, nothing to play. They
 // are not tracks, so they are not saved as tracks (same rule as frontend/src/lib/tracklist.js).
@@ -257,15 +259,7 @@ router.get('/browse', (req, res, next) => {
     const trackArtists = new Map();
     // Tracks with no saved artist carry it in the name ("Artist - Title") on compilations, as the card reads it.
     const SPLIT = /\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i;
-    const GENERIC_MIX = /^(original|extended|radio|club|album|single|vocal|instrumental|dub|long|short|main|full|clean|dirty|edit|lp|ep|7"|12"|remix|re-?edit|version|vip|acapella|a cappella|live|demo|mono|stereo)\b/i;
-    const remixersOf = title => {
-      const out = [];
-      for (const m of String(title || '').matchAll(/[(\[]([^()\[\]]{2,60}?)\s+(?:remix|rmx|rework|re-?edit|re-?work|mix|edit|dub|version)[)\]]/gi)) {
-        const name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim();
-        if (name && !GENERIC_MIX.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name);
-      }
-      return out;
-    };
+    const resolved = resolvedArtistIds(); // track artists / remixers whose Discogs id the sweep or the drawer found
     const NAMED = /^(.{2,70}?)\s[-–—]\s(.+)$/;
     const trackRows = new Map();
     for (const r of db.prepare('SELECT post_id, title, artist FROM post_tracks').all()) {
@@ -293,7 +287,10 @@ router.get('/browse', (req, res, next) => {
       discogs_id: p.discogs_id || null,
       artists: (artists.get(p.id) || []).map(r => r.artist_name),
       // name -> Discogs id, for the drawers' full discography (2026-10-02)
-      artist_ids: Object.fromEntries((artists.get(p.id) || []).filter(r => r.discogs_artist_id).map(r => [r.artist_name, r.discogs_artist_id])),
+      artist_ids: {
+        ...Object.fromEntries([...(trackArtists.get(p.id) || [])].filter(n => resolved.has(nameKey(n))).map(n => [n, resolved.get(nameKey(n))])),
+        ...Object.fromEntries((artists.get(p.id) || []).filter(r => r.discogs_artist_id).map(r => [r.artist_name, r.discogs_artist_id])),
+      },
       labels: (labels.get(p.id) || []).map(r => ({ name: r.label_name, catno: r.catalogue_number, id: r.discogs_label_id || null })),
       genres: (genres.get(p.id) || []).map(r => r.genre),
       track_count: tracks.get(p.id) || 0,
@@ -368,6 +365,8 @@ router.post('/', requireAuth, (req, res, next) => {
     // we want DB-persisted milestone spotlights back later.
     logEvent('info', 'post', `New post #${postId}: ${title}`, { req, detail: { platform: platform || null, post_type } });
     res.status(201).json(getFullPost(postId));
+    // Keep the Discogs ids of the release's credited track artists and remixers, so their drawers link (cached release: no extra cost).
+    if (resolvedDiscogsId) learnFromRelease(resolvedDiscogsId).catch(e => console.warn('[artist-ids]', e.message));
     // No release matched at compose time: look again in the background so
     // the post gets its Discogs / BUY links if Discogs has it.
     if (!resolvedDiscogsId && post_type !== 'livemix') {

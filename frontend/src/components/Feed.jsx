@@ -1636,8 +1636,10 @@ const GENERIC_MIX = /^(original|extended|radio|club|album|single|vocal|instrumen
 function remixersOf(title) {
   const out = []
   for (const m of String(title || '').matchAll(/[(\[]([^()\[\]]{2,60}?)\s+(?:remix|rmx|rework|re-?edit|re-?work|mix|edit|dub|version)[)\]]/gi)) {
-    const name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim()
-    if (name && !GENERIC_MIX.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name)
+    let name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim()
+    name = name.replace(/['’]s$/i, '').trim() // "Babatunji's Dub Mix" -> Babatunji
+    // "Timmy's Original Shelter Mix" names a version of the track, not a person
+    if (name && !GENERIC_MIX.test(name) && !/\b(original|extended|radio|club|vocal|instrumental|dub|long|short|album|single|clean|dirty|acapella|a cappella|version|mix|remix|edit)\b/i.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name)
   }
   return [...new Set(out)]
 }
@@ -1738,12 +1740,25 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
   useLayoutEffect(() => {
     const list = listRef.current, region = regionRef.current
     if (!list || !region) return undefined
+    // Show as many replies as fit. If some don't, the reply text steps down in size (never below REPLY_MIN) until
+    // one more reply fits cleanly; "The post" and everything else keep their size, so the post stays the emphasis.
+    const REPLY_MIN = 12
     const fit = () => {
       const rows = [...list.children]
-      rows.forEach(r => { r.style.display = 'grid' }) // the rows are grids (see `line`)
-      const limit = list.getBoundingClientRect().bottom + 1
-      const cut = rows.map(r => r.getBoundingClientRect().bottom > limit)
-      rows.forEach((r, i) => { r.style.display = cut[i] ? 'none' : 'grid' })
+      const apply = sz => rows.forEach(r => { r.style.display = 'grid'; r.style.fontSize = `${sz}px` }) // the rows are grids (see `line`)
+      const count = () => { const limit = list.getBoundingClientRect().bottom + 1; let n = 0; for (const r of rows) { if (r.getBoundingClientRect().bottom <= limit) n++; else break } return n }
+      apply(size)
+      const base = count()
+      let use = size, shown = base
+      if (base < rows.length) {
+        for (let sz = size - 1; sz >= REPLY_MIN; sz--) {
+          apply(sz)
+          const n = count()
+          if (n > base) { use = sz; shown = n; break }
+        }
+      }
+      apply(use)
+      rows.forEach((r, i) => { r.style.display = i < shown ? 'grid' : 'none' })
     }
     fit()
     const ro = new ResizeObserver(fit)
@@ -1771,16 +1786,16 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
       else { setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1) }
     } catch { /* leave the text so it can be sent again */ } finally { setBusy(false) }
   }
-  const line = { display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', gap: 11, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.artistFf, fontWeight: 400, fontSize: size, lineHeight: 1.2, color: 'var(--lv-sec)' }
+  const line = { display: 'grid', gridTemplateColumns: '1.6em minmax(0, 1fr) auto', gap: '0.55em', alignItems: 'center', padding: '0.35em 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.artistFf, fontWeight: 400, fontSize: size, lineHeight: 1.2, color: 'var(--lv-sec)' }
   // Under the post: the newest reply first, the older ones below it, and the reply box under the lot. It flows down from the post and grows with each reply; once the room is used up the box sits at the foot and the oldest replies drop off (the drawer has the full list).
   return (
     <div ref={regionRef} style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 16, paddingBottom: 14 }}>
       <div ref={listRef} style={{ flex: '0 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {[...latest].reverse().map(c => (
           <div key={c.id} style={line}>
-            <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)', flexShrink: 0 }}>{c.username?.[0]?.toUpperCase()}</span>
+            <span style={{ width: '1.6em', height: '1.6em', borderRadius: '0.5em', border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 0.65em sans-serif', color: 'var(--lv-pri)', flexShrink: 0 }}>{c.username?.[0]?.toUpperCase()}</span>
             <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
-            <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+            <span style={{ fontFamily: d.monoFf, fontSize: '0.55em', color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
               {stampShort(c.created_at)}
               {canDelete(c) && <><br /><button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></>}
             </span>
