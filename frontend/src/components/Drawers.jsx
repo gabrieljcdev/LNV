@@ -257,8 +257,16 @@ function rolePillStyle(group) {
   return { ...base, color: group === 'guest' ? TER : PRI, borderColor: group === 'guest' ? LINE : SEC, borderStyle: group === 'prod' ? 'dashed' : 'solid' }
 }
 
-function Discography({ kind, id, name, allPosts }) {
+function Discography({ kind, id: idFromPosts, name, allPosts }) {
   const { jump } = useDrawerNav()
+  // A track artist or remixer has no Discogs id on the post: look the name up (exact single match only).
+  const { data: found } = useQuery({
+    queryKey: ['discogs-artist-id', name],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/artist-id?name=${encodeURIComponent(name)}`); return r.ok ? (await r.json()).id : null },
+    enabled: kind === 'artist' && !idFromPosts && !!name,
+    staleTime: Infinity,
+  })
+  const id = idFromPosts || found || null
   const [openRel, setOpenRel] = useState(null) // 'type:id' of the release open in place
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')

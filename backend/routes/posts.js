@@ -45,13 +45,29 @@ function getFullPost(postId) {
   const rawTracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
   // Every place each track can be played (services/trackSources.js), best first.
   const srcs = sourcesFor(rawTracks.map(t => t.id));
-  const tracks = rawTracks.map(t => ({ ...t, sources: srcs[t.id] || [] }));
+  // Who highlighted each track (names, earliest first; `highlightCount` is the whole count).
+  const hl = new Map();
+  if (rawTracks.length) {
+    const rows = db.prepare(`SELECT h.post_track_id AS tid, u.username FROM track_highlights h JOIN users u ON u.id = h.user_id WHERE h.post_track_id IN (${rawTracks.map(() => '?').join(',')}) ORDER BY h.created_at, h.user_id`).all(...rawTracks.map(t => t.id));
+    for (const r of rows) { if (!hl.has(r.tid)) hl.set(r.tid, []); hl.get(r.tid).push(r.username); }
+  }
+  const tracks = rawTracks.map(t => ({ ...t, sources: srcs[t.id] || [], highlightedBy: (hl.get(t.id) || []).slice(0, 12), highlightCount: (hl.get(t.id) || []).length }));
+  // The public lists (on someone's profile) that carry this record, newest first. Private lists, and the
+  // Discogs collection/wantlist, never show here.
+  const playlists = db.prepare(`
+    SELECT p.id, p.name, p.share_token AS token, u.username AS owner, (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) AS track_count
+    FROM playlists p JOIN users u ON u.id = p.owner_id
+    WHERE p.kind = 'list' AND p.on_profile = 1
+      AND EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id AND t.post_id = ?)
+    ORDER BY p.id DESC LIMIT 12`).all(postId);
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
   // Everyone else who has it on their wall (♥'d it), first to latest.
   const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy };
+  // The two newest replies, oldest of them first, for the card's reply strip.
+  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 2').all(postId).reverse();
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -448,6 +464,28 @@ router.delete('/:id/join', requireAuth, (req, res, next) => {
   try {
     db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id);
     res.json(getFullPost(Number(req.params.id)));
+  } catch (err) { next(err); }
+});
+
+// Highlight / un-highlight a track on a post (the card's star). Returns the track's new state.
+const highlightState = trackId => {
+  const names = db.prepare('SELECT u.username FROM track_highlights h JOIN users u ON u.id = h.user_id WHERE h.post_track_id = ? ORDER BY h.created_at, h.user_id').all(trackId).map(r => r.username);
+  return { trackId, highlightedBy: names.slice(0, 12), highlightCount: names.length };
+};
+router.put('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) => {
+  try {
+    const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'Track not found' });
+    db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)').run(t.id, req.user.id);
+    res.json(highlightState(t.id));
+  } catch (err) { next(err); }
+});
+router.delete('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) => {
+  try {
+    const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'Track not found' });
+    db.prepare('DELETE FROM track_highlights WHERE post_track_id = ? AND user_id = ?').run(t.id, req.user.id);
+    res.json(highlightState(t.id));
   } catch (err) { next(err); }
 });
 

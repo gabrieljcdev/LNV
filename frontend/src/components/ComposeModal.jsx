@@ -118,6 +118,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [comment, setComment] = useState(editPost?.notes || '')
  // The poster's own headline, shown above the description on the card.
  const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
+ // Short post by default (one box, 300 characters); "Write a full post" is the post title + description form (2026-10-10).
+ const [fullPost, setFullPost] = useState(() => !!editPost?.post_title || (editPost?.notes || '').length > 300)
  const [coverArt, setCoverArt] = useState(editPost?.cover_image || '')
  const [postType, setPostType] = useState(editPost?.post_type || 'album')
  const [streamUrl, setStreamUrl] = useState(editPost?.stream_url || '')
@@ -661,12 +663,19 @@ Click to edit`}
  </>
  )}
 
+ {fullPost ? (<>
  <div style={zlabel}><span>Post title</span><span>optional</span></div>
  <input value={postTitle} onChange={e => setPostTitle(e.target.value)} maxLength={120} placeholder={isLiveMix ? 'Sum up the set in a line…' : 'Sum up the record in a line…'}
  style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', borderRadius: 10, padding: '10px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, fontWeight: 600 }} />
 
  <div style={zlabel}><span>Description</span><span>optional</span></div>
  <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={isLiveMix ? 'Lineup, venue, date, set notes…' : 'What makes this record special…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 13, lineHeight: 1.5 }} />
+ <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(false)}>← back to short post</button>
+ </>) : (<>
+ <div style={zlabel}><span>Say something</span><span>{comment.length} / 300</span></div>
+ <textarea value={comment} onChange={e => { setComment(e.target.value.slice(0, 300)); if (postTitle) setPostTitle('') }} maxLength={300} placeholder={isLiveMix ? 'A line about the set…' : 'A line about it…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'none', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, lineHeight: 1.45 }} />
+ <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(true)}>write a full post</button>
+ </>)}
  </div>
 
  {/* byline row — who's posting, and the one action */}

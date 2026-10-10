@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LNV full post with replies</title>
+<!--
+  The whole shelf card (800x820, as ShelfCard in Feed.jsx) with the new pieces (gabriel, 10 Oct):
+  tracklist as rows with highlights, the short post as a quote, 1-2 replies and a reply box on the card,
+  and the replies side panel (360px) opened over its right edge. Dev-only: http://localhost:5173/mockup6.html
+  Same theme tokens as mockup5.html / Drawers.jsx. Light / dark toggle at the top.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,300&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --sans: 'Barlow', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --theme-bg: #d9e3e8; --card-bg: #e3ebef; --theme-text-pri: #1b2a35; --theme-text-sec: #44586a; --theme-text-ter: #7a8b99; --theme-border: rgba(27,42,53,.18); --theme-accent: #c8402f; --showcase: #1d4b6e; }
+  body.dark { --theme-bg: #11171c; --card-bg: #1d2329; --theme-text-pri: #eef2f5; --theme-text-sec: #b4c0ca; --theme-text-ter: #7f8e9b; --theme-border: rgba(238,242,245,.18); --showcase: #3f86b8; }
+  :root { --fill: color-mix(in srgb, var(--theme-text-pri) 7%, transparent); --hover: color-mix(in srgb, var(--theme-accent) 14%, transparent); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--theme-bg); color: var(--theme-text-pri); font-family: var(--sans); }
+  .lbl { font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--theme-text-ter); margin: 0 0 10px; }
+  .chip { border: 1px solid var(--theme-border); background: none; border-radius: 99px; padding: 4px 12px; font: 400 13px var(--sans); color: var(--theme-text-sec); cursor: pointer; }
+  .wrap { zoom: .9; display: grid; gap: 30px; }
+
+  .card { position: relative; width: 800px; height: 820px; background: var(--card-bg); border: 1px solid var(--theme-border); border-radius: 40px; overflow: hidden; padding: 44px 40px 24px; display: flex; flex-direction: column; }
+  .top { display: grid; grid-template-columns: 250px 1fr; gap: 28px; flex-shrink: 0; }
+  .cover { width: 250px; height: 250px; border-radius: 32px; background: linear-gradient(135deg,#e8a33d,#7a3b1e); box-shadow: 0 14px 34px rgba(0,0,0,.25); }
+  .cap { min-width: 0; display: flex; flex-direction: column; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .pl { font: 700 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; padding: 6px 9px; border-radius: 3px; background: var(--theme-border); color: var(--theme-text-sec); }
+  .pl.type { background: var(--showcase); color: #fff; } .pl.yt { background: #e02a2a; color: #fff; }
+  .artist { font: 700 34px/1 var(--sans); letter-spacing: -.01em; }
+  .title { font: italic 300 24px/1.1 var(--sans); margin-top: 4px; }
+  .lab { margin-top: 10px; font: 500 11px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--theme-text-sec); }
+  .gen { display: flex; gap: 6px; margin-top: 10px; } .gen span { font: 500 11px/1 var(--sans); padding: 6px 10px; border-radius: 20px; background: var(--theme-border); color: var(--theme-text-sec); }
+  .num { margin-top: auto; font: 900 96px/.85 var(--sans); color: color-mix(in srgb, var(--theme-text-pri) 14%, transparent); }
+
+  .sec { display: flex; justify-content: space-between; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-text-ter); margin: 16px 0 6px; flex-shrink: 0; }
+  .sec em { font: normal 400 11px var(--mono); letter-spacing: .06em; }
+  .tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; flex-shrink: 0; }
+  .tr { display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-radius: 12px; background: var(--fill); border: 1px solid transparent; font: 600 13px var(--sans); }
+  .tr:hover { background: var(--hover); }
+  .tr .pos { font: 400 10.5px var(--mono); color: var(--theme-text-ter); width: 20px; }
+  .tr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tr .src { display: flex; gap: 3px; } .tr .src span { font: 500 9px var(--mono); border: 1px solid var(--theme-border); border-radius: 3px; padding: 1px 4px; color: var(--theme-text-ter); }
+  .tr .src span.on { background: var(--showcase); border-color: var(--showcase); color: #fff; }
+  .tr .hl { font: 400 11.5px var(--mono); color: var(--theme-text-ter); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .tr .hl .st { font-size: 15px; line-height: 1; }
+  .tr.pick { background: color-mix(in srgb, var(--theme-accent) 14%, transparent); border-color: color-mix(in srgb, var(--theme-accent) 55%, transparent); }
+  .tr.pick .st, .tr.mine .st { color: var(--theme-accent); } .tr.mine { background: color-mix(in srgb, var(--theme-accent) 8%, transparent); }
+  .who { display: flex; } .who i { width: 16px; height: 16px; border-radius: 50%; margin-left: -5px; border: 2px solid var(--card-bg); background: var(--theme-text-sec); color: var(--card-bg); font: 700 8px/12px var(--sans); text-align: center; } .who i:first-child { margin-left: 0; }
+
+  .post { margin: 2px 0 8px; padding: 4px 0 4px 14px; border-left: 3px solid var(--theme-accent); font: italic 300 19px/1.4 var(--sans); flex-shrink: 0; }
+  .rep { display: grid; grid-template-columns: 32px 1fr auto; gap: 11px; align-items: center; padding: 8px 0; border-top: 1px solid var(--theme-border); font: 400 14.5px/1.35 var(--sans); color: var(--theme-text-sec); flex-shrink: 0; }
+  .rep .av { width: 32px; height: 32px; border-radius: 10px; background: var(--fill); border: 1px solid var(--theme-border); display: grid; place-items: center; font: 700 13px var(--sans); color: var(--theme-text-pri); }
+  .rep b { color: var(--theme-text-pri); margin-right: 6px; } .rep time { font: 400 11px var(--mono); color: var(--theme-text-ter); }
+  .viewall { display: flex; align-items: center; gap: 10px; padding: 9px 0 0; border-top: 1px solid var(--theme-border); flex-shrink: 0; }
+  .viewall a { font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-accent); }
+  .pill { flex: 1; display: flex; align-items: center; background: var(--fill); border: 1px solid var(--theme-border); border-radius: 99px; padding: 7px 14px; font: 400 14px var(--sans); color: var(--theme-text-ter); }
+  .viewall em { font: normal 400 11px var(--mono); color: var(--theme-text-ter); }
+  .go { border: 0; border-radius: 99px; background: var(--theme-text-pri); color: var(--card-bg); padding: 7px 16px; font: 700 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+  .by { margin-top: auto; padding-top: 12px; display: flex; gap: 12px; align-items: baseline; font: 400 12px var(--sans); color: var(--theme-text-ter); flex-shrink: 0; }
+  .by b { color: var(--theme-text-pri); } .by .mono { font: 400 11px var(--mono); } .by .r { margin-left: auto; }
+  .by .cnt { color: var(--theme-text-ter); } .by .cnt b { color: var(--theme-accent); }
+
+  /* the replies side panel, opened over the card's right edge */
+  .side { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; background: var(--card-bg); border-left: 1px solid var(--theme-border); box-shadow: -18px 0 40px rgba(0,0,0,.3); display: flex; flex-direction: column; }
+  .side .dh { padding: 26px 24px 4px 26px; display: flex; align-items: baseline; gap: 10px; }
+  .side .dh h3 { margin: 0; flex: 1; font: 900 26px/1.05 var(--sans); letter-spacing: -.02em; }
+  .side .cnt2 { font: 400 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .x { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--theme-border); background: var(--fill); color: var(--theme-text-sec); font-size: 16px; align-self: center; display: grid; place-items: center; }
+  .side .bd { flex: 1; overflow: auto; padding: 0 24px 10px 26px; }
+  .side .q { font: italic 300 18px/1.4 var(--sans); padding: 4px 0 4px 12px; border-left: 3px solid var(--theme-accent); }
+  .rrow { display: flex; gap: 11px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--theme-border); }
+  .rrow:hover { background: var(--hover); }
+  .rrow .av { width: 36px; height: 36px; border-radius: 11px; background: var(--fill); border: 1px solid var(--theme-border); display: grid; place-items: center; font: 700 14px var(--sans); flex-shrink: 0; }
+  .rrow .tx { flex: 1; min-width: 0; } .rrow .tx b { display: block; font: 700 15px var(--sans); } .rrow .tx span { font: 400 14px/1.4 var(--sans); color: var(--theme-text-sec); }
+  .rrow .rt { text-align: right; font: 400 11.5px/1.5 var(--mono); color: var(--theme-text-ter); } .rrow .rt u { text-decoration: none; color: var(--theme-accent); }
+  .earlier { display: block; margin: 8px 0 0; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-accent); }
+  .side .cmp { display: flex; gap: 8px; align-items: center; padding: 12px 24px 18px 26px; border-top: 1px solid var(--theme-border); }
+  .side .cmp em { font: normal 400 11px var(--mono); color: var(--theme-text-ter); }
+  .people { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--theme-border); display: grid; gap: 8px; flex-shrink: 0; }
+  .who1 { display: flex; align-items: center; gap: 10px; font: 400 12px var(--sans); color: var(--theme-text-ter); }
+  .who1 b { color: var(--theme-text-pri); font-size: 13px; } .who1 .mono { font: 400 11px var(--mono); } .who1 .when { margin-left: auto; font: 400 11px var(--mono); letter-spacing: .04em; } .who1 .when u { text-decoration: none; color: var(--theme-text-sec); margin-left: 6px; }
+  .av2 { width: 24px; height: 24px; border-radius: 8px; background: var(--fill); border: 1px solid var(--theme-border); display: grid; place-items: center; font: 700 11px var(--sans); color: var(--theme-text-pri); }
+  .chips { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
+  .chips .k { font: 600 10px var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--theme-text-ter); white-space: nowrap; }
+  .uc, .pc { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--theme-border); border-radius: 99px; padding: 2px 10px 2px 3px; font: 600 12px var(--sans); color: var(--theme-text-pri); white-space: nowrap; cursor: pointer; }
+  .uc:hover, .pc:hover { background: var(--hover); }
+  .uc i { width: 18px; height: 18px; border-radius: 50%; background: var(--theme-text-sec); color: var(--card-bg); font: 700 9px/18px var(--sans); text-align: center; }
+  .pc { padding: 2px 10px; } .pc small { font: 400 10px var(--mono); color: var(--theme-text-ter); } .pc.more { color: var(--theme-text-ter); }
+  .pop { position: absolute; z-index: 30; width: 300px; background: var(--card-bg); border: 1px solid var(--theme-border); border-radius: 16px; box-shadow: 0 18px 44px rgba(0,0,0,.35); padding: 14px 16px 10px; display: none; }
+  .pop.show { display: block; }
+  .pop h4 { margin: 0 0 6px; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-text-ter); display: flex; justify-content: space-between; } .pop h4 em { font: normal 400 11px var(--mono); letter-spacing: .06em; }
+  .pop .row { display: flex; align-items: center; gap: 10px; padding: 8px 8px; margin: 0 -8px; border-radius: 10px; cursor: pointer; }
+  .pop .row:hover { background: var(--hover); }
+  .pop .row b { display: block; font: 700 14px var(--sans); } .pop .row small { font: 400 11px var(--mono); color: var(--theme-text-ter); }
+  .pop .row .n { margin-left: auto; font: 400 11px var(--mono); color: var(--theme-text-ter); text-align: right; } .pop .row .n u { text-decoration: none; color: var(--theme-accent); opacity: 0; } .pop .row:hover .n u { opacity: 1; }
+  .pop .ic { width: 34px; height: 34px; border-radius: 9px; background: color-mix(in srgb, var(--showcase) 30%, var(--fill)); flex-shrink: 0; }
+  .pop .foot { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--theme-border); font: 400 11px var(--mono); color: var(--theme-text-ter); }
+</style>
+</head>
+<body>
+<p style="margin:0 0 16px"><button class="chip" onclick="document.body.classList.toggle('dark')">Light / dark</button> &nbsp;<span style="font:400 12px var(--sans);color:var(--theme-text-ter)">The whole 800 x 820 card, then the same card with the replies panel open.</span></p>
+<div class="wrap">
+
+  <div>
+    <div class="lbl">A · The card</div>
+    <div class="card">
+      <div class="top">
+        <div class="cover"></div>
+        <div class="cap">
+          <div class="pills"><span class="pl type">Album</span><span class="pl yt">YouTube 6/10</span><span class="pl">Discogs</span><span class="pl">Buy</span></div>
+          <div class="artist">Matthew Dekay</div>
+          <div class="title">Lost In A Moment EP</div>
+          <div class="lab">Innervisions · INN 124 · 2012</div>
+          <div class="gen"><span>Electronic</span><span>Deep House</span><span>Tech House</span></div>
+          <div class="num">18</div>
+        </div>
+      </div>
+
+      <div class="sec"><span>Tracklist · tap ☆ to highlight</span><em>10 tracks · 3 highlighted</em></div>
+      <div class="tgrid">
+        <div class="tr pick"><span class="pos">A1</span><span class="nm">Boss Tres Bien</span><span class="src"><span class="on">YT</span><span>SP</span><span>DZ</span></span><span class="hl"><span class="who"><i>L</i><i>F</i></span>3 <span class="st">★</span></span></div>
+        <div class="tr"><span class="pos">A2</span><span class="nm">The Sweetest Sounds</span><span class="src"><span class="on">YT</span><span>SP</span><span>DZ</span></span><span class="hl"><span class="st">☆</span></span></div>
+        <div class="tr mine"><span class="pos">A3</span><span class="nm">Love Letters</span><span class="src"><span>SP</span><span>DZ</span><span>AM</span></span><span class="hl">1 <span class="st">★</span></span></div>
+        <div class="tr"><span class="pos">A4</span><span class="nm">I Love Paris</span><span class="src"><span>SP</span><span>DZ</span><span>AM</span></span><span class="hl"><span class="st">☆</span></span></div>
+        <div class="tr"><span class="pos">A5</span><span class="nm">Tonight</span><span class="src"><span>SP</span><span>DZ</span></span><span class="hl"><span class="st">☆</span></span></div>
+        <div class="tr pick"><span class="pos">B1</span><span class="nm">Days Of Wine And Roses</span><span class="src"><span class="on">YT</span><span>SP</span></span><span class="hl"><span class="who"><i>L</i><i>F</i><i>A</i></span>5 <span class="st">★</span></span></div>
+        <div class="tr"><span class="pos">B2</span><span class="nm">Always On Saturday</span><span class="src"><span>SP</span><span>DZ</span><span>AM</span></span><span class="hl"><span class="st">☆</span></span></div>
+        <div class="tr"><span class="pos">B3</span><span class="nm">The Breeze And I</span><span class="src"></span><span class="hl"><span class="st">☆</span></span></div>
+      </div>
+
+      <div class="sec"><span>The post</span><em>lnv_admin · 3h</em></div>
+      <div class="post">Dixon's rework is the one. Put it on at 3am and thank me later.</div>
+
+      <div class="rep"><span class="av">F</span><span><b>fab</b>Agreed, that bassline never lets go</span><time>2h</time></div>
+      <div class="rep"><span class="av">L</span><span><b>lando</b>Sleeper of the year</span><time>1h</time></div>
+      <div class="viewall"><a>View all 7 replies →</a><div class="pill">Reply…</div><button class="go">Reply</button></div>
+
+      <div class="by"><span class="cnt"><b>7</b> replies</span><span>+ list</span><span>♥</span><span class="r">edit · delete</span></div>
+      <div class="people">
+        <div class="who1"><span class="av2">L</span><b>lnv_admin</b><span class="mono">main #18</span><span class="when" title="Sat 10 Oct 2026, 03:12">Sat 10 Oct · 03:12 <u>3h ago</u></span></div>
+        <div class="chips"><span class="k">Also posted by</span><a class="uc"><i>F</i>fab</a><a class="uc"><i>L</i>lando</a><a class="uc"><i>A</i>ashra</a><span class="k pk" style="margin-left:10px">In playlists</span><a class="pc pk">Late Night Deep <small>lando</small></a><a class="pc pk">Sunday Sets <small>fab</small></a><a class="pc more pk">+2</a></div>
+      </div>
+      <div class="pop show" id="pop" style="left:300px; bottom:68px">
+        <h4><span>Playlists this has appeared on</span><em>4</em></h4>
+        <div class="row"><span class="ic"></span><span><b>Late Night Deep</b><small>by lando · 38 tracks</small></span><span class="n">public<br /><u>open →</u></span></div>
+        <div class="row"><span class="ic"></span><span><b>Sunday Sets</b><small>by fab · 12 tracks</small></span><span class="n">shared<br /><u>open →</u></span></div>
+        <div class="row"><span class="ic"></span><span><b>Innervisions picks</b><small>by ashra · 21 tracks</small></span><span class="n">public<br /><u>open →</u></span></div>
+        <div class="row"><span class="ic"></span><span><b>3am Rework Club</b><small>by lnv_admin · 9 tracks</small></span><span class="n">public<br /><u>open →</u></span></div>
+        <div class="foot">Public and shared playlists only. Private lists never show.</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lbl">B · Same card, replies panel open ("View all" or "Reply")</div>
+    <div class="card">
+      <div class="top">
+        <div class="cover"></div>
+        <div class="cap">
+          <div class="pills"><span class="pl type">Album</span><span class="pl yt">YouTube 6/10</span></div>
+          <div class="artist">Matthew Dekay</div>
+          <div class="title">Lost In A Moment EP</div>
+          <div class="lab">Innervisions · INN 124 · 2012</div>
+          <div class="num">18</div>
+        </div>
+      </div>
+      <div class="sec"><span>Tracklist</span><em>10 tracks</em></div>
+      <div class="tgrid">
+        <div class="tr pick"><span class="pos">A1</span><span class="nm">Boss Tres Bien</span><span class="hl"><span class="st">★</span></span></div>
+        <div class="tr"><span class="pos">A2</span><span class="nm">The Sweetest Sounds</span><span class="hl"><span class="st">☆</span></span></div>
+      </div>
+      <div class="side">
+        <div class="dh"><h3>Replies</h3><span class="cnt2">7 replies</span><span class="x">×</span></div>
+        <div class="bd">
+          <div class="sec" style="margin-top:12px"><span>The post</span><em>lnv_admin · 3h</em></div>
+          <div class="q">Dixon's rework is the one. Put it on at 3am and thank me later.</div>
+          <div class="sec"><span>Replies</span><em>oldest first</em></div>
+          <a class="earlier">Show 4 earlier replies</a>
+          <div class="rrow"><span class="av">F</span><span class="tx"><b>fab</b><span>Agreed, that bassline never lets go</span></span><span class="rt">2h<br /><u>reply →</u></span></div>
+          <div class="rrow"><span class="av">L</span><span class="tx"><b>lando</b><span>Sleeper of the year</span></span><span class="rt">1h<br /><u>reply →</u></span></div>
+          <div class="rrow"><span class="av">L</span><span class="tx"><b>lnv_admin</b><span>Right? Chasing the vinyl now.</span></span><span class="rt">40m<br /><u>reply →</u></span></div>
+        </div>
+        <div class="cmp"><div class="pill">Reply to this post…</div><em>0 / 300</em><button class="go">Reply</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  const pop = document.getElementById('pop'), card = pop.parentElement;
+  document.querySelectorAll('.pk').forEach(el => el.addEventListener('click', e => {
+    const r = card.getBoundingClientRect(), z = parseFloat(getComputedStyle(document.querySelector('.wrap')).zoom) || 1;
+    pop.style.left = Math.min(Math.max(e.clientX / z - r.left / z - 150, 16), 800 - 316) + 'px';
+    pop.style.bottom = (card.clientHeight - (e.clientY / z - r.top / z) + 14) + 'px';
+    pop.classList.toggle('show');
+  }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') pop.classList.remove('show'); });
+</script>
+</body>
+</html>

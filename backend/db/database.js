@@ -358,6 +358,16 @@ const migrations = [
     PRIMARY KEY (post_id, user_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_post_joins_user ON post_joins(user_id)',
+  // Track highlights (2026-10-10): a signed-in person stars a track on a post; the card shows how many and who.
+  // The poster's own highlights read as the post's picks.
+  `CREATE TABLE IF NOT EXISTS track_highlights (
+    post_track_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (post_track_id, user_id),
+    FOREIGN KEY (post_track_id) REFERENCES post_tracks(id) ON DELETE CASCADE
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_track_highlights_user ON track_highlights(user_id)',
   // Profiles (2026-10-05): up to 3 labels a user pins as favourites, and the
   // playlists they choose to show (shown = readable by its share link).
   `CREATE TABLE IF NOT EXISTS profile_pins (

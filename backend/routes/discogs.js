@@ -54,6 +54,22 @@ router.get('/search', async (req, res, next) => {
   }
 });
 
+// GET /api/discogs/artist-id?name= -> { id }. For an artist who is only on a record as a track artist or
+// remixer (no Discogs id saved with the post): a name already known from the crawl, else a Discogs artist
+// search — accepted only when exactly one result carries that exact name, so a common name isn't guessed.
+router.get('/artist-id', async (req, res, next) => {
+  try {
+    const norm = s => String(s || '').replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase();
+    const name = norm(req.query.name);
+    if (!name || /^various( artists)?$/.test(name)) return res.json({ id: null });
+    const known = db.prepare("SELECT entity_id FROM discogs_names WHERE kind = 'artist' AND lower(name) = ?").all(name);
+    if (known.length === 1) return res.json({ id: known[0].entity_id });
+    if (known.length > 1) return res.json({ id: null });
+    const found = ((await searchDiscogs(String(req.query.name), 'artist')).results || []).filter(r => norm(r.title) === name);
+    res.json({ id: found.length === 1 ? Number(found[0].id) : null });
+  } catch (err) { next(err); }
+});
+
 // GET /api/discogs/release/:id
 router.get('/release/:id', async (req, res, next) => {
   try {
