@@ -208,7 +208,8 @@ const SPOTLIGHT_MIN_POSTS = 3
 
 const asUtc = d => new Date(typeof d === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(d) ? d.replace(' ', 'T') + 'Z' : d)
 // "Sat 10 Oct · 03:12" in the viewer's own time
-const stampOf = d => { const t = asUtc(d); return isNaN(t) ? '' : `${t.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` }
+const stampOf = d => { const t = asUtc(d); return isNaN(t) ? '' : `${t.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(t.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) })} · ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` }
+const stampShort = d => { const t = asUtc(d); return isNaN(t) ? '' : `${t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(t.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) })} · ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` }
 function timeAgo(d) {
   if (!d) return ''
   const s = (Date.now() - asUtc(d)) / 1000
@@ -478,7 +479,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
                 <b style={{ display: 'block', fontSize: 15, color: 'var(--lv-pri)' }}><CommentAuthor name={c.username} /></b>
                 <span style={{ fontSize: 14, lineHeight: 1.4, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</span>
               </span>
-              <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)' }}>{timeAgo(c.created_at)}</span>
+              <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
             </div>
           ) : (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
@@ -1637,8 +1638,8 @@ function shelfLocations(post, tracks) {
 const SHELF_COMP_EXTRA = 280
 // Space between the big post number and the line under it (it travels with the number).
 const NUM_LINE_GAP = 14
-// The sleeve (cover) on the shelf card: smaller than the old 390 so the tracklist rows, replies and the people strip fit (gabriel, 2026-10-10).
-const SHELF_SLEEVE = 250
+// The shelf card's top and bottom padding: the sleeve keeps its full size (390) and this gives the room to the tracklist rows, replies and people strip (gabriel, 2026-10-10).
+const SHELF_PAD_Y = 44
 
 // A person chip: their initial and name; opens their feed.
 function UserChip({ name, d }) {
@@ -1691,20 +1692,22 @@ function CardReplies({ post, count, onCount, onOpen, d }) {
       const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300) }) })
       if (!res.ok) throw new Error(String(res.status))
       const saved = await res.json()
-      setLatest(prev => [...prev, saved].slice(-2)); onCount(count + 1); setText('')
+      setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1); setText('')
     } catch { /* leave the text so it can be sent again */ } finally { setBusy(false) }
   }
   const line = { display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', gap: 11, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.35, color: 'var(--lv-sec)' }
   return (
-    <div style={{ flexShrink: 0 }}>
+    <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: 0, overflow: 'hidden' }}>
       {latest.map(c => (
         <div key={c.id} style={line}>
           <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)' }}>{c.username?.[0]?.toUpperCase()}</span>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: 'var(--lv-pri)', marginRight: 6 }}>{c.username}</b>{c.content}</span>
-          <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>{timeAgo(c.created_at)}</span>
+          <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
         </div>
       ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0 0', borderTop: '1px solid var(--lv-line)' }}>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0 0', borderTop: '1px solid var(--lv-line)', flexShrink: 0 }}>
         {count > 0 && <button onClick={onOpen} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} repl{count === 1 ? 'y' : 'ies'} →</button>}
         {me ? <>
           <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder="Reply…"
@@ -1814,7 +1817,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize * PILL, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy * PILL}px ${d.badgePx * PILL}px`, borderRadius: d.badgeRadius, textDecoration: 'none', whiteSpace: 'nowrap' }
   const linkKeyList = linkKeys(tracks)
   const num = String(post.feedNumber ?? post.id).padStart(2, '0')
-  const stageH = `min(${SHELF_SLEEVE}px, calc(100vh - ${2 * (d.padY + FLOAT_INSET_Y) + 300}px))`
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (SHELF_PAD_Y + FLOAT_INSET_Y) + 300}px))`
   const COL_GAP = 28
   const artistLink = n => <DrawerLink key={n} kind="artists" name={n} quiet style={{ fontWeight: 700, color: 'var(--lv-pri)' }}>{n}</DrawerLink>
 
@@ -1870,11 +1873,11 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
 
   return (
     <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
-      style={{ position: 'relative', flexShrink: 0, width: comp ? d.cardW + SHELF_COMP_EXTRA : d.cardW, height: '100%', background: cardBg, padding: `${d.padY}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+      style={{ position: 'relative', flexShrink: 0, width: comp ? d.cardW + SHELF_COMP_EXTRA : d.cardW, height: '100%', background: cardBg, padding: `${SHELF_PAD_Y}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
       <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
 
       {/* top: sleeve (the player takes its place) | pills, artist, title, label, genres */}
-      <div style={{ display: 'grid', gridTemplateColumns: `${SHELF_SLEEVE}px minmax(0, 1fr)`, gap: COL_GAP, height: stageH, flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, height: stageH, flexShrink: 0 }}>
         <div style={{ position: 'relative', height: '100%', aspectRatio: '1 / 1', flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
           {playingSrc ? (
             <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
@@ -1943,12 +1946,12 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       {/* the poster's own words: the description takes all the room left under the tracklist and
           scrolls only once it has filled it (the tracklist gives way before this block drops below ~two lines) */}
       {isShortPost ? (
-        <div style={{ flex: '1 1 0', minHeight: 92, display: 'flex', flexDirection: 'column', marginTop: 22, marginBottom: 6 }}>
+        <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 22, marginBottom: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 8 }}>
-            <span>The post</span><span style={{ fontFamily: d.monoFf, fontWeight: 400, letterSpacing: '0.06em' }}>{posterName}{post.created_at ? ` · ${timeAgo(post.created_at)}` : ''}</span>
+            <span>The post</span><span style={{ fontFamily: d.monoFf, fontWeight: 400, letterSpacing: '0.06em' }}>{posterName}{post.created_at ? ` · ${stampOf(post.created_at)}` : ''}</span>
           </div>
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
-            style={{ margin: 0, flex: '1 1 0', minHeight: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 600, fontSize: 24, lineHeight: 1.3, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+            style={{ margin: 0, minHeight: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: d.descSize, lineHeight: 1.4, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
         </div>
       ) : (
         <div style={{ flex: '1 1 0', minHeight: 92, display: 'flex', flexDirection: 'column', marginTop: 26, marginBottom: 6 }}>
@@ -1986,7 +1989,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           {posterName && <UserChip name={posterName} d={d} />}
           <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
           <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>
-            {stampOf(post.created_at)}<span style={{ color: 'var(--lv-sec)', marginLeft: 8 }}>{timeAgo(post.created_at)}{timeAgo(post.created_at) === 'just now' ? '' : ' ago'}</span>
+            {stampOf(post.created_at)}
           </span>
         </div>
         {((post.alsoPostedBy || []).length > 0 || (post.playlists || []).length > 0) && (
@@ -2023,7 +2026,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               <div style={{ fontFamily: d.monoFf, fontSize: 11.5, lineHeight: 1.7, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--lv-sec)' }}>
                 <div>{post.title}</div>
                 {(label || post.year) && <div>{[label, post.year].filter(Boolean).join(' · ')}</div>}
-                <div>Posted by {posterName} · {timeAgo(post.created_at)}</div>
+                <div>Posted by {posterName} · {stampOf(post.created_at)}</div>
               </div>
             </div>
             {note && <>

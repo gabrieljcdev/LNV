@@ -65,8 +65,8 @@ function getFullPost(postId) {
   // Everyone else who posted this release (joined it), first to latest.
   // Everyone else who has it on their wall (♥'d it), first to latest.
   const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
-  // The two newest replies, oldest of them first, for the card's reply strip.
-  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 2').all(postId).reverse();
+  // The newest replies, oldest of them first, for the card's reply strip (it shows as many as fit).
+  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
   const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
