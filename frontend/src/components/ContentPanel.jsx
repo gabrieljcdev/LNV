@@ -76,16 +76,20 @@ export default function ContentPanel() {
   const isOpen    = !!d3Content;
   const phone = usePhone();
   const qc = useQueryClient();
-  const activeKey = d3Content ? d3Content + JSON.stringify(d3Props || {}) : null;
+  // One entry per drawer TYPE (artists, labels, about, ...). Opening "artists" for a name does not build a new drawer: it
+  // hands the name to the one that is already built (the drawer reads `filter` / `open` and its `_n` command number).
+  // Building a drawer in the click that opens it was the slow, sometimes blank first open.
+  const activeKey = d3Content || null;
+  const openId = d3Content ? `${d3Content}:${d3Props?._n ?? 0}` : null;
   // { key, content, props, closed, since, warm, visited, gen }  (`since`: when the timer noticed it closed; `gen`: bumped to rebuild fresh)
   const [entries, setEntries] = useState([]);
 
-  // When what is open changes, update the list in the same render (no flash of an empty panel). Order is never changed:
-  // moving a drawer's element in the page would reload any player inside it.
-  const [seenKey, setSeenKey] = useState(null);
-  if (activeKey !== seenKey) {
-    setSeenKey(activeKey);
-    let next = entries.map(e => e.key === activeKey ? { ...e, closed: false, since: null, visited: true } : { ...e, closed: true });
+  // When something is opened (or opened again with a new name), update the list in the same render (no flash of an empty
+  // panel). Order is never changed: moving a drawer's element in the page would reload any player inside it.
+  const [seenOpen, setSeenOpen] = useState(null);
+  if (openId !== seenOpen) {
+    setSeenOpen(openId);
+    let next = entries.map(e => e.key === activeKey ? { ...e, props: d3Props || {}, closed: false, since: null, visited: true } : { ...e, closed: true });
     if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null, visited: true, warm: false, gen: 0 }];
     const keep = new Set(next.filter(e => !e.warm).map(e => e.key).slice(-DRAWER_KEEP_MAX));
     setEntries(next.filter(e => e.warm || keep.has(e.key)));
@@ -99,7 +103,7 @@ export default function ContentPanel() {
     const step = () => {
       if (cancelled || i >= ids.length) return;
       const id = ids[i++];
-      setEntries(prev => (prev.some(e => e.key === id + '{}') ? prev : [...prev, { key: id + '{}', content: id, props: {}, closed: true, since: null, warm: true, visited: false, gen: 0 }]));
+      setEntries(prev => (prev.some(e => e.key === id) ? prev : [...prev, { key: id, content: id, props: {}, closed: true, since: null, warm: true, visited: false, gen: 0 }]));
       handle = later(step);
     };
     prefetchDrawers(qc);
@@ -119,13 +123,24 @@ export default function ContentPanel() {
         if (m !== e) changed = true;
         if (m.closed && m.visited && m.since && now - m.since >= DRAWER_KEEP_MS) {
           changed = true;
-          if (m.warm) next.push({ ...m, gen: (m.gen || 0) + 1, visited: false, since: null }); // rebuilt fresh, still ready
+          if (m.warm) next.push({ ...m, gen: (m.gen || 0) + 1, props: {}, visited: false, since: null }); // rebuilt fresh, still ready
         } else next.push(m);
       }
       return changed ? next : prev;
     }), 15000);
     return () => clearInterval(t);
   }, []);
+
+  // A drawer that opens and is still empty a moment later leaves a clue in the console (for chasing the blank-drawer bug).
+  useEffect(() => {
+    if (!openId) return undefined;
+    const t = setTimeout(() => {
+      const el = document.querySelector('#lnv-drawer > [aria-hidden="false"]');
+      const len = (el?.textContent || '').trim().length;
+      if (len < 20) console.warn('[drawer] opened with no content', { openId, found: !!el, textLength: len, drawerChildren: document.getElementById('lnv-drawer')?.children.length });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [openId]);
 
   const list = entries;
   useEffect(() => {

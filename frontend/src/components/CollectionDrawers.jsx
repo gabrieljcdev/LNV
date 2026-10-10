@@ -209,10 +209,12 @@ function PlaylistView({ id, token, onBack }) {
 
 // `open`: a playlist id to open straight away; `token`: a shared playlist's
 // link (read-only unless you were invited).
-export function PlaylistsDrawer({ open: initialId, token }) {
+export function PlaylistsDrawer({ open: initialId, token, _n }) {
   const { playlists, isLoading } = usePlaylists()
   const qc = useQueryClient()
   const [openId, setOpenId] = useState(initialId || null)
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initialId) setOpenId(initialId) } // a playlist opened from a card arrives as a new command
   const [shareToken, setShareToken] = useState(token || null)
   const [name, setName] = useState('')
   if (shareToken) return <PlaylistView token={shareToken} onBack={isLoggedIn() ? () => setShareToken(null) : undefined} />

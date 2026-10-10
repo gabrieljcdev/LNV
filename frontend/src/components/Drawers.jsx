@@ -184,10 +184,10 @@ function Tags({ names, kind = 'genres' }) {
 const Empty = ({ children }) => <p style={{ fontFamily: SANS, fontSize: 15, color: SEC, padding: '20px 0', margin: 0 }}>{children}</p>
 const SKEL = 'color-mix(in srgb, var(--theme-text-pri) 14%, transparent)' // visible on every theme (FILL, at 7%, vanished on the light ones)
 // A drawer waiting for its data shows the shape of what is coming (pulsing rows), not a blank panel.
-const Loading = () => (
-  <div role="status" aria-label="Loading" style={{ padding: `18px 30px 0 ${PADX}px`, display: 'grid', gap: 4 }}>
+const SkeletonRows = ({ n = 9 }) => (
+  <div role="status" aria-label="Loading" style={{ display: 'grid', gap: 4 }}>
     <style>{'@keyframes lnvPulse { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
-    {Array.from({ length: 9 }, (_, i) => (
+    {Array.from({ length: n }, (_, i) => (
       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', animation: `lnvPulse 1.4s ease-in-out ${i * 0.08}s infinite` }}>
         <span style={{ width: 42, height: 42, borderRadius: 10, background: SKEL, flexShrink: 0 }} />
         <span style={{ flex: 1, display: 'grid', gap: 7 }}>
@@ -198,6 +198,7 @@ const Loading = () => (
     ))}
   </div>
 )
+const Loading = () => <div style={{ padding: `18px 30px 0 ${PADX}px` }}><SkeletonRows /></div>
 
 const matches = (q, ...fields) => !q || fields.some(f => String(f || '').toLowerCase().includes(q.toLowerCase()))
 
@@ -345,7 +346,7 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
         {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
       </label>
     )}
-    {!first ? (pages.isLoading || pages.isFetching ? <Empty>Pulling the Discogs catalogue…</Empty> : (
+    {!first ? (pages.isLoading || pages.isFetching ? <><Empty>Pulling the Discogs catalogue…</Empty><SkeletonRows n={5} /></> : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '20px 0' }}>
         <span style={{ fontFamily: SANS, fontSize: 15, color: SEC }}>Couldn’t load the catalogue — Discogs didn’t answer.</span>
         {/* A fresh start, not refetch(): a retry paused while the tab was hidden would just keep waiting. */}
@@ -393,13 +394,16 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
 }
 
 // ── Artists ───────────────────────────────────────────────────────────────────
-export function ArtistsDrawer({ filter: initial }) {
+export function ArtistsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
   const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Artists" count="" /><Loading /></>
   const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   // A compilation sits under every artist on its tracks too, not only the post's own artist.
@@ -460,13 +464,16 @@ const ExtLink = ({ href, children }) => (
 )
 
 // ── Labels ────────────────────────────────────────────────────────────────────
-export function LabelsDrawer({ filter: initial }) {
+export function LabelsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
   const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Labels" count="" /><Loading /></>
   const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.labels.map(l => l.name))
@@ -503,10 +510,13 @@ export function LabelsDrawer({ filter: initial }) {
 // ── Genres ────────────────────────────────────────────────────────────────────
 // Grouped the way Discogs does it: each genre with a bar for its share of
 // the feed, and the styles posted under it beneath.
-export function GenresDrawer({ filter: initial }) {
+export function GenresDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Genres" count="" /><Loading /></>
   const records = data.filter(p => !isLiveSet(p))
   const groups = group(records, p => p.genres)
@@ -560,12 +570,14 @@ export function GenresDrawer({ filter: initial }) {
 // ── Live sets ─────────────────────────────────────────────────────────────────
 // `filter` (2026-10-02): a live-set card's DJ name opens the drawer
 // already filtered to that DJ's sets.
-export function LiveDrawer({ filter: initial }) {
+export function LiveDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { jump } = useDrawerNav()
   const [filter, setFilter] = useState(initial || '')
   const [where, setWhere] = useState('all')
   const [sort, setSort] = useState('dj') // 'dj' = grouped by DJ, 'new' = one list, newest first
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) setFilter(initial) }
   if (isLoading || !data) return <><DrawerHead title="Live sets" count="" /><Loading /></>
   const sets = data.filter(isLiveSet).map(p => ({ ...p, ...liveInfo(p) }))
   // Same DJ, place and date posted more than once: flag the later ones.

@@ -46,7 +46,9 @@ export function LayoutProvider({ children }) {
  const composeBtnRef = useRef(null);
  const postRefs = useRef(new Map());
 
- function openD3(content, props = {}) { setD3Content(content); setD3Props(props); setD3Width(null); }
+ // Every open carries a number (`_n`), so a drawer that is already built can tell "someone clicked a name again" from "nothing new".
+ const d3NonceRef = useRef(0);
+ function openD3(content, props = {}) { d3NonceRef.current += 1; setD3Content(content); setD3Props({ ...props, _n: d3NonceRef.current }); setD3Width(null); }
  function closeD3() { setD3Content(null); setD3Props({}); setD3Width(null); }
  function registerPostRef(postId, ref) { postRefs.current.set(postId, ref); }
 
