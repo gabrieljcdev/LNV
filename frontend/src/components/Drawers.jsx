@@ -616,6 +616,9 @@ export function AboutDrawer() {
     <DrawerHead title="About" count="est. 2024" />
     <DrawerBody>
       <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <h3 style={h3}>A database the community builds</h3>
+      <p style={p}>Discogs gives every record its details, but the music itself is a link somebody found. Finding a playable link for every track is more than any one site can pay for, so this shelf is built by the people who use it. If a track has no player, look for <b style={{ color: PRI }}>Know where this is? Add a link</b> under it and paste a YouTube, SoundCloud or Spotify link.</p>
+      <p style={p}>We check the link’s own title against the track. A good match plays for everyone straight away, with your name on it; an unsure one waits for two other people to say it’s right. Posting a record, adding a link, confirming one, highlighting a track and building a playlist all help the next person dig.</p>
       <h3 style={h3}>Finding your way</h3>
       <ul style={{ margin: 0, paddingLeft: 18, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.7 }}>
         <li>Scroll or drag to move along the feed.</li>

@@ -668,7 +668,7 @@ export function WelcomeCard({ compact = false }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <span style={head}>Welcome</span>
       <h1 style={{ margin: 0, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 0.95, letterSpacing: '-0.02em' }}>Late Night Vibes</h1>
-      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post a record they love and say why. Every one is linked to Discogs, filed by artist, label and genre, and playable right here.</p>
+      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post a record they love and say why. Every one is linked to Discogs, filed by artist, label and genre, and playable right here. It’s a community-built database: the more people add, the more there is to play.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
         <a href="/login?tab=create" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, background: pri, color: 'var(--theme-showcase)', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Create an account</a>
         <a href="/login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, border: `1px solid ${fill(45)}`, color: pri, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>Log in</a>
@@ -699,6 +699,7 @@ export function WelcomeCard({ compact = false }) {
         <ul style={list}>
           <li>{b('Post')} a record from a link, with a line on why it matters.</li>
           <li>{b('☆ highlight tracks')} — the one you're posting it for, and the ones others should hear.</li>
+          <li>{b('Add a link')} to a track with no player. Every link someone finds plays for everyone.</li>
           <li>{b('Reply')} to a post, or send the poster a private note.</li>
           <li>{b('♥ a record')} to keep it in your feed, and {b('follow people')} to see what they're posting — newest first, no algorithm.</li>
         </ul>
