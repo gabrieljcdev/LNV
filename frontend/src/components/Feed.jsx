@@ -1679,7 +1679,7 @@ function PlaylistsPop({ lists, at, cardBg, d, onClose }) {
 }
 
 // The newest replies under the post, and a one-line reply box (the full list is the side panel).
-function CardReplies({ post, count, onCount, onOpen, d }) {
+function CardReplies({ post, count, onCount, onOpen, d, fill = true }) {
   const [latest, setLatest] = useState(post.latestComments || [])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1695,25 +1695,26 @@ function CardReplies({ post, count, onCount, onOpen, d }) {
       setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1); setText('')
     } catch { /* leave the text so it can be sent again */ } finally { setBusy(false) }
   }
-  const line = { display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', gap: 11, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.35, color: 'var(--lv-sec)' }
+  const line = { display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', gap: 11, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.artistFf, fontWeight: 400, fontSize: d.titleSize, lineHeight: d.titleLh + 0.12, color: 'var(--lv-sec)' }
+  // The reply box sits right under the post; the replies run below it, newest first, as far as the room goes.
   return (
-    <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: 0, overflow: 'hidden' }}>
-      {latest.map(c => (
-        <div key={c.id} style={line}>
-          <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)' }}>{c.username?.[0]?.toUpperCase()}</span>
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: 'var(--lv-pri)', marginRight: 6 }}>{c.username}</b>{c.content}</span>
-          <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
-        </div>
-      ))}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0 0', borderTop: '1px solid var(--lv-line)', flexShrink: 0 }}>
-        {count > 0 && <button onClick={onOpen} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} repl{count === 1 ? 'y' : 'ies'} →</button>}
+    <div style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 0 9px', flexShrink: 0 }}>
         {me ? <>
           <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder="Reply…"
-            style={{ flex: 1, minWidth: 0, background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', border: '1px solid var(--lv-line)', borderRadius: 99, padding: '7px 14px', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-pri)', outline: 'none' }} />
+            style={{ flex: 1, minWidth: 0, background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', border: '1px solid var(--lv-line)', borderRadius: 99, padding: '7px 14px', fontFamily: d.bodyFf, fontSize: d.trackSize, color: 'var(--lv-pri)', outline: 'none' }} />
           <button onClick={submit} disabled={!text.trim() || busy} style={{ border: 'none', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-bg)', padding: '7px 16px', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>{busy ? '···' : 'Reply'}</button>
-        </> : <a href="/login" style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
+        </> : <a href="/login" style={{ flex: 1, fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
+        {count > 0 && <button onClick={onOpen} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
+      </div>
+      <div style={{ minHeight: 0, overflow: 'hidden' }}>
+        {[...latest].reverse().map(c => (
+          <div key={c.id} style={line}>
+            <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)' }}>{c.username?.[0]?.toUpperCase()}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
+            <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -1739,6 +1740,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const note = cleanNote(post.notes || post.body)
   // A short post (no title, one line of up to 300 characters) reads as a quote, not as a description.
   const isShortPost = !!note && !post.post_title && note.length <= 300
+  const isEmptyPost = !note && !post.post_title // nothing written: no empty description block, the replies take the room
   const cover = coverSrc(post)
   const comp = isCompilation(post, tracks)
   const single = tracks.length <= 2 && !/album|lp|ep/i.test(post.post_type || '')
@@ -1953,7 +1955,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
             style={{ margin: 0, minHeight: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: d.descSize, lineHeight: 1.4, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
         </div>
-      ) : (
+      ) : isEmptyPost ? null : (
         <div style={{ flex: '1 1 0', minHeight: 92, display: 'flex', flexDirection: 'column', marginTop: 26, marginBottom: 6 }}>
           <PostTitle post={post} labelStyle={{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)' }} />
           <div aria-hidden="true" style={{ height: 1, background: 'var(--lv-line)', margin: '9px 0 8px' }} />
@@ -1967,7 +1969,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       )}
 
       {/* replies under the post */}
-      <CardReplies post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
+      <CardReplies fill={isShortPost || isEmptyPost} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
 
       {/* footer: actions, then who posted it / who else / which public playlists */}
       <div style={{ marginTop: 'auto', paddingTop: 10, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
