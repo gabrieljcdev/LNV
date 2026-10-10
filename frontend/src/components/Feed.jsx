@@ -1699,13 +1699,13 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
   // The reply box sits right under the post; the replies run below it, newest first, as far as the room goes.
   return (
     <div style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 0 9px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, padding: '2px 0 9px', flexShrink: 0 }}>
         {me ? <>
           <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder="Reply…"
             style={{ flex: 1, minWidth: 0, background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', border: '1px solid var(--lv-line)', borderRadius: 99, padding: '7px 16px', fontFamily: d.bodyFf, fontSize: size, color: 'var(--lv-pri)', outline: 'none' }} />
-          <button onClick={submit} disabled={!text.trim() || busy} style={{ border: 'none', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-bg)', padding: '7px 16px', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>{busy ? '···' : 'Reply'}</button>
-        </> : <a href="/login" style={{ flex: 1, fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
-        {count > 0 && <button onClick={onOpen} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
+          <button onClick={submit} disabled={!text.trim() || busy} style={{ border: 'none', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-bg)', padding: '0 24px', display: 'flex', alignItems: 'center', fontFamily: d.bodyFf, fontWeight: 700, fontSize: Math.max(12, Math.round(size * 0.6)), letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>{busy ? '···' : 'Reply'}</button>
+        </> : <a href="/login" style={{ flex: 1, alignSelf: 'center', fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
+        {count > 0 && <button onClick={onOpen} style={{ alignSelf: 'center', background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
       </div>
       <div style={{ minHeight: 0, overflow: 'hidden' }}>
         {[...latest].reverse().map(c => (
@@ -1728,6 +1728,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
   const cardEl = useRef(null)
+  const feedMode = useFeedMode()
 
   const tracks = post.tracks || []
   const [srcPref, setSrcPref] = useSourcePref()
@@ -1832,17 +1833,26 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const posterName = post.user?.username || post.username
   async function toggleHighlight(t) {
     if (!me || !t.id) return
-    const was = hlOf(t).by.includes(me)
+    const before = hlOf(t), was = before.by.includes(me)
+    const next = was ? { by: before.by.filter(n => n !== me), n: Math.max(0, before.n - 1) } : { by: [...before.by, me], n: before.n + 1 }
+    setHl(prev => ({ ...prev, [t.id]: next })) // answer at once
     try {
       const res = await fetch(`${API}/posts/${post.id}/tracks/${t.id}/highlight`, { method: was ? 'DELETE' : 'PUT', headers: authHeaders() })
-      if (!res.ok) return
+      if (!res.ok) throw new Error(res.status === 404 ? 'The site needs updating before highlights can be saved.' : 'Could not save that highlight — try again.')
       const s = await res.json()
       setHl(prev => ({ ...prev, [t.id]: { by: s.highlightedBy, n: s.highlightCount } }))
-    } catch { /* offline — the star stays as it was */ }
+    } catch (err) {
+      setHl(prev => ({ ...prev, [t.id]: before }))
+      window.alert(err.message || 'Could not save that highlight — try again.')
+    }
   }
   const highlighted = tracks.filter(t => hlOf(t).n > 0).length
-  // One text size for the track names, the comments and the reply box (the record title's size). Change this one line to resize all three.
-  const textSize = d.titleSize
+  // Text sizes: the track names, and the comments + reply box (the record title's size). Change these two lines to resize them.
+  const trackText = 15
+  const textSize = 20
+  // Highlight colours: yours, and the wall owner's (or, off a wall, the poster's).
+  const MINE_HL = 'var(--theme-accent)', OWNER_HL = 'var(--theme-showcase)'
+  const ownerName = feedMode.type === 'wall' ? feedMode.username : posterName
 
   const row = (t, i) => {
     const u = urlOf(t)
@@ -1850,14 +1860,17 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
     const v = shelfTrack(t, comp)
     const h = hlOf(t)
     const mine = !!me && h.by.includes(me)
-    const pick = !!posterName && h.by.includes(posterName)
-    const tint = pick ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : mine ? 'color-mix(in srgb, var(--theme-accent) 8%, transparent)' : 'color-mix(in srgb, var(--lv-pri) 7%, transparent)'
+    const byOwner = !!ownerName && ownerName !== me && h.by.includes(ownerName)
+    const mix = (c, n) => `color-mix(in srgb, ${c} ${n}%, transparent)`
+    const grad = c => `linear-gradient(90deg, ${mix(c, 30)}, ${mix(c, 6)})`
+    const tint = byOwner && mine ? `linear-gradient(90deg, ${mix(OWNER_HL, 30)}, ${mix(MINE_HL, 30)})` : byOwner ? grad(OWNER_HL) : mine ? grad(MINE_HL) : mix('var(--lv-pri)', 7)
+    const pick = byOwner // kept for the star colour below
     return (
       <div key={i}>
         <div onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-          style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', margin: '0 0 5px', padding: `${Math.max(4, d.trackRowpad - 2)}px 11px`, borderRadius: 12, border: `1px solid ${pick ? 'color-mix(in srgb, var(--theme-accent) 55%, transparent)' : 'transparent'}`, cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : tint }}>
+          style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', margin: '0 0 5px', padding: `${Math.max(4, d.trackRowpad - 2)}px 11px`, borderRadius: 12, border: `1px solid ${byOwner ? mix(OWNER_HL, 55) : mine ? mix(MINE_HL, 55) : 'transparent'}`, cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : tint }}>
           <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
-          <span style={{ fontFamily: d.bodyFf, fontSize: textSize, lineHeight: 1.2, color: 'var(--lv-pri)', fontWeight: 600, minWidth: 0, overflowWrap: 'anywhere' }}>
+          <span style={{ fontFamily: d.bodyFf, fontSize: trackText, lineHeight: 1.2, color: 'var(--lv-pri)', fontWeight: 600, minWidth: 0, overflowWrap: 'anywhere' }}>
             {v.title}
             {(v.artists.length > 0 || v.remixers.length > 0) && <span><span style={{ margin: '0 7px', color: 'var(--lv-ter)', fontWeight: 400 }}>–</span>{[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
           </span>
@@ -1869,7 +1882,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontFamily: d.monoFf, fontSize: 11.5, color: 'var(--lv-ter)' }}>
             {h.n > 0 && <span style={{ display: 'inline-flex' }}>{h.by.slice(0, 3).map((n, k) => <i key={n} style={{ width: 16, height: 16, borderRadius: '50%', marginLeft: k ? -5 : 0, border: `2px solid ${cardBg}`, background: 'var(--lv-sec)', color: cardBg, font: '700 8px/12px sans-serif', fontStyle: 'normal', textAlign: 'center' }}>{n[0]?.toUpperCase()}</i>)}</span>}
             {h.n > 0 && <span>{h.n}</span>}
-            <span style={{ fontSize: 15, lineHeight: 1, color: mine || pick ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{mine || h.n ? '★' : '☆'}</span>
+            <span style={{ fontSize: 15, lineHeight: 1, color: mine ? MINE_HL : pick ? OWNER_HL : 'var(--lv-ter)' }}>{mine || h.n ? '★' : '☆'}</span>
           </button>
         </div>
         {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
@@ -1941,7 +1954,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       {/* tracklist: always there, scrolls inside its own space */}
       <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>
-          <span>Tracklist{me ? ' · tap ☆ to highlight' : ''}</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}{highlighted ? ` · ${highlighted} highlighted` : ''}</span>
+          <span>Tracklist{me ? ' · tap ☆ to highlight' : ''}</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}{highlighted ? <> · {highlighted} highlighted <span style={{ color: MINE_HL, marginLeft: 6 }}>● you</span>{ownerName && ownerName !== me && <span style={{ color: OWNER_HL, marginLeft: 6 }}>● {ownerName}</span>}</> : ''}</span>
         </div>
         <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
           style={{ flex: '0 1 auto', minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: tracks.length > 3 ? '1fr 1fr' : '1fr', columnGap: COL_GAP, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
@@ -1956,7 +1969,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 8 }}>
             <span>The post</span><span style={{ fontFamily: d.monoFf, fontWeight: 400, letterSpacing: '0.06em' }}>{posterName}{post.created_at ? ` · ${stampOf(post.created_at)}` : ''}</span>
           </div>
-          <p style={{ margin: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: d.descSize, lineHeight: 1.4, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>
+          <p style={{ margin: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: textSize, lineHeight: 1.3, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>
         </div>
       )}
       {showDesc && (

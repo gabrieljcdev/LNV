@@ -120,6 +120,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
  // Short post by default (one box, 300 characters); "Write a full post" is the post title + description form (2026-10-10).
  const [fullPost, setFullPost] = useState(() => !!editPost?.post_title || (editPost?.notes || '').length > 300)
+ // A new post needs something said about it (a line, or a title / description): it starts the conversation (gabriel, 2026-10-10).
+ const needsComment = !editPost && !comment.trim() && !postTitle.trim()
  const [coverArt, setCoverArt] = useState(editPost?.cover_image || '')
  const [postType, setPostType] = useState(editPost?.post_type || 'album')
  const [streamUrl, setStreamUrl] = useState(editPost?.stream_url || '')
@@ -437,7 +439,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  function addGenre(g) { const t = g.trim(); if (t && !genres.includes(t)) setGenres(prev => [...prev, t]) }
 
  async function handlePost() {
- if (!title.trim()) return
+ if (!title.trim() || needsComment) return
  setPosting(true); setFetchError('')
  try {
  const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
@@ -664,7 +666,7 @@ Click to edit`}
  )}
 
  {fullPost ? (<>
- <div style={zlabel}><span>Post title</span><span>optional</span></div>
+ <div style={zlabel}><span>Post title</span><span>{editPost ? 'optional' : 'a title or a description is needed'}</span></div>
  <input value={postTitle} onChange={e => setPostTitle(e.target.value)} maxLength={120} placeholder={isLiveMix ? 'Sum up the set in a line…' : 'Sum up the record in a line…'}
  style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', borderRadius: 10, padding: '10px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, fontWeight: 600 }} />
 
@@ -672,7 +674,7 @@ Click to edit`}
  <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={isLiveMix ? 'Lineup, venue, date, set notes…' : 'What makes this record special…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 13, lineHeight: 1.5 }} />
  <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(false)}>← back to short post</button>
  </>) : (<>
- <div style={zlabel}><span>Say something</span><span>{comment.length} / 300</span></div>
+ <div style={zlabel}><span>Say something{editPost ? '' : ' · needed to post'}</span><span>{comment.length} / 300</span></div>
  <textarea value={comment} onChange={e => { setComment(e.target.value.slice(0, 300)); if (postTitle) setPostTitle('') }} maxLength={300} placeholder={isLiveMix ? 'A line about the set…' : 'A line about it…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'none', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, lineHeight: 1.45 }} />
  <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(true)}>write a full post</button>
  </>)}
@@ -684,7 +686,7 @@ Click to edit`}
  {!phone && <span style={{ ...mono, fontSize: 10, color: 'var(--theme-text-ter)' }}>{editPost ? 'editing' : 'posting as'}</span>}
  <span style={{ flex: 1 }} />
  {!editPost && <button className="lnvc-q" onClick={() => { setPhase('link'); clearForm(); setFetchStatus(''); setFetchError('') }}>different link</button>}
- <button onClick={handlePost} disabled={!title.trim() || posting || done} style={{ border: 'none', borderRadius: 99, height: 40, padding: '0 22px', cursor: 'pointer', background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)', fontFamily: 'Barlow, sans-serif', fontSize: 12, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: !title.trim() || posting ? 0.4 : 1 }}>
+ <button onClick={handlePost} disabled={!title.trim() || needsComment || posting || done} title={needsComment ? 'Say something about the record to post it' : undefined} style={{ border: 'none', borderRadius: 99, height: 40, padding: '0 22px', cursor: 'pointer', background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)', fontFamily: 'Barlow, sans-serif', fontSize: 12, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: !title.trim() || needsComment || posting ? 0.4 : 1 }}>
  {done ? (editPost ? '✓ Saved' : '✓ Posted') : posting ? (editPost ? 'Saving…' : 'Posting…') : (editPost ? 'Save ▶' : 'Post ▶')}
  </button>
  </div>
