@@ -1,0 +1,29 @@
+# /etc/caddy/Caddyfile — replace waxopathy.com with the live domain. Caddy fetches and renews the HTTPS certificate itself.
+waxopathy.com, www.waxopathy.com {
+	encode zstd gzip
+
+	# The API (and nothing else) goes to the backend.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# Everything else is the built site; unknown paths fall back to index.html (it is a single-page app).
+	handle {
+		root * /opt/lnv/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Built files have hashed names, so they can be cached for good; the page itself must not be.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@page path / /index.html
+	header @page Cache-Control "no-cache"
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

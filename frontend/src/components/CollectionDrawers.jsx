@@ -5,6 +5,9 @@ import { isLoggedIn } from '../lib/auth'
 import { useFeedMode, useFollowing, wallsApi, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
 import { queue, useQueue, currentTrack } from '../lib/queue'
 import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
+import { ReleaseListView } from './DiscogsLists'
+import { DiscogsStrip } from './DiscogsConnect'
+import { askText } from './Dialogs'
 
 // ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
 // Walls: your wall and the people you follow. Playlists: lists of tracks
@@ -161,7 +164,7 @@ function PlaylistView({ id, token, onBack }) {
       {owner && showMembers && (
         <div style={{ display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button onClick={() => { const n = window.prompt('Rename the playlist', data.name); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
+            <button onClick={async () => { const n = await askText({ title: 'Rename the playlist', value: data.name, ok: 'Rename', maxLength: 60 }); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
             {data.share_token && <button onClick={() => shareLink(true)} style={pill}>new share link</button>}
             {data.invite_token && <button onClick={() => inviteLinkCopy(true)} style={pill}>new invite link</button>}
             {/* The default playlist can't be deleted (2026-10-06) — only renamed. */}
@@ -206,14 +209,18 @@ function PlaylistView({ id, token, onBack }) {
 
 // `open`: a playlist id to open straight away; `token`: a shared playlist's
 // link (read-only unless you were invited).
-export function PlaylistsDrawer({ open: initialId, token }) {
+export function PlaylistsDrawer({ open: initialId, token, _n }) {
   const { playlists, isLoading } = usePlaylists()
   const qc = useQueryClient()
   const [openId, setOpenId] = useState(initialId || null)
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initialId) setOpenId(initialId) } // a playlist opened from a card arrives as a new command
   const [shareToken, setShareToken] = useState(token || null)
   const [name, setName] = useState('')
   if (shareToken) return <PlaylistView token={shareToken} onBack={isLoggedIn() ? () => setShareToken(null) : undefined} />
   if (!isLoggedIn()) return <SignedOut title="Playlists">Sign in to make playlists from the tracks on the feed, heart tracks, and invite friends to add to them.</SignedOut>
+  // Your Discogs collection / wantlist hold records, not tracks (DiscogsLists.jsx).
+  if (openId && playlists.find(p => p.id === openId)?.kind && ['collection', 'wantlist'].includes(playlists.find(p => p.id === openId).kind)) return <ReleaseListView id={openId} onBack={() => setOpenId(null)} />
   if (openId) return <PlaylistView id={openId} onBack={() => setOpenId(null)} />
   async function create(e) {
     e.preventDefault()
@@ -229,15 +236,16 @@ export function PlaylistsDrawer({ open: initialId, token }) {
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.is_default && <span style={{ fontFamily: MONO, fontWeight: 400, fontSize: 10.5, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', marginLeft: 8 }}>DEFAULT</span>}</span>
         <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>
-          {p.role === 'member' ? `by ${p.owner}` : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
+          {p.role === 'member' ? `by ${p.owner}` : p.release_count != null ? 'from Discogs · private' : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
         </span>
       </span>
-      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{plural(p.track_count, 'track')}</span>
+      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{p.release_count != null ? plural(p.release_count, 'record') : plural(p.track_count, 'track')}</span>
     </Row>
   )
   return <>
     <DrawerHead title="Playlists" count={plural(playlists.length, 'playlist')}><CollectNav current="playlists" /></DrawerHead>
     <DrawerBody>
+      <DiscogsStrip />
       <form onSubmit={create} style={{ display: 'flex', gap: 8, margin: '6px 0 14px' }}>
         <label style={{ flex: 1, display: 'flex', alignItems: 'center', background: FILL, border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 14px' }}>
           <input value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="Name a new playlist…" aria-label="New playlist name"

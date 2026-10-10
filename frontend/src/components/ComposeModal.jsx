@@ -3,7 +3,7 @@ import { getUser, getUserId, authHeaders } from '../lib/auth'
 import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
-import { isHeadingRow, linkKeys } from '../lib/tracklist'
+import { isHeadingRow, linkKeys, withoutHeadings } from '../lib/tracklist'
 import { SOURCE_SHORT, SOURCE_NAME, platformOf } from '../lib/sources'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -114,10 +114,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [label, setLabel] = useState(editPost?.labels?.[0]?.label_name || '')
  const [catNo, setCatNo] = useState(editPost?.labels?.[0]?.catalogue_number || '')
  const [genres, setGenres] = useState(editPost?.genres || [])
- const [tracks, setTracks] = useState(() => (editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
+ const [tracks, setTracks] = useState(() => withoutHeadings(editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '', highlight: (t.highlightedBy || []).includes(getUser()) })))
  const [comment, setComment] = useState(editPost?.notes || '')
  // The poster's own headline, shown above the description on the card.
  const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
+ // Short post by default (one box, 300 characters); "Write a full post" is the post title + description form (2026-10-10).
+ const [fullPost, setFullPost] = useState(() => !!editPost?.post_title || (editPost?.notes || '').length > 300)
+ // A new post needs something said about it (a line, or a title / description): it starts the conversation (gabriel, 2026-10-10).
+ const needsComment = !editPost && !comment.trim() && !postTitle.trim()
  const [coverArt, setCoverArt] = useState(editPost?.cover_image || '')
  const [postType, setPostType] = useState(editPost?.post_type || 'album')
  const [streamUrl, setStreamUrl] = useState(editPost?.stream_url || '')
@@ -135,6 +139,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [done, setDone] = useState(false)
  const [discogsVideos, setDiscogsVideos] = useState([])
  const [allReleases, setAllReleases] = useState(null)
+ // Every release the link matched, kept after one is picked so the rest (compilations,
+ // reissues) still reach the artists' and labels' catalogues when posting.
+ const relatedReleases = useRef([])
  // The Discogs release the fetch landed on, from ANY platform. Until
  // 2026-09-25 only pasted discogs.com links saved one, so YouTube/SoundCloud/
  // Bandcamp posts that matched Discogs were stored with discogs_id NULL.
@@ -171,7 +178,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (cancelled) return
  const found = d.sources || []
  // Nothing playable yet? Take the best free one; a link already there is left alone.
- setTracks(prev => prev.map(x => (x.title === t.title && x.position === t.position ? { ...x, sources: found, stream_url: x.stream_url || found[0]?.url || '' } : x)))
+ setTracks(prev => prev.map(x => (x.title === t.title && x.position === t.position ? { ...x, sources: found, origUrl: x.stream_url || '', stream_url: x.stream_url || found[0]?.url || '' } : x)))
  } catch { /* one failed lookup shouldn't stop the rest */ }
  }
  }, 1200)
@@ -206,7 +213,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  artistIds.current.clear(); labelIds.current.clear(); searchGen.current++
  setTitle(''); setArtist(''); setArtistsList([]); setYear(''); setLabel(''); setCatNo('')
  setGenres([]); setTracks([]); setCoverArt(''); setStreamUrl(''); setEmbedUrl(''); setChannel('')
- setFetchSource(null); setAllReleases(null); setDiscogsVideos([]); setDiscogsId(null)
+ setFetchSource(null); setAllReleases(null); relatedReleases.current = []; setDiscogsVideos([]); setDiscogsId(null)
  }
 
  function applyEnrichment(data) {
@@ -225,13 +232,13 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (data.year) setYear(String(data.year))
  if (data.cover_image) setCoverArt(data.cover_image)
  if (data.genres?.length) setGenres(data.genres.slice(0, 6))
- if (data.tracks?.length) setTracks(data.tracks)
+ if (data.tracks?.length) setTracks(withoutHeadings(data.tracks))
  if (data.stream_url) setStreamUrl(data.stream_url)
  if (data.embed_url) setEmbedUrl(data.embed_url)
  if (data.channel) setChannel(data.channel)
  if (data.detected_type) setPostType(data.detected_type)
  if (data.videos?.length) setDiscogsVideos(data.videos)
- if (data.all_releases?.length > 1) setAllReleases(data.all_releases)
+ if (data.all_releases?.length > 1) { setAllReleases(data.all_releases); relatedReleases.current = data.all_releases }
  setDiscogsId(data.discogs_id || null)
  setFetchSource(data.source || 'platform')
  }
@@ -251,7 +258,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (rel.cover_image) setCoverArt(rel.cover_image)
  if (rel.genres?.length) setGenres(rel.genres.slice(0, 6))
  if (rel.tracks?.length) {
- const mapped = rel.tracks.map(t => ({ ...t, stream_url: '' }))
+ const mapped = withoutHeadings(rel.tracks).map(t => ({ ...t, stream_url: '' }))
  searchGen.current++
  setTracks(mapped)
  setPostType(rel.tracks.length >= 6 ? 'album' : rel.tracks.length <= 2 ? 'single' : 'album')
@@ -323,7 +330,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const cleaned = (v.title || '').toLowerCase().replace(/\(official.*?\)/gi, '').replace(/\[.*?\]/gi, '').replace(/ft\..*$/gi, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
  videoMap[cleaned] = ytUrl
  })
- const rawTracks = (data.tracklist || []).map(t => {
+ const rawTracks = withoutHeadings(data.tracklist).map(t => {   // section headings ("Phase I") are not tracks
  const cl = (t.title || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
  let ytUrl = videoMap[cl] || null
  if (!ytUrl) for (const [k, v] of Object.entries(videoMap)) { if (k.includes(cl) || cl.includes(k)) { ytUrl = v; break } }
@@ -432,10 +439,10 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  function addGenre(g) { const t = g.trim(); if (t && !genres.includes(t)) setGenres(prev => [...prev, t]) }
 
  async function handlePost() {
- if (!title.trim()) return
+ if (!title.trim() || needsComment) return
  setPosting(true); setFetchError('')
  try {
- const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim() }) })
+ const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
  if (!postRes.ok) { const e = await postRes.json().catch(() => ({})); throw new Error(e.error || `${editPost ? 'SAVE' : 'POST'} failed: ${postRes.status}`) }
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId || editPost?.id
@@ -612,15 +619,17 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
 
  {!isLiveMix && (
  <>
- <div style={zlabel}><span>Tracklist</span><span>{tracks.length ? `${linkCount} / ${tracks.length} playable` : ''}</span></div>
+ <div style={zlabel}><span>Tracklist{tracks.length > 1 ? ' · ☆ the track you’re posting it for' : ''}</span><span>{tracks.length ? `${tracks.filter(x => x.highlight).length ? `${tracks.filter(x => x.highlight).length} highlighted · ` : ''}${linkCount} / ${tracks.length} playable` : ''}</span></div>
  <div style={{ columns: 2, columnGap: 28 }}>
  {tracks.map((t, i) => {
  const tp = detectPlatform(t.stream_url)
  return (
  <div key={i} style={{ breakInside: 'avoid', padding: '3.5px 0' }}>
- <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 14px', gap: 10, alignItems: 'baseline' }}>
+ <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 18px 14px', gap: 10, alignItems: 'baseline' }}>
  <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: 'var(--theme-text-ter)' }}>{t.position || i + 1}</span>
  <input className="lnvc-f" value={t.title} onChange={e => updateTrack(i, { title: e.target.value })} placeholder="Track title" style={{ fontFamily: 'Barlow, sans-serif', fontSize: 13, color: 'var(--theme-text-sec)' }} />
+ <button onClick={() => updateTrack(i, { highlight: !t.highlight })} title={t.highlight ? 'Highlighted — this is a track you’re posting the record for' : 'Highlight this track: the one you’re posting the record for'} aria-pressed={!!t.highlight}
+ style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', alignSelf: 'center', fontSize: 15, lineHeight: 1, color: t.highlight ? 'var(--theme-accent)' : 'var(--theme-text-ter)' }}>{t.highlight ? '★' : '☆'}</button>
  <button onClick={() => setOpenTrack(o => (o === i ? null : i))} title={t.stream_url ? 'Playable — edit link' : 'No link — add one'} style={{ width: 8, height: 8, padding: 0, borderRadius: '50%', border: 'none', cursor: 'pointer', alignSelf: 'center', background: t.stream_url ? (tp?.color || '#4caf50') : 'var(--theme-border)' }} />
  </div>
  {openTrack !== i && t.stream_url && (
@@ -634,8 +643,9 @@ Click to edit`}
  {(() => {
  // "Play from" — what this track's link can be switched to. The link it has
  // already (say a YouTube video) is one of the choices.
- const have = platformOf(t.stream_url)
- const list = [...(t.stream_url && have && !(t.sources || []).some(x => x.platform === have) ? [{ platform: have, url: t.stream_url }] : []), ...(t.sources || [])]
+ const base = t.origUrl || t.stream_url // the link it came with stays a choice after another is picked
+ const have = platformOf(base)
+ const list = [...(base && have && !(t.sources || []).some(x => x.platform === have) ? [{ platform: have, url: base }] : []), ...(t.sources || [])]
  if (list.length < 2) return null
  return (
  <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 38, marginTop: 3 }}>
@@ -657,12 +667,19 @@ Click to edit`}
  </>
  )}
 
- <div style={zlabel}><span>Post title</span><span>optional</span></div>
+ {fullPost ? (<>
+ <div style={zlabel}><span>Post title</span><span>{editPost ? 'optional' : 'a title or a description is needed'}</span></div>
  <input value={postTitle} onChange={e => setPostTitle(e.target.value)} maxLength={120} placeholder={isLiveMix ? 'Sum up the set in a line…' : 'Sum up the record in a line…'}
  style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', borderRadius: 10, padding: '10px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, fontWeight: 600 }} />
 
  <div style={zlabel}><span>Description</span><span>optional</span></div>
  <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={isLiveMix ? 'Lineup, venue, date, set notes…' : 'What makes this record special…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 13, lineHeight: 1.5 }} />
+ <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(false)}>← back to short post</button>
+ </>) : (<>
+ <div style={zlabel}><span>Say something{editPost ? '' : ' · needed to post'}</span><span>{comment.length} / 300</span></div>
+ <textarea value={comment} onChange={e => { setComment(e.target.value.slice(0, 300)); if (postTitle) setPostTitle('') }} maxLength={300} placeholder={isLiveMix ? 'A line about the set…' : 'A line about it…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'none', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, lineHeight: 1.45 }} />
+ <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(true)}>write a full post</button>
+ </>)}
  </div>
 
  {/* byline row — who's posting, and the one action */}
@@ -671,7 +688,7 @@ Click to edit`}
  {!phone && <span style={{ ...mono, fontSize: 10, color: 'var(--theme-text-ter)' }}>{editPost ? 'editing' : 'posting as'}</span>}
  <span style={{ flex: 1 }} />
  {!editPost && <button className="lnvc-q" onClick={() => { setPhase('link'); clearForm(); setFetchStatus(''); setFetchError('') }}>different link</button>}
- <button onClick={handlePost} disabled={!title.trim() || posting || done} style={{ border: 'none', borderRadius: 99, height: 40, padding: '0 22px', cursor: 'pointer', background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)', fontFamily: 'Barlow, sans-serif', fontSize: 12, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: !title.trim() || posting ? 0.4 : 1 }}>
+ <button onClick={handlePost} disabled={!title.trim() || needsComment || posting || done} title={needsComment ? 'Say something about the record to post it' : undefined} style={{ border: 'none', borderRadius: 99, height: 40, padding: '0 22px', cursor: 'pointer', background: 'var(--theme-text-pri)', color: 'var(--theme-showcase)', fontFamily: 'Barlow, sans-serif', fontSize: 12, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: !title.trim() || needsComment || posting ? 0.4 : 1 }}>
  {done ? (editPost ? '✓ Saved' : '✓ Posted') : posting ? (editPost ? 'Saving…' : 'Posting…') : (editPost ? 'Save ▶' : 'Post ▶')}
  </button>
  </div>

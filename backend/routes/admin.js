@@ -8,10 +8,13 @@ import { readLog, logSummary, logEvent } from '../services/logService.js';
 import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } from '../services/youtubeService.js';
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
+import { runSpareQuota } from '../services/spareQuota.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
 import { lastfmConfigured } from '../services/lastfmService.js';
+import { nameFor } from '../services/entityNames.js';
+import { LISTEN_SHARE, PAID_PER_RELEASE } from '../services/searchBudget.js';
 import {
   mailConfigured, sendTestEmail, createVerifyToken, sendVerifyEmail, createResetToken, sendResetEmail,
 } from '../services/authService.js';
@@ -36,6 +39,31 @@ router.post('/link-submissions/:id/:decision', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// The YouTube balance (2026-10-07): what is left of today's units and how the
+// day is divided — listening may use LISTEN_SHARE of it, the rest is kept for
+// new posts (services/searchBudget.js); background crawls stop at 60%.
+// "Searches" = real paid track searches saved today (youtube_cache); the
+// remaining units spent were channel crawls and lookups.
+function youtubeBalance() {
+  const cap = Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+  const used = quotaUsed();
+  const searches = db.prepare("SELECT COUNT(*) c FROM youtube_cache WHERE fetched_at >= date('now')").get().c;
+  const searchUnits = Math.min(used, searches * 100);
+  const now = new Date();
+  const reset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return {
+    usedToday: used, dailyCap: cap, crawlShare: 0.6,
+    remaining: Math.max(0, cap - used),
+    searchesLeft: Math.floor(Math.max(0, cap - used) / 100),
+    searchesToday: searches, searchUnits, otherUnits: used - searchUnits,
+    listenShare: LISTEN_SHARE,
+    listenRoom: Math.max(0, Math.round(cap * LISTEN_SHARE - used)),   // what listening can still spend
+    postsReserve: Math.round(cap * (1 - LISTEN_SHARE)),               // always kept for new posts
+    perRelease: PAID_PER_RELEASE,
+    resetsInSec: Math.max(0, Math.round((reset - now) / 1000)),   // the panel refreshes every 10 seconds
+  };
+}
+
 // ── Status ──
 router.get('/status', (req, res, next) => {
   try {
@@ -43,10 +71,11 @@ router.get('/status', (req, res, next) => {
     // Names for crawled Discogs ids, from the posts that carry them.
     const artistName = id => db.prepare('SELECT artist_name n FROM post_artists WHERE discogs_artist_id = ? LIMIT 1').get(id)?.n;
     const labelName = id => db.prepare('SELECT label_name n FROM post_labels WHERE discogs_label_id = ? LIMIT 1').get(id)?.n;
-    const catalogues = db.prepare(`SELECT c.kind, c.entity_id, c.total, c.pages, c.next_page, c.done, c.crawled_at,
+    const catalogues = db.prepare(`SELECT c.kind, c.entity_id, c.total, c.pages, c.next_page, c.done, c.crawled_at, c.skipped,
+        (c.done = 0 AND c.crawled_at < datetime('now', '-2 hours')) AS stalled,
         (SELECT COUNT(*) FROM discogs_catalogue d WHERE d.kind = c.kind AND d.entity_id = c.entity_id) have
       FROM discogs_catalogue_crawl c ORDER BY c.done, c.kind, c.entity_id`).all()
-      .map(c => ({ ...c, name: (c.kind === 'artist' ? artistName(c.entity_id) : labelName(c.entity_id)) || `#${c.entity_id}` }));
+      .map(c => ({ ...c, name: (c.kind === 'artist' ? artistName(c.entity_id) : labelName(c.entity_id)) || nameFor(c.kind, c.entity_id) || `#${c.entity_id}` }));
     const channels = db.prepare(`SELECT c.title, c.total, c.backfill_done done, c.refreshed_at,
         (SELECT COUNT(*) FROM yt_channel_videos v WHERE v.channel_id = c.channel_id) have
       FROM yt_channels c ORDER BY c.backfill_done, c.title`).all();
@@ -70,7 +99,7 @@ router.get('/status', (req, res, next) => {
         sessions: one("SELECT COUNT(*) c FROM sessions WHERE expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')").c,
       },
       database: { bytes: fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE).size : null, catalogueRows: one('SELECT COUNT(*) c FROM discogs_catalogue').c, channelVideos: one('SELECT COUNT(*) c FROM yt_channel_videos').c },
-      youtube: { usedToday: quotaUsed(), dailyCap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000, crawlShare: 0.6 },
+      youtube: youtubeBalance(),
       crawls: { catalogues, channels },
       gaps: gapCounts(),
       // Each outside service's load today (2026-10-06) — cache hits don't count.
@@ -79,6 +108,9 @@ router.get('/status', (req, res, next) => {
         discogs: { calls: callsToday('discogs') },
         spotify: { calls: callsToday('spotify'), on: spotifyConfigured() },
         lastfm: { calls: callsToday('lastfm'), on: lastfmConfigured() },
+        deezer: { calls: callsToday('deezer') },
+        apple: { calls: callsToday('apple') },
+        musicbrainz: { calls: callsToday('musicbrainz') },
       },
       log: logSummary(),
     });
@@ -117,6 +149,11 @@ router.post('/gaps/sweep', async (req, res, next) => {
 // ── Channels (2026-10-05) ──
 // Which channels can be ♥'d and why; mark one official, not, or back to
 // the numbers (official: true | false | null).
+// Run the spare-units search by hand: { dry: true } only counts what it would search; { force: true } ignores "already ran today".
+router.post('/spare-quota', async (req, res, next) => {
+  try { res.json(await runSpareQuota({ force: !!req.body?.force, dry: !!req.body?.dry })); } catch (err) { next(err); }
+});
+
 router.get('/channels', (req, res, next) => {
   try { res.json({ channels: channelsWithVerdicts(), rule: PROPER_CHANNEL }); } catch (err) { next(err); }
 });

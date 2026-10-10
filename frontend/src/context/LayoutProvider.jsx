@@ -32,6 +32,10 @@ export function LayoutProvider({ children }) {
 
  const feedRef = useRef(null);
  const stripRef = useRef(null);
+ // Where the feed really is, and whether a drawer is open: the left strip folds to its rail while a drawer is open
+ // (it sits above the drawer, so at the start of the feed it hid most of it), and unfolds to where the feed is on close.
+ const lastScrollXRef = useRef(0);
+ const d3OpenRef = useRef(false);
  const railZoneRef = useRef(null);
  const secondaryStripRef = useRef(null);
  const railWordmarkRef = useRef(null); // FADE text wordmark — flush bottom-left of the rail (zone 1), see Strip.jsx
@@ -42,7 +46,9 @@ export function LayoutProvider({ children }) {
  const composeBtnRef = useRef(null);
  const postRefs = useRef(new Map());
 
- function openD3(content, props = {}) { setD3Content(content); setD3Props(props); setD3Width(null); }
+ // Every open carries a number (`_n`), so a drawer that is already built can tell "someone clicked a name again" from "nothing new".
+ const d3NonceRef = useRef(0);
+ function openD3(content, props = {}) { d3NonceRef.current += 1; setD3Content(content); setD3Props({ ...props, _n: d3NonceRef.current }); setD3Width(null); }
  function closeD3() { setD3Content(null); setD3Props({}); setD3Width(null); }
  function registerPostRef(postId, ref) { postRefs.current.set(postId, ref); }
 
@@ -130,7 +136,8 @@ export function LayoutProvider({ children }) {
  // visual effect, the whole point of round 17, just with a third thing
  // (zone 1's own width) now also tracking it instead of being fixed.
  const COLLAPSE_RANGE = 1400;
- const handleFeedScroll = useCallback((scrollX) => {
+ const handleFeedScroll = useCallback((scrollX, forced = false) => {
+   if (!forced) { lastScrollXRef.current = scrollX; if (d3OpenRef.current) scrollX = Number.MAX_SAFE_INTEGER; }
    const introWidth = Math.max(600, window.innerWidth - RAIL_WIDTH); // matches FeedIntro's actual rendered width (Feed.jsx, back to 100%)
    const effectiveRange = Math.min(COLLAPSE_RANGE, introWidth * 0.95);
    const raw = Math.max(0, Math.min(scrollX / effectiveRange, 1));
@@ -186,6 +193,18 @@ export function LayoutProvider({ children }) {
    // useful if another round of live numbers is ever needed again.
    window.lnvDebugStrip = { windowInnerWidth: window.innerWidth, introWidth, effectiveRange, scrollX, raw, outerWidth, railZoneWidth, tabsOpacity, barsT, textT, fBarsOpacity, fadeTextOpacity };
  }, []);
+
+ // A drawer opening folds the strip down to its rail (smoothly); closing it puts the strip back to match the feed.
+ useEffect(() => {
+   d3OpenRef.current = !!d3Content;
+   const strip = stripRef.current, zone = railZoneRef.current;
+   const t = 'width 0.4s cubic-bezier(0.4,0,0.2,1)';
+   if (strip) strip.style.transition = t;
+   if (zone) zone.style.transition = t;
+   handleFeedScroll(d3Content ? Number.MAX_SAFE_INTEGER : lastScrollXRef.current, true);
+   const done = setTimeout(() => { if (strip) strip.style.transition = ''; if (zone) zone.style.transition = ''; }, 450);
+   return () => clearTimeout(done);
+ }, [d3Content, handleFeedScroll]);
 
  // Init strip width and wire outer scroll → layout animation
  useEffect(() => {

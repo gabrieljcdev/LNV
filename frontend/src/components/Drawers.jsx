@@ -4,6 +4,8 @@ import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 import { FavHeart } from './Collect'
 import ReleasePreview from './ReleasePreview'
+import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
+import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
@@ -33,15 +35,11 @@ const uniq = a => [...new Set(a.filter(Boolean))]
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 function useBrowse() {
-  return useQuery({
-    queryKey: ['posts', 'browse'],
-    queryFn: async () => { const r = await fetch(`${API}/posts/browse`); if (!r.ok) throw new Error(r.status); return r.json() },
-    staleTime: 60_000,
-  })
+  return useQuery(browseQueryOptions)
 }
 
 // Same rule as Feed.jsx's isLiveSetPost: typed as one, or titled like one.
-const isLiveSet = p => p.post_type === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
+const isLiveSet = p => p.post_type ? p.post_type === 'livemix' : /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 
 // Who played, where, and when — from the channel field when the poster
 // filled it in, otherwise read out of the title, which is where older sets
@@ -82,7 +80,7 @@ export function DrawerHead({ title, count, crumb, onBack, filter, setFilter, act
         {crumb && (
           <button onClick={onBack} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: MONO, fontSize: 12.5, color: SEC, cursor: 'pointer', flexShrink: 0 }}>← {crumb}</button>
         )}
-        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1.05, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{title}</h2>
         {action}
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{count}</span>
         <button onClick={close} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: `1px solid ${LINE}`, background: FILL, color: SEC, cursor: 'pointer', fontSize: 17, flexShrink: 0, alignSelf: 'center' }}>×</button>
@@ -147,7 +145,10 @@ function CoverStack({ posts }) {
 // feed to it (and closes the drawer).
 function PostRow({ post, right }) {
   const { jump } = useDrawerNav()
-  const artist = post.artists.filter(a => !isVarious(a))[0] || post.artists[0] || ''
+  // A "Various" release says who is on it: the artists named on its tracks ("A, B, C +4").
+  const named = post.artists.filter(a => !isVarious(a))[0]
+  const onIt = !named && post.track_artists?.length ? post.track_artists : null
+  const artist = onIt ? onIt.slice(0, 3).join(', ') + (onIt.length > 3 ? ` +${onIt.length - 3}` : '') : (named || post.artists[0] || '')
   return (
     <Row onClick={() => jump(post.id)}>
       {h => <>
@@ -181,15 +182,33 @@ function Tags({ names, kind = 'genres' }) {
 }
 
 const Empty = ({ children }) => <p style={{ fontFamily: SANS, fontSize: 15, color: SEC, padding: '20px 0', margin: 0 }}>{children}</p>
-const Loading = () => <p style={{ fontFamily: MONO, fontSize: 12.5, color: TER, padding: `24px ${PADX}px`, margin: 0 }}>Loading…</p>
+const SKEL = 'color-mix(in srgb, var(--theme-text-pri) 14%, transparent)' // visible on every theme (FILL, at 7%, vanished on the light ones)
+// A drawer waiting for its data shows the shape of what is coming (pulsing rows), not a blank panel.
+const SkeletonRows = ({ n = 9 }) => (
+  <div role="status" aria-label="Loading" style={{ display: 'grid', gap: 4 }}>
+    <style>{'@keyframes lnvPulse { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
+    {Array.from({ length: n }, (_, i) => (
+      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', animation: `lnvPulse 1.4s ease-in-out ${i * 0.08}s infinite` }}>
+        <span style={{ width: 42, height: 42, borderRadius: 10, background: SKEL, flexShrink: 0 }} />
+        <span style={{ flex: 1, display: 'grid', gap: 7 }}>
+          <span style={{ height: 12, width: `${48 + (i * 17) % 34}%`, borderRadius: 6, background: SKEL }} />
+          <span style={{ height: 10, width: `${28 + (i * 23) % 30}%`, borderRadius: 5, background: SKEL }} />
+        </span>
+      </div>
+    ))}
+  </div>
+)
+const Loading = () => <div style={{ padding: `18px 30px 0 ${PADX}px` }}><SkeletonRows /></div>
 
 const matches = (q, ...fields) => !q || fields.some(f => String(f || '').toLowerCase().includes(q.toLowerCase()))
 
 // Artists or labels: A–Z with letter headings, most posted, or recently posted.
-function NameList({ groups, sort, filter, sub, onOpen, noun }) {
+// `totalOf(name, posts)`: the size of that artist's / label's Discogs catalogue, when it's known.
+const postCount = ps => ps.reduce((n, p) => n + (p.discogsOnly ? 0 : 1), 0)
+function NameList({ groups, sort, filter, sub, onOpen, noun, totalOf }) {
   let rows = [...groups.entries()].filter(([name, ps]) => matches(filter, name, sub(ps)))
-  rows.sort(sort === 'count' ? (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
-    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id
+  rows.sort(sort === 'count' ? (a, b) => postCount(b[1]) - postCount(a[1]) || a[0].localeCompare(b[0])
+    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id  // real posts come first in a group; imported records have negative ids
     : (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
   if (!rows.length) return <Empty>No {noun} match “{filter}”.</Empty>
   let last = ''
@@ -205,7 +224,10 @@ function NameList({ groups, sort, filter, sub, onOpen, noun }) {
           <span style={{ fontFamily: SANS, fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub(ps)}</span>
         </span>
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.5, fontVariantNumeric: 'tabular-nums' }}>
-          {plural(ps.length, 'post')}<br />latest {pad(ps[0].id)}
+          {(() => {
+            const total = totalOf?.(name, ps)
+            return <>{plural(postCount(ps), 'post')}<br />{total != null ? `${total.toLocaleString('en-GB')} in catalogue` : ''}</>
+          })()}
         </span>
       </Row>
     )]
@@ -248,8 +270,16 @@ function rolePillStyle(group) {
   return { ...base, color: group === 'guest' ? TER : PRI, borderColor: group === 'guest' ? LINE : SEC, borderStyle: group === 'prod' ? 'dashed' : 'solid' }
 }
 
-function Discography({ kind, id, name, allPosts }) {
+function Discography({ kind, id: idFromPosts, name, allPosts }) {
   const { jump } = useDrawerNav()
+  // A track artist or remixer has no Discogs id on the post: look the name up (exact single match only).
+  const { data: found } = useQuery({
+    queryKey: ['discogs-artist-id', name],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/artist-id?name=${encodeURIComponent(name)}`); return r.ok ? (await r.json()).id : null },
+    enabled: kind === 'artist' && !idFromPosts && !!name,
+    staleTime: Infinity,
+  })
+  const id = idFromPosts || found || null
   const [openRel, setOpenRel] = useState(null) // 'type:id' of the release open in place
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
@@ -316,7 +346,7 @@ function Discography({ kind, id, name, allPosts }) {
         {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
       </label>
     )}
-    {!first ? (pages.isLoading || pages.isFetching ? <Empty>Pulling the Discogs catalogue…</Empty> : (
+    {!first ? (pages.isLoading || pages.isFetching ? <><Empty>Pulling the Discogs catalogue…</Empty><SkeletonRows n={5} /></> : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '20px 0' }}>
         <span style={{ fontFamily: SANS, fontSize: 15, color: SEC }}>Couldn’t load the catalogue — Discogs didn’t answer.</span>
         {/* A fresh start, not refetch(): a retry paused while the tab was hidden would just keep waiting. */}
@@ -364,20 +394,27 @@ function Discography({ kind, id, name, allPosts }) {
 }
 
 // ── Artists ───────────────────────────────────────────────────────────────────
-export function ArtistsDrawer({ filter: initial }) {
+export function ArtistsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Artists" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
-  const groups = group(records, p => p.artists.filter(a => !isVarious(a)))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
+  // A compilation sits under every artist on its tracks too, not only the post's own artist.
+  const groups = group(records, p => [...p.artists, ...(p.track_artists || [])].filter(a => !isVarious(a)))
 
   if (selected) {
     const ps = groups.get(selected) || []
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -387,7 +424,8 @@ export function ArtistsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="newest first" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="artist" id={discogsIdOf('artist', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -399,8 +437,26 @@ export function ArtistsDrawer({ filter: initial }) {
   }
   return <>
     <DrawerHead title="Artists" count={plural(groups.size, 'artist')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} /></DrawerBody>
+    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} totalOf={(name, ps) => totals?.artist?.[discogsIdOf('artist', name, ps)] ?? null} /></DrawerBody>
   </>
+}
+
+// Your imported Discogs records under an artist or label: open one in place, like the discography rows.
+function MineRows({ records }) {
+  const [open, setOpen] = useState(null)
+  return records.map(p => (
+    <div key={p.id}>
+      <Row onClick={() => setOpen(open === p.discogs_id ? null : p.discogs_id)} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '7px 10px', ...(open === p.discogs_id ? { background: HOVER } : null) }}>
+        <Cover src={p.cover} size={40} radius={8} />
+        <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+          <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.artists.join(', '), p.labels[0]?.name, p.labels[0]?.catno].filter(Boolean).join(' · ')}</span>
+        </span>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{p.year || ''}{p.lists?.includes('wantlist') && !p.lists.includes('collection') ? ' · want' : ''}</span>
+      </Row>
+      {open === p.discogs_id && <ReleasePreview release={{ id: p.discogs_id, type: 'release', thumb: p.cover, year: p.year }} artistName={p.artists[0] || ''} />}
+    </div>
+  ))
 }
 
 const ExtLink = ({ href, children }) => (
@@ -408,20 +464,26 @@ const ExtLink = ({ href, children }) => (
 )
 
 // ── Labels ────────────────────────────────────────────────────────────────────
-export function LabelsDrawer({ filter: initial }) {
+export function LabelsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Labels" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.labels.map(l => l.name))
   const artistsOf = ps => uniq(ps.flatMap(p => p.artists.filter(a => !isVarious(a))))
 
   if (selected) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />
@@ -431,7 +493,8 @@ export function LabelsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="by year" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="label" id={discogsIdOf('label', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
@@ -440,17 +503,20 @@ export function LabelsDrawer({ filter: initial }) {
   }
   return <>
     <DrawerHead title="Labels" count={plural(groups.size, 'label')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} /></DrawerBody>
+    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} totalOf={(name, ps) => totals?.label?.[discogsIdOf('label', name, ps)] ?? null} /></DrawerBody>
   </>
 }
 
 // ── Genres ────────────────────────────────────────────────────────────────────
 // Grouped the way Discogs does it: each genre with a bar for its share of
 // the feed, and the styles posted under it beneath.
-export function GenresDrawer({ filter: initial }) {
+export function GenresDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Genres" count="" /><Loading /></>
   const records = data.filter(p => !isLiveSet(p))
   const groups = group(records, p => p.genres)
@@ -504,12 +570,14 @@ export function GenresDrawer({ filter: initial }) {
 // ── Live sets ─────────────────────────────────────────────────────────────────
 // `filter` (2026-10-02): a live-set card's DJ name opens the drawer
 // already filtered to that DJ's sets.
-export function LiveDrawer({ filter: initial }) {
+export function LiveDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { jump } = useDrawerNav()
   const [filter, setFilter] = useState(initial || '')
   const [where, setWhere] = useState('all')
   const [sort, setSort] = useState('dj') // 'dj' = grouped by DJ, 'new' = one list, newest first
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) setFilter(initial) }
   if (isLoading || !data) return <><DrawerHead title="Live sets" count="" /><Loading /></>
   const sets = data.filter(isLiveSet).map(p => ({ ...p, ...liveInfo(p) }))
   // Same DJ, place and date posted more than once: flag the later ones.
@@ -569,9 +637,15 @@ export function AboutDrawer() {
   const p = { fontFamily: SANS, fontSize: 16, lineHeight: 1.55, color: SEC, margin: '0 0 8px', maxWidth: '46ch' }
   const kbd = { fontFamily: MONO, fontSize: 12.5, border: `1px solid ${LINE}`, borderRadius: 4, padding: '0 5px' }
   return <>
-    <DrawerHead title="About" count="est. 2024" />
+    <DrawerHead title="About" count="est. 2026" />
     <DrawerBody>
-      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways, and the best way to see what other people are digging. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <h3 style={h3}>Discover users and listen to their collections</h3>
+      <p style={p}>Open anyone’s name to see their whole shelf: what they’ve posted, kept and highlighted, and the playlists they’ve made. Follow the people whose taste you trust and their records turn up in your feed. Friends’ shelves are the quickest way to find something you didn’t know you wanted, and the big catalogue is there for when you want to go deep.</p>
+      <p style={p}>Make playlists, share them, and connect your Discogs name: your collection and wantlist come in as playlists you can dig through (private to you for now; sharing them with friends is next).</p>
+      <h3 style={h3}>A database the community builds</h3>
+      <p style={p}>Discogs gives every record its details, but the music itself is a link somebody found. Finding a playable link for every track is more than any one site can pay for, so this shelf is built by the people who use it. If a track has no player, look for <b style={{ color: PRI }}>Know where this is? Add a link</b> under it and paste a YouTube, SoundCloud or Spotify link.</p>
+      <p style={p}>We check the link’s own title against the track. A good match plays for everyone straight away, with your name on it; an unsure one waits for two other people to say it’s right. Posting a record, adding a link, confirming one, highlighting a track and building a playlist all help the next person dig.</p>
       <h3 style={h3}>Finding your way</h3>
       <ul style={{ margin: 0, paddingLeft: 18, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.7 }}>
         <li>Scroll or drag to move along the feed.</li>
@@ -579,6 +653,10 @@ export function AboutDrawer() {
         <li>The search finds artists, labels, genres, tracks and catalogue numbers.</li>
         <li>Click a cover to play it, or a track to play that one. ▶ on the strip plays something at random.</li>
       </ul>
+      <h3 style={h3}>Highlights and replies</h3>
+      <p style={p}>Tap ☆ on a track to highlight it. The poster picks the track they’re posting the record for, and everyone else can highlight the one they’d play, so a record’s best moments show up on the card. Replies sit under the post; the 🔒 sends one privately to whoever posted it. You can delete your own replies.</p>
+      <h3 style={h3}>Playlists and your Discogs shelf</h3>
+      <p style={p}>Add any track to a playlist with +. Playlists on a profile show up on the posts they contain (“In playlists”). Connect your Discogs name and your collection and wantlist become private playlists of their own.</p>
       {/* 2026-10-04: the players are the platforms' own, ads included — so
           point people at the ways to hear them without. No ad-blocker
           suggestions: the YouTube embed terms forbid encouraging that. */}
@@ -590,7 +668,7 @@ export function AboutDrawer() {
         <li><b style={{ color: PRI }}>Bandcamp has no ads</b> — and buying there pays artists directly. Look for the BUY ↗ link on a card.</li>
       </ul>
       <h3 style={h3}>Posting</h3>
-      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Add a post title and a few lines on why it matters.</p>
+      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud, Bandcamp, Apple Music, Deezer or Tidal link, and the form fills itself in. Then say something about it: a line is enough, and it’s what starts the conversation. Prefer to write more? Choose “write a full post” for a title and a description.</p>
       {/* 2026-10-05: the introductions' rules, in full (Collect.jsx IntroCard,
           backend collectionsService introductionsFor). Keep them in step. */}
       <h3 style={h3}>Introductions <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', border: `1px solid ${LINE}`, borderRadius: 99, padding: '1px 7px', verticalAlign: 'middle' }}>α ALPHA</span></h3>

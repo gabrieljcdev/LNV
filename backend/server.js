@@ -16,6 +16,9 @@ import adminRoutes from './routes/admin.js';
 import feedRoutes from './routes/feeds.js';
 import wallRoutes from './routes/walls.js';
 import playlistRoutes from './routes/playlists.js';
+import discogsAccountRoutes from './routes/discogsAccount.js';
+import { startDiscogsAccountKeeper } from './services/discogsAccount.js';
+import { startNameResolver } from './services/entityNameResolver.js';
 import communityRoutes from './routes/community.js';
 import { requestLogger, startLogPruning, logEvent } from './services/logService.js';
 import { attachUser } from './middleware/auth.js';
@@ -27,13 +30,19 @@ import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
 import { startLinkHealth } from './services/linkHealth.js';
+import { startSpareQuota } from './services/spareQuota.js';
+import db from './db/database.js';
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500 });
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+// Behind Caddy every request arrives from the proxy; trust its X-Forwarded-For so the rate limit and the
+// request log see the real visitor, not one shared address. (Only the one hop in front of us.)
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+// The site and /api share one address in production (Caddy), so CORS only matters for the dev server.
+app.use(cors({ origin: process.env.NODE_ENV === 'production' ? (process.env.FRONTEND_URL || false) : 'http://localhost:5173' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', limiter);
 app.use('/api', attachUser); // req.user from the Bearer token (or null)
@@ -52,6 +61,7 @@ app.use('/api/admin',   adminRoutes);
 app.use('/api/feeds',   feedRoutes);
 app.use('/api/walls',   wallRoutes);
 app.use('/api/playlists', playlistRoutes);
+app.use('/api/discogs-account', discogsAccountRoutes);
 app.use('/api/community', communityRoutes);
 
 app.get('/api/health', (req, res) => {
@@ -60,13 +70,15 @@ app.get('/api/health', (req, res) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
   logEvent('info', 'system', 'Backend started');
   startLogPruning();
   startDiscogsMatcher();
   // Fill the Discogs catalogues and YouTube channels in quiet moments.
   startCatalogueKeeper();
+  startDiscogsAccountKeeper();
+  startNameResolver();
   // Fold duplicate pressings in the catalogues, checked against Discogs.
   startCatalogueComber();
   startChannelKeeper();
@@ -77,4 +89,15 @@ app.listen(PORT, () => {
   startLinkHealth();
   // Fill what those leave: missing ids, genres, years, tracklists, links.
   startGapSweeper();
+  // In the last hours of YouTube's quota day, spend the units the day did not use on links people want.
+  startSpareQuota();
 });
+
+// A stop (deploy, reboot, `systemctl restart`) closes the database cleanly so the WAL is checkpointed.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    logEvent('info', 'system', `Backend stopping (${sig})`);
+    server.close(() => { try { db.close(); } catch { /* already closed */ } process.exit(0); });
+    setTimeout(() => process.exit(0), 5000).unref();
+  });
+}

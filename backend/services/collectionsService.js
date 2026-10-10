@@ -233,7 +233,9 @@ export function profileOf(ownerId, viewerId) {
     ];
   };
   const playlistRow = p => ({ id: p.id, name: p.name, kind: p.kind, shown: !!p.on_profile, share_token: p.share_token, is_default: !!p.is_default,
-    track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c });
+    track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c,
+    // Discogs collection / wantlist playlists hold records, not tracks (services/discogsAccount.js).
+    ...(p.kind === 'collection' || p.kind === 'wantlist' ? { release_count: db.prepare('SELECT COUNT(*) c FROM playlist_releases WHERE playlist_id = ?').get(p.id).c } : {}) });
   const out = {
     username: u.username, bio: u.bio || '', member_since: u.created_at, is_owner: own,
     post_count: wallStats(ownerId).post_count,
@@ -242,7 +244,7 @@ export function profileOf(ownerId, viewerId) {
     artists: ledBy(favs.artist, tally('post_artists', 'artist_name', ownerId, 12), 6),
     labels: ledBy(favs.label, postedLabels(ownerId), 6),
     channels: favs.channel.map(name => ({ name, favourite: true })),
-    playlists: db.prepare('SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow),
+    playlists: db.prepare("SELECT * FROM playlists WHERE owner_id = ? AND on_profile = 1 AND kind NOT IN ('collection', 'wantlist') ORDER BY is_default DESC, created_at").all(ownerId).map(playlistRow),
     // Who they follow, newest first — a friends list to explore (2026-10-05).
     follows: (() => {
       const rows = db.prepare('SELECT u.username FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY f.created_at DESC, u.username').all(ownerId);
@@ -253,7 +255,7 @@ export function profileOf(ownerId, viewerId) {
     out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow);
     out.private = {
       hearted: db.prepare('SELECT COUNT(DISTINCT j.user_id) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ?').get(ownerId).c,
-      replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,
+      replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ? AND c.private = 0').get(ownerId, ownerId).c,
     };
   } else if (viewerId) {
     out.following = !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(viewerId, ownerId);

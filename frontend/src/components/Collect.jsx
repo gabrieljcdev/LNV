@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
+import { DiscogsSetting } from './DiscogsConnect'
+import { askText } from './Dialogs'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
@@ -96,7 +98,8 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   if (!tracks.length) return null
   const chosen = picked ? tracks.filter((_, i) => picked.has(i)) : tracks
   const toggle = i => setPicked(prev => { const s = new Set(prev ?? tracks.map((_, k) => k)); if (s.has(i)) s.delete(i); else s.add(i); return s })
-  const lists = playlists.filter(p => p.role)
+  // Tracks can't be added to the Discogs collection / wantlist lists (they hold records): left out of the menu.
+  const lists = playlists.filter(p => p.role && p.release_count == null)
   async function addTo(id, name) {
     if (!chosen.length) return setNote('Tick at least one track.')
     try {
@@ -119,7 +122,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
     setTimeout(() => setFlash(null), 1600)
   }
   async function addToNew() {
-    const name = window.prompt('Name the new playlist')
+    const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno, Sunday mornings', ok: 'Create', maxLength: 60 })
     if (!name || !name.trim()) return
     try { const p = await playlistsApi.create(name); await addTo(p.id, p.name) } catch (err) { setNote(err.message) }
   }
@@ -459,6 +462,7 @@ export function WallCard({ username, compact = false, friends }) {
       )}
       {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
       {owner && friends && <BoardsSetting pri={pri} ter={ter} fill={fill} />}
+      {owner && friends && <DiscogsSetting pri={pri} ter={ter} fill={fill} />}
 
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
@@ -538,7 +542,7 @@ export function WallCard({ username, compact = false, friends }) {
             <button key={pl.id} onClick={() => openD3?.('playlists', { open: pl.id })}
               style={{ ...plain, display: 'flex', alignItems: 'baseline', gap: 12, padding: '10px 14px', borderRadius: 14, background: fill(12), color: pri, fontSize: 14, textAlign: 'left' }}>
               <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
-              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.track_count} tracks{pl.is_default ? ' · default' : ''} · open</span>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter, whiteSpace: 'nowrap' }}>{pl.release_count != null ? `${pl.release_count} record${pl.release_count === 1 ? '' : 's'}` : `${pl.track_count} tracks`}{pl.is_default ? ' · default' : ''} · open</span>
             </button>
           ))}
         </div>
@@ -553,7 +557,7 @@ export function WallCard({ username, compact = false, friends }) {
           <button key={pl.id} onClick={() => openD3?.('playlists', { token: pl.share_token })}
             style={{ ...plain, display: 'flex', flexDirection: compact ? 'row' : 'column', justifyContent: 'space-between', alignItems: compact ? 'baseline' : 'flex-start', gap: 3, padding: compact ? '13px 14px' : 12, borderRadius: compact ? 14 : 16, background: fill(12), color: pri, textAlign: 'left' }}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{pl.name}</span>
-            <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.track_count} tracks · listen</span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{pl.release_count != null ? `${pl.release_count} record${pl.release_count === 1 ? '' : 's'}` : `${pl.track_count} tracks`} · listen</span>
           </button>
         ))}
       </div>
@@ -664,7 +668,7 @@ export function WelcomeCard({ compact = false }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <span style={head}>Welcome</span>
       <h1 style={{ margin: 0, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 0.95, letterSpacing: '-0.02em' }}>Late Night Vibes</h1>
-      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. Discover other people, listen to their collections, and build the database together.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
         <a href="/login?tab=create" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, background: pri, color: 'var(--theme-showcase)', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Create an account</a>
         <a href="/login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, border: `1px solid ${fill(45)}`, color: pri, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>Log in</a>
@@ -693,9 +697,9 @@ export function WelcomeCard({ compact = false }) {
       <section>
         <h2 style={head}>With an account</h2>
         <ul style={list}>
-          <li>{b('Post')} a record from a link.</li>
-          <li>{b('♥ a record')} to keep it in your feed.</li>
-          <li>{b('Follow people')} to see what they're posting — your feed is newest first, no algorithm.</li>
+          <li>{b('Post')} a record from a link, with a line on why.</li>
+          <li>{b('Discover users')} and listen to their collections: follow people, make playlists, bring in your Discogs.</li>
+          <li>{b('Add a link')} to a track with no player. It's a community-built database, so every link you find plays for everyone.</li>
         </ul>
       </section>
       <button onClick={() => openD3?.('about')} style={{ ...plain, alignSelf: 'flex-start', fontSize: 14, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>More in About →</button>
@@ -939,7 +943,7 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
   const lists = playlists.filter(p => p.track_count > 0).slice(0, 8)
   const atHome = mode.type === homeMode().type
   return (
-    <div ref={ref} style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
+    <div ref={ref} data-float-top="" style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
       {otherWall && !noFollow && <FollowButton username={mode.username} />}
       <button onClick={() => setOpen(v => !v)} aria-haspopup="menu" aria-expanded={open} title="Choose a feed"
         style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 240, background: atHome ? 'var(--theme-dark3)' : 'var(--theme-accent)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', cursor: 'pointer',
