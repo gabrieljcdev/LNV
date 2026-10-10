@@ -494,7 +494,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
               <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
                 {stampShort(c.created_at)}
                 {c.private ? <><br /><span style={{ color: 'var(--theme-accent)' }}>🔒 private</span></> : null}
-                {canDelete(c) ? <><br /><button onClick={() => remove(c)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)', textDecoration: 'underline' }}>delete</button></> : null}
+                {canDelete(c) ? <><br /><button onClick={() => remove(c)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></> : null}
               </span>
             </div>
           ) : (
@@ -1757,7 +1757,7 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
             <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
             <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
               {stampShort(c.created_at)}
-              {canDelete(c) && <><br /><button onClick={() => remove(c)} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)', textDecoration: 'underline' }}>delete</button></>}
+              {canDelete(c) && <><br /><button onClick={() => remove(c)} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></>}
             </span>
           </div>
         ))}
