@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
@@ -415,6 +416,29 @@ function PostTitle({ post, labelStyle }) {
   )
 }
 
+// A small confirmation that opens beside the cursor (instead of the browser's own box). Esc or a click elsewhere cancels.
+function ConfirmPop({ at, message, detail, confirmLabel = 'Delete', onConfirm, onCancel }) {
+  useEffect(() => {
+    const away = e => { if (!e.target.closest?.('[data-confirm-pop]')) onCancel() }
+    const esc = e => { if (e.key === 'Escape') onCancel() }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [onCancel])
+  const W = 250
+  const left = Math.min(Math.max(at.x - W / 2, 12), window.innerWidth - W - 12)
+  const above = at.y > window.innerHeight - 170 // near the bottom of the screen: open upwards
+  return createPortal(
+    <div data-confirm-pop="" role="alertdialog" aria-label={message}
+      style={{ position: 'fixed', zIndex: 10000, left, top: above ? at.y - 14 : at.y + 14, transform: above ? 'translateY(-100%)' : 'none', width: W, background: 'var(--theme-bg)', color: 'var(--theme-text-pri)', border: '1px solid var(--theme-border)', borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,0.38)', padding: '14px 16px 12px', fontFamily: 'Barlow, sans-serif' }}>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>{message}</div>
+      {detail && <div style={{ marginTop: 4, fontSize: 13, lineHeight: 1.35, color: 'var(--theme-text-sec)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{detail}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button autoFocus onClick={onConfirm} style={{ flex: 1, border: 'none', borderRadius: 99, background: 'var(--theme-accent)', color: '#fff', padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{confirmLabel}</button>
+        <button onClick={onCancel} style={{ flex: 1, border: '1px solid var(--theme-border)', borderRadius: 99, background: 'none', color: 'var(--theme-text-sec)', padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Cancel</button>
+      </div>
+    </div>, document.body)
+}
+
 // ── Comments ──────────────────────────────────────────────────────────────────
 
 function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, drawer = false, ownerName = null }) {
@@ -423,6 +447,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [priv, setPriv] = useState(false) // the next reply goes to the post's owner only
+  const [ask, setAsk] = useState(null) // the delete pop-up: where it opens and which comment
 
   useEffect(() => {
     let cancelled = false
@@ -437,7 +462,6 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
   const meName = getUser()
   const canDelete = c => !!meName && (c.username === meName || ownerName === meName || isAdmin())
   async function remove(c) {
-    if (!window.confirm('Delete this comment?')) return
     try {
       const res = await fetch(`${API}/posts/${postId}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
       if (!res.ok) throw new Error(String(res.status))
@@ -494,7 +518,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
               <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
                 {stampShort(c.created_at)}
                 {c.private ? <><br /><span style={{ color: 'var(--theme-accent)' }}>🔒 private</span></> : null}
-                {canDelete(c) ? <><br /><button onClick={() => remove(c)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></> : null}
+                {canDelete(c) ? <><br /><button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></> : null}
               </span>
             </div>
           ) : (
@@ -526,6 +550,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
         <a href="/login" style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>
       )}
       {error && <div style={{ fontFamily: 'VT323, monospace', fontSize: 10, color: 'var(--theme-accent)', marginTop: 4 }}>{error}</div>}
+      {ask && <ConfirmPop at={ask} message="Delete this comment?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
     </div>
   )
 }
@@ -1705,6 +1730,7 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
   const [busy, setBusy] = useState(false)
   const [priv, setPriv] = useState(false)
   const [sentNote, setSentNote] = useState('')
+  const [ask, setAsk] = useState(null) // the delete pop-up: where it opens and which comment
   const me = getUserId()
   const meName = getUser()
   const regionRef = useRef(null)
@@ -1725,7 +1751,6 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
     return () => ro.disconnect()
   }, [latest.length, size, fill])
   async function remove(c) {
-    if (!window.confirm('Delete this comment?')) return
     try {
       const res = await fetch(`${API}/posts/${post.id}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
       if (!res.ok) throw new Error(String(res.status))
@@ -1757,7 +1782,7 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
             <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
             <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
               {stampShort(c.created_at)}
-              {canDelete(c) && <><br /><button onClick={() => remove(c)} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></>}
+              {canDelete(c) && <><br /><button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></>}
             </span>
           </div>
         ))}
@@ -1774,6 +1799,7 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
         </> : <a href="/login" style={{ flex: 1, alignSelf: 'center', fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
         {count > 0 && <button onClick={onOpen} style={{ alignSelf: 'center', background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
       </div>
+      {ask && <ConfirmPop at={ask} message="Delete this comment?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
     </div>
   )
 }
