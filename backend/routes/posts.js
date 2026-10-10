@@ -352,7 +352,11 @@ router.post('/', requireAuth, (req, res, next) => {
     const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
     for (const g of genres) ig.run(postId, g);
     const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const t of withoutHeadings(tracks)) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+    const pick = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)');
+    for (const t of withoutHeadings(tracks)) {
+      const row = it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+      if (t.highlight) pick.run(row.lastInsertRowid, user_id); // the track(s) the poster is posting the record for
+    }
     // A link that can't play (embedding switched off, removed) is cleared a moment after saving.
     setTimeout(() => checkPostLinks(postId).catch(() => {}), 1500);
     // Look for every free place the tracks can be played, in the background.
@@ -413,9 +417,24 @@ router.patch('/:id', requireAuth, (req, res, next) => {
         for (const g of genres) if (g) ig.run(id, g);
       }
       if (Array.isArray(tracks)) {
+        // Everyone's highlights survive an edit (the tracks are re-added with new ids): remember them by position + title.
+        const saved = db.prepare('SELECT t.position, t.title, h.user_id, h.created_at FROM track_highlights h JOIN post_tracks t ON t.id = h.post_track_id WHERE t.post_id = ?').all(id);
         db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
         const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        for (const t of withoutHeadings(tracks)) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+        const restore = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id, created_at) VALUES (?, ?, ?)');
+        const byKey = new Map();
+        const editorIsPoster = req.user.id === post.user_id;
+        for (const t of withoutHeadings(tracks)) if (t?.title) {
+          const row = it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+          byKey.set(`${t.position || ''}|${t.title}`, row.lastInsertRowid);
+          // The poster's own picks come from the edit form when the poster is the one editing.
+          if (editorIsPoster && t.highlight) restore.run(row.lastInsertRowid, post.user_id, new Date().toISOString().slice(0, 19).replace('T', ' '));
+        }
+        for (const h of saved) {
+          if (editorIsPoster && h.user_id === post.user_id) continue; // decided by the form above
+          const nid = byKey.get(`${h.position || ''}|${h.title}`);
+          if (nid) restore.run(nid, h.user_id, h.created_at);
+        }
         setTimeout(() => checkPostLinks(id).catch(() => {}), 1500);
       }
     })();

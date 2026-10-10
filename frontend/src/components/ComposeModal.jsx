@@ -114,7 +114,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [label, setLabel] = useState(editPost?.labels?.[0]?.label_name || '')
  const [catNo, setCatNo] = useState(editPost?.labels?.[0]?.catalogue_number || '')
  const [genres, setGenres] = useState(editPost?.genres || [])
- const [tracks, setTracks] = useState(() => withoutHeadings(editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '' })))
+ const [tracks, setTracks] = useState(() => withoutHeadings(editPost?.tracks || []).map(t => ({ position: t.position || '', title: t.title, duration: t.duration || '', stream_url: t.stream_url || t.youtube_url || '', highlight: (t.highlightedBy || []).includes(getUser()) })))
  const [comment, setComment] = useState(editPost?.notes || '')
  // The poster's own headline, shown above the description on the card.
  const [postTitle, setPostTitle] = useState(editPost?.post_title || '')
@@ -619,15 +619,17 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
 
  {!isLiveMix && (
  <>
- <div style={zlabel}><span>Tracklist</span><span>{tracks.length ? `${linkCount} / ${tracks.length} playable` : ''}</span></div>
+ <div style={zlabel}><span>Tracklist{tracks.length > 1 ? ' · ☆ the track you’re posting it for' : ''}</span><span>{tracks.length ? `${tracks.filter(x => x.highlight).length ? `${tracks.filter(x => x.highlight).length} highlighted · ` : ''}${linkCount} / ${tracks.length} playable` : ''}</span></div>
  <div style={{ columns: 2, columnGap: 28 }}>
  {tracks.map((t, i) => {
  const tp = detectPlatform(t.stream_url)
  return (
  <div key={i} style={{ breakInside: 'avoid', padding: '3.5px 0' }}>
- <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 14px', gap: 10, alignItems: 'baseline' }}>
+ <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 18px 14px', gap: 10, alignItems: 'baseline' }}>
  <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: 'var(--theme-text-ter)' }}>{t.position || i + 1}</span>
  <input className="lnvc-f" value={t.title} onChange={e => updateTrack(i, { title: e.target.value })} placeholder="Track title" style={{ fontFamily: 'Barlow, sans-serif', fontSize: 13, color: 'var(--theme-text-sec)' }} />
+ <button onClick={() => updateTrack(i, { highlight: !t.highlight })} title={t.highlight ? 'Highlighted — this is a track you’re posting the record for' : 'Highlight this track: the one you’re posting the record for'} aria-pressed={!!t.highlight}
+ style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', alignSelf: 'center', fontSize: 15, lineHeight: 1, color: t.highlight ? 'var(--theme-accent)' : 'var(--theme-text-ter)' }}>{t.highlight ? '★' : '☆'}</button>
  <button onClick={() => setOpenTrack(o => (o === i ? null : i))} title={t.stream_url ? 'Playable — edit link' : 'No link — add one'} style={{ width: 8, height: 8, padding: 0, borderRadius: '50%', border: 'none', cursor: 'pointer', alignSelf: 'center', background: t.stream_url ? (tp?.color || '#4caf50') : 'var(--theme-border)' }} />
  </div>
  {openTrack !== i && t.stream_url && (
