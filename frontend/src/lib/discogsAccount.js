@@ -37,22 +37,23 @@ export function useDiscogsAccount() {
 }
 
 /** { artist: { [discogsId]: total }, label: { ... } } — the size of each crawled catalogue, for the Artists and Labels tabs. */
+export const catalogueTotalsOptions = {
+  queryKey: ['catalogue-totals'],
+  queryFn: async () => { const r = await fetch(`${API}/discogs/catalogue-totals`); return r.ok ? r.json() : { artist: {}, label: {} } },
+  staleTime: 5 * 60 * 1000,
+}
 export function useCatalogueTotals() {
-  return useQuery({
-    queryKey: ['catalogue-totals'],
-    queryFn: async () => { const r = await fetch(`${API}/discogs/catalogue-totals`); return r.ok ? r.json() : { artist: {}, label: {} } },
-    staleTime: 5 * 60 * 1000,
-  })
+  return useQuery(catalogueTotalsOptions)
 }
 
 /** Your imported records with artist / label ids — the Artists and Labels tabs list these beside the posts. */
+export const discogsRecordsOptions = {
+  queryKey: ['discogs-records'],
+  queryFn: () => call('GET', '/records'),
+  staleTime: 60000,
+}
 export function useDiscogsRecords() {
-  return useQuery({
-    queryKey: ['discogs-records'],
-    queryFn: () => call('GET', '/records'),
-    enabled: isLoggedIn(),
-    staleTime: 60000,
-  })
+  return useQuery({ ...discogsRecordsOptions, enabled: isLoggedIn() })
 }
 
 /** An imported record shaped like the compact post the drawers group (Drawers.jsx), flagged `discogsOnly`. */

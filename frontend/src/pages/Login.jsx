@@ -190,6 +190,16 @@ export default function Login() {
         </form>
       ) : (
         <form onSubmit={onCreate} style={{ display: 'grid', gap: 16 }}>
+          {/* What an account is for (gabriel, 2026-10-10): digging through other people, playlists, your Discogs shelf, and building the link database together. */}
+          <div style={{ display: 'grid', gap: 8, padding: '14px 16px', borderRadius: 18, background: 'color-mix(in srgb, var(--theme-text-pri) 7%, transparent)' }}>
+            <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>Dig with other people</div>
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 7, fontFamily: SANS, fontSize: 14, lineHeight: 1.4, color: 'var(--theme-text-sec)' }}>
+              <li><b style={{ color: 'var(--theme-text-pri)' }}>Find people</b> and look through their shelves: what they post, keep and highlight.</li>
+              <li><b style={{ color: 'var(--theme-text-pri)' }}>Make playlists</b> and share them with friends.</li>
+              <li><b style={{ color: 'var(--theme-text-pri)' }}>Bring in your Discogs</b> collection and wantlist as playlists. They’re private to you; sharing them with friends is coming.</li>
+              <li><b style={{ color: 'var(--theme-text-pri)' }}>Help build it.</b> This is a community-built database: post a record, add a link to a track with none, highlight your favourite.</li>
+            </ul>
+          </div>
           <label style={label}>Username {errFor('username')}<input style={field} value={form.username} onChange={set('username')} autoComplete="username" autoFocus required minLength={3} maxLength={24} pattern="[A-Za-z0-9_.\-]{3,24}" title="3–24 characters: letters, numbers, . _ or -" /></label>
           <label style={label}>Email {errFor('email')}<input style={field} type="email" value={form.email} onChange={set('email')} autoComplete="email" required /></label>
           <label style={label}>Password {errFor('password')}<input style={field} type="password" value={form.password} onChange={set('password')} autoComplete="new-password" required minLength={8} /></label>

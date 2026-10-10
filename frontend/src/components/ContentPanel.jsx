@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { prefetchDrawers } from '../lib/drawerPrefetch';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
@@ -68,6 +70,7 @@ export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
   const isOpen    = !!d3Content;
   const phone = usePhone();
+  const qc = useQueryClient();
   const activeKey = d3Content ? d3Content + JSON.stringify(d3Props || {}) : null;
   const [entries, setEntries] = useState([]); // { key, content, props, closed, since }  (`since`: when the timer noticed it closed)
 
@@ -79,6 +82,15 @@ export default function ContentPanel() {
     if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null }];
     setEntries(next.slice(-DRAWER_KEEP_MAX));
   }
+
+  // Warm the drawers' data once the page is idle, and again whenever the pointer reaches the left rail (a no-op while the
+  // data is still fresh), so a drawer opens already filled.
+  useEffect(() => {
+    const idle = window.requestIdleCallback ? window.requestIdleCallback(() => prefetchDrawers(qc)) : setTimeout(() => prefetchDrawers(qc), 1200);
+    const warm = () => prefetchDrawers(qc);
+    window.addEventListener('pointermove', warm, { once: true });
+    return () => { window.removeEventListener('pointermove', warm); if (window.cancelIdleCallback && typeof idle === 'number') window.cancelIdleCallback(idle); else clearTimeout(idle); };
+  }, [qc]);
 
   // The 10-minute reset: a timer notices when a drawer has been closed and drops it once it has been closed that long
   // (it checks every 15 seconds, so the reset lands within 15 seconds of the 10 minutes).

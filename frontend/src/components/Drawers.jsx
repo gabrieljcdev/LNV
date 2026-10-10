@@ -5,6 +5,7 @@ import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalog
 import { FavHeart } from './Collect'
 import ReleasePreview from './ReleasePreview'
 import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
+import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
@@ -34,11 +35,7 @@ const uniq = a => [...new Set(a.filter(Boolean))]
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 function useBrowse() {
-  return useQuery({
-    queryKey: ['posts', 'browse'],
-    queryFn: async () => { const r = await fetch(`${API}/posts/browse`); if (!r.ok) throw new Error(r.status); return r.json() },
-    staleTime: 60_000,
-  })
+  return useQuery(browseQueryOptions)
 }
 
 // Same rule as Feed.jsx's isLiveSetPost: typed as one, or titled like one.
@@ -185,7 +182,21 @@ function Tags({ names, kind = 'genres' }) {
 }
 
 const Empty = ({ children }) => <p style={{ fontFamily: SANS, fontSize: 15, color: SEC, padding: '20px 0', margin: 0 }}>{children}</p>
-const Loading = () => <p style={{ fontFamily: MONO, fontSize: 12.5, color: TER, padding: `24px ${PADX}px`, margin: 0 }}>Loading…</p>
+// A drawer waiting for its data shows the shape of what is coming (pulsing rows), not a blank panel.
+const Loading = () => (
+  <div role="status" aria-label="Loading" style={{ padding: `18px 30px 0 ${PADX}px`, display: 'grid', gap: 4 }}>
+    <style>{'@keyframes lnvPulse { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
+    {Array.from({ length: 9 }, (_, i) => (
+      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', animation: `lnvPulse 1.4s ease-in-out ${i * 0.08}s infinite` }}>
+        <span style={{ width: 42, height: 42, borderRadius: 10, background: FILL, flexShrink: 0 }} />
+        <span style={{ flex: 1, display: 'grid', gap: 7 }}>
+          <span style={{ height: 12, width: `${48 + (i * 17) % 34}%`, borderRadius: 6, background: FILL }} />
+          <span style={{ height: 10, width: `${28 + (i * 23) % 30}%`, borderRadius: 5, background: FILL }} />
+        </span>
+      </div>
+    ))}
+  </div>
+)
 
 const matches = (q, ...fields) => !q || fields.some(f => String(f || '').toLowerCase().includes(q.toLowerCase()))
 
@@ -615,7 +626,10 @@ export function AboutDrawer() {
   return <>
     <DrawerHead title="About" count="est. 2024" />
     <DrawerBody>
-      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways, and the best way to see what other people are digging. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <h3 style={h3}>Dig through people, not only catalogues</h3>
+      <p style={p}>Open anyone’s name to see their whole shelf: what they’ve posted, kept and highlighted, and the playlists they’ve made. Follow the people whose taste you trust and their records turn up in your feed. Friends’ shelves are the quickest way to find something you didn’t know you wanted, and the big catalogue is there for when you want to go deep.</p>
+      <p style={p}>Make playlists, share them, and connect your Discogs name: your collection and wantlist come in as playlists you can dig through (private to you for now; sharing them with friends is next).</p>
       <h3 style={h3}>A database the community builds</h3>
       <p style={p}>Discogs gives every record its details, but the music itself is a link somebody found. Finding a playable link for every track is more than any one site can pay for, so this shelf is built by the people who use it. If a track has no player, look for <b style={{ color: PRI }}>Know where this is? Add a link</b> under it and paste a YouTube, SoundCloud or Spotify link.</p>
       <p style={p}>We check the link’s own title against the track. A good match plays for everyone straight away, with your name on it; an unsure one waits for two other people to say it’s right. Posting a record, adding a link, confirming one, highlighting a track and building a playlist all help the next person dig.</p>
