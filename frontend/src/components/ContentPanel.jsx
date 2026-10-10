@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { prefetchDrawers } from '../lib/drawerPrefetch';
+import { isLoggedIn } from '../lib/auth';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
@@ -58,13 +59,17 @@ function FilesPage() {
   );
 }
 
-// Persistent drawers (gabriel, 2026-10-10): clicking off a drawer no longer throws it away. It stays mounted (hidden),
-// so a track playing inside it keeps playing and reopening it puts you back where you were (the artist you had open,
-// the filter you typed, the scroll). A drawer you have left is dropped after DRAWER_KEEP_MS (10 minutes), which resets its
-// place and stops anything playing in it. The newest DRAWER_KEEP_MAX are kept; opening a drawer with a different name
-// ("open Dixon") is its own entry, as it always started fresh.
+// Drawers that are ready before you click (gabriel, 2026-10-10: "pretty much instant on the initial open").
+// The main drawers are built in the background a moment after the page loads, hidden, with their lists already fetched,
+// so opening one is just the slide: nothing to load, nothing to build.
+// They also stay alive when you click off (so a track playing in one keeps playing and reopening puts you back where you
+// were: the artist you had open, the filter you typed, the scroll). A drawer you have been in and left is reset after
+// DRAWER_KEEP_MS (10 minutes): a pre-built one is quietly rebuilt fresh, any other is dropped. Opening a drawer with a
+// name ("open Dixon") is its own entry; the newest DRAWER_KEEP_MAX of those are kept.
 const DRAWER_KEEP_MS = 10 * 60 * 1000;
 const DRAWER_KEEP_MAX = 4;
+const WARM_DRAWERS = ['about', 'artists', 'labels', 'genres', 'live', 'community'];
+const WARM_SIGNED_IN = ['playlists', 'walls'];
 
 export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
@@ -72,34 +77,51 @@ export default function ContentPanel() {
   const phone = usePhone();
   const qc = useQueryClient();
   const activeKey = d3Content ? d3Content + JSON.stringify(d3Props || {}) : null;
-  const [entries, setEntries] = useState([]); // { key, content, props, closed, since }  (`since`: when the timer noticed it closed)
+  // { key, content, props, closed, since, warm, visited, gen }  (`since`: when the timer noticed it closed; `gen`: bumped to rebuild fresh)
+  const [entries, setEntries] = useState([]);
 
-  // When what is open changes, update the kept list in the same render (no flash of an empty panel).
+  // When what is open changes, update the list in the same render (no flash of an empty panel). Order is never changed:
+  // moving a drawer's element in the page would reload any player inside it.
   const [seenKey, setSeenKey] = useState(null);
   if (activeKey !== seenKey) {
     setSeenKey(activeKey);
-    let next = entries.map(e => e.key === activeKey ? { ...e, closed: false, since: null } : { ...e, closed: true });
-    if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null }];
-    setEntries(next.slice(-DRAWER_KEEP_MAX));
+    let next = entries.map(e => e.key === activeKey ? { ...e, closed: false, since: null, visited: true } : { ...e, closed: true });
+    if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null, visited: true, warm: false, gen: 0 }];
+    const keep = new Set(next.filter(e => !e.warm).map(e => e.key).slice(-DRAWER_KEEP_MAX));
+    setEntries(next.filter(e => e.warm || keep.has(e.key)));
   }
 
-  // Warm the drawers' data once the page is idle, and again whenever the pointer reaches the left rail (a no-op while the
-  // data is still fresh), so a drawer opens already filled.
+  // Fetch the drawers' lists right away, then build the drawers one at a time while the browser is idle.
   useEffect(() => {
-    const idle = window.requestIdleCallback ? window.requestIdleCallback(() => prefetchDrawers(qc)) : setTimeout(() => prefetchDrawers(qc), 1200);
-    const warm = () => prefetchDrawers(qc);
-    window.addEventListener('pointermove', warm, { once: true });
-    return () => { window.removeEventListener('pointermove', warm); if (window.cancelIdleCallback && typeof idle === 'number') window.cancelIdleCallback(idle); else clearTimeout(idle); };
+    const ids = [...WARM_DRAWERS, ...(isLoggedIn() ? WARM_SIGNED_IN : [])];
+    let i = 0, cancelled = false, handle = null;
+    const later = fn => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 200));
+    const step = () => {
+      if (cancelled || i >= ids.length) return;
+      const id = ids[i++];
+      setEntries(prev => (prev.some(e => e.key === id + '{}') ? prev : [...prev, { key: id + '{}', content: id, props: {}, closed: true, since: null, warm: true, visited: false, gen: 0 }]));
+      handle = later(step);
+    };
+    prefetchDrawers(qc);
+    const start = setTimeout(() => { handle = later(step); }, 500);
+    return () => { cancelled = true; clearTimeout(start); if (handle != null) { if (window.cancelIdleCallback) window.cancelIdleCallback(handle); else clearTimeout(handle); } };
   }, [qc]);
 
-  // The 10-minute reset: a timer notices when a drawer has been closed and drops it once it has been closed that long
-  // (it checks every 15 seconds, so the reset lands within 15 seconds of the 10 minutes).
+  // The 10-minute reset: a timer notices when a drawer you have been in has been closed, and resets it once it has been
+  // closed that long (it checks every 15 seconds, so the reset lands within 15 seconds of the 10 minutes).
   useEffect(() => {
     const t = setInterval(() => setEntries(prev => {
       const now = Date.now();
-      const marked = prev.map(e => (e.closed ? (e.since ? e : { ...e, since: now }) : (e.since ? { ...e, since: null } : e)));
-      const next = marked.filter(e => !e.closed || now - e.since < DRAWER_KEEP_MS);
-      const changed = next.length !== prev.length || next.some((e, i) => e !== prev[i]);
+      let changed = false;
+      const next = [];
+      for (const e of prev) {
+        const m = e.closed && e.visited ? (e.since ? e : { ...e, since: now }) : (e.since ? { ...e, since: null } : e);
+        if (m !== e) changed = true;
+        if (m.closed && m.visited && m.since && now - m.since >= DRAWER_KEEP_MS) {
+          changed = true;
+          if (m.warm) next.push({ ...m, gen: (m.gen || 0) + 1, visited: false, since: null }); // rebuilt fresh, still ready
+        } else next.push(m);
+      }
       return changed ? next : prev;
     }), 15000);
     return () => clearInterval(t);
@@ -159,7 +181,7 @@ export default function ContentPanel() {
           if (!C) return null;
           const active = isOpen && e.key === activeKey;
           return (
-            <div key={e.key} aria-hidden={!active}
+            <div key={`${e.key}#${e.gen || 0}`} aria-hidden={!active}
               style={active
                 ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
                 : { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', visibility: 'hidden', pointerEvents: 'none' }}>

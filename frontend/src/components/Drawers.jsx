@@ -182,16 +182,17 @@ function Tags({ names, kind = 'genres' }) {
 }
 
 const Empty = ({ children }) => <p style={{ fontFamily: SANS, fontSize: 15, color: SEC, padding: '20px 0', margin: 0 }}>{children}</p>
+const SKEL = 'color-mix(in srgb, var(--theme-text-pri) 14%, transparent)' // visible on every theme (FILL, at 7%, vanished on the light ones)
 // A drawer waiting for its data shows the shape of what is coming (pulsing rows), not a blank panel.
 const Loading = () => (
   <div role="status" aria-label="Loading" style={{ padding: `18px 30px 0 ${PADX}px`, display: 'grid', gap: 4 }}>
     <style>{'@keyframes lnvPulse { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
     {Array.from({ length: 9 }, (_, i) => (
       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', animation: `lnvPulse 1.4s ease-in-out ${i * 0.08}s infinite` }}>
-        <span style={{ width: 42, height: 42, borderRadius: 10, background: FILL, flexShrink: 0 }} />
+        <span style={{ width: 42, height: 42, borderRadius: 10, background: SKEL, flexShrink: 0 }} />
         <span style={{ flex: 1, display: 'grid', gap: 7 }}>
-          <span style={{ height: 12, width: `${48 + (i * 17) % 34}%`, borderRadius: 6, background: FILL }} />
-          <span style={{ height: 10, width: `${28 + (i * 23) % 30}%`, borderRadius: 5, background: FILL }} />
+          <span style={{ height: 12, width: `${48 + (i * 17) % 34}%`, borderRadius: 6, background: SKEL }} />
+          <span style={{ height: 10, width: `${28 + (i * 23) % 30}%`, borderRadius: 5, background: SKEL }} />
         </span>
       </div>
     ))}

@@ -141,6 +141,10 @@ html, body, #root {
     --theme-bg 0.8s ease,
     --theme-sidebar 0.8s ease;
 }
+/* A drawer open: the floating "my feed" switcher and the search box step aside. They sit above the drawer, so on a
+   narrow window they covered its header (the count and the close button). */
+body:has(#lnv-drawer[aria-hidden="false"]) [data-float-top] { opacity: 0; pointer-events: none; }
+[data-float-top] { transition: opacity 0.2s ease; }
 /* ── Stop left panel wheel events from advancing the scroll-outer layout ── */
 #lnv-strip,
 #lnv-drawer,

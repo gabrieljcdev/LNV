@@ -943,7 +943,7 @@ export function FeedSwitcher({ style, menuLeft = false, noFollow = false }) {
   const lists = playlists.filter(p => p.track_count > 0).slice(0, 8)
   const atHome = mode.type === homeMode().type
   return (
-    <div ref={ref} style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
+    <div ref={ref} data-float-top="" style={{ position: 'absolute', top: 16, right: 352, zIndex: 100, display: 'flex', gap: 8, alignItems: 'center', ...style }}>
       {otherWall && !noFollow && <FollowButton username={mode.username} />}
       <button onClick={() => setOpen(v => !v)} aria-haspopup="menu" aria-expanded={open} title="Choose a feed"
         style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 240, background: atHome ? 'var(--theme-dark3)' : 'var(--theme-accent)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', cursor: 'pointer',
