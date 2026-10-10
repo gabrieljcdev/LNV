@@ -1685,8 +1685,8 @@ function shelfLocations(post, tracks) {
 const SHELF_COMP_EXTRA = 280
 // Space between the big post number and the line under it (it travels with the number).
 const NUM_LINE_GAP = 14
-// The shelf card's top and bottom padding: the sleeve keeps its full size (390) and this gives the room to the tracklist rows, replies and people strip (gabriel, 2026-10-10).
-const SHELF_PAD_Y = 44
+// The shelf card's top and bottom padding (equal): enough at the top to clear the floating "my feed" + search bar, the same at the bottom for continuity (gabriel, 2026-10-10). The sleeve keeps its full size (390); the replies strip gives way first when the screen is short.
+const SHELF_PAD_Y = 64
 
 // A person chip: their initial and name; opens their feed.
 function UserChip({ name, d }) {
