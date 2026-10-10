@@ -417,11 +417,12 @@ function PostTitle({ post, labelStyle }) {
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, drawer = false }) {
+function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, drawer = false, ownerName = null }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [priv, setPriv] = useState(false) // the next reply goes to the post's owner only
 
   useEffect(() => {
     let cancelled = false
@@ -433,6 +434,17 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
   }, [postId])
 
   const userId = getUserId()
+  const meName = getUser()
+  const canDelete = c => !!meName && (c.username === meName || ownerName === meName || isAdmin())
+  async function remove(c) {
+    if (!window.confirm('Delete this comment?')) return
+    try {
+      const res = await fetch(`${API}/posts/${postId}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      setComments(prev => (prev || []).filter(x => x.id !== c.id))
+      if (!c.private) onCountChange?.(Math.max(0, (comments || []).filter(x => !x.private && x.id !== c.id).length))
+    } catch { window.alert('Could not delete that comment — try again.') }
+  }
 
   async function submit() {
     const content = text.trim()
@@ -442,12 +454,12 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
       const res = await fetch(`${API}/posts/${postId}/comments`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, private: priv }),
       })
       if (!res.ok) throw new Error(`${res.status}`)
       const saved = await res.json()
       setComments(prev => [...(prev || []), saved])
-      onCountChange?.((comments?.length || 0) + 1)
+      if (!saved.private) onCountChange?.((comments || []).filter(c => !c.private).length + 1)
       setText('')
     } catch {
       setError('COULD NOT POST — TRY AGAIN')
@@ -479,7 +491,11 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
                 <b style={{ display: 'block', fontSize: 15, color: 'var(--lv-pri)' }}><CommentAuthor name={c.username} /></b>
                 <span style={{ fontSize: 14, lineHeight: 1.4, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</span>
               </span>
-              <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
+              <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                {stampShort(c.created_at)}
+                {c.private ? <><br /><span style={{ color: 'var(--theme-accent)' }}>🔒 private</span></> : null}
+                {canDelete(c) ? <><br /><button onClick={() => remove(c)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)', textDecoration: 'underline' }}>delete</button></> : null}
+              </span>
             </div>
           ) : (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
@@ -495,9 +511,13 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, d
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submit() }}
-            placeholder="reply…"
+            placeholder={priv ? `private to ${ownerName}…` : 'reply…'}
             style={{ flex: 1, minWidth: 0, borderRadius: 20, border: '1px solid var(--theme-border)', padding: '5px 12px', fontFamily: 'Barlow, sans-serif', fontSize: inputSize, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', outline: 'none' }}
           />
+          {ownerName && meName && ownerName !== meName && (
+            <button onClick={() => setPriv(v => !v)} title={priv ? `Private: only you and ${ownerName} will see it` : `Make this reply private to ${ownerName}`} aria-pressed={priv}
+              style={{ borderRadius: 20, border: `1px solid ${priv ? 'var(--theme-accent)' : 'var(--theme-border)'}`, background: priv ? 'color-mix(in srgb, var(--theme-accent) 18%, transparent)' : 'none', padding: '4px 10px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>🔒</button>
+          )}
           <button onClick={submit} disabled={!text.trim() || submitting}
             style={{ borderRadius: 20, border: 'none', padding: '5px 14px', fontFamily: 'VT323, monospace', fontSize: 11, background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', opacity: (!text.trim() || submitting) ? 0.5 : 1, flexShrink: 0 }}
           >{submitting ? '···' : 'reply'}</button>
@@ -1679,42 +1699,80 @@ function PlaylistsPop({ lists, at, cardBg, d, onClose }) {
 }
 
 // The newest replies under the post, and a one-line reply box (the full list is the side panel).
-function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.titleSize }) {
+function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.titleSize, posterName = null }) {
   const [latest, setLatest] = useState(post.latestComments || [])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [priv, setPriv] = useState(false)
+  const [sentNote, setSentNote] = useState('')
   const me = getUserId()
+  const meName = getUser()
+  const regionRef = useRef(null)
+  const listRef = useRef(null)
+  useLayoutEffect(() => {
+    const list = listRef.current, region = regionRef.current
+    if (!list || !region) return undefined
+    const fit = () => {
+      const rows = [...list.children]
+      rows.forEach(r => { r.style.display = 'grid' }) // the rows are grids (see `line`)
+      const limit = list.getBoundingClientRect().bottom + 1
+      const cut = rows.map(r => r.getBoundingClientRect().bottom > limit)
+      rows.forEach((r, i) => { r.style.display = cut[i] ? 'none' : 'grid' })
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(region)
+    return () => ro.disconnect()
+  }, [latest.length, size, fill])
+  async function remove(c) {
+    if (!window.confirm('Delete this comment?')) return
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      setLatest(prev => prev.filter(x => x.id !== c.id)); onCount(Math.max(0, count - 1))
+    } catch { window.alert('Could not delete that comment — try again.') }
+  }
+  const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
   async function submit() {
     const content = text.trim()
     if (!content || busy || !me) return
     setBusy(true)
     try {
-      const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300) }) })
+      const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300), private: priv }) })
       if (!res.ok) throw new Error(String(res.status))
       const saved = await res.json()
-      setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1); setText('')
+      setText('')
+      if (saved.private) { setSentNote(`Sent privately to ${posterName}`); setPriv(false); setTimeout(() => setSentNote(''), 5000) }
+      else { setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1) }
     } catch { /* leave the text so it can be sent again */ } finally { setBusy(false) }
   }
   const line = { display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', gap: 11, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.artistFf, fontWeight: 400, fontSize: size, lineHeight: 1.2, color: 'var(--lv-sec)' }
-  // The reply box sits right under the post; the replies run below it, newest first, as far as the room goes.
+  // Under the post: the newest reply first, the older ones below it, and the reply box under the lot. It flows down from the post and grows with each reply; once the room is used up the box sits at the foot and the oldest replies drop off (the drawer has the full list).
   return (
-    <div style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, padding: '2px 0 9px', flexShrink: 0 }}>
+    <div ref={regionRef} style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 16, paddingBottom: 14 }}>
+      <div ref={listRef} style={{ flex: '0 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {[...latest].reverse().map(c => (
+          <div key={c.id} style={line}>
+            <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)', flexShrink: 0 }}>{c.username?.[0]?.toUpperCase()}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
+            <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+              {stampShort(c.created_at)}
+              {canDelete(c) && <><br /><button onClick={() => remove(c)} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)', textDecoration: 'underline' }}>delete</button></>}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, paddingTop: 10, borderTop: latest.length ? '1px solid var(--lv-line)' : 'none', flexShrink: 0 }}>
         {me ? <>
-          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder="Reply…"
+          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder={sentNote || (priv ? `Private to ${posterName}…` : 'Reply…')}
             style={{ flex: 1, minWidth: 0, background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', border: '1px solid var(--lv-line)', borderRadius: 99, padding: '7px 16px', fontFamily: d.bodyFf, fontSize: size, color: 'var(--lv-pri)', outline: 'none' }} />
+          {posterName && meName && posterName !== meName && (
+            <button onClick={() => setPriv(v => !v)} aria-pressed={priv} title={priv ? `Private: only you and ${posterName} will see it. Click for a public reply.` : `Make this reply private to ${posterName}`}
+              style={{ borderRadius: 99, border: `1px solid ${priv ? 'var(--theme-accent)' : 'var(--lv-line)'}`, background: priv ? 'color-mix(in srgb, var(--theme-accent) 18%, transparent)' : 'none', padding: '0 14px', cursor: 'pointer', fontSize: Math.max(14, Math.round(size * 0.7)), flexShrink: 0 }}>🔒</button>
+          )}
           <button onClick={submit} disabled={!text.trim() || busy} style={{ border: 'none', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-bg)', padding: '0 24px', display: 'flex', alignItems: 'center', fontFamily: d.bodyFf, fontWeight: 700, fontSize: Math.max(12, Math.round(size * 0.6)), letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>{busy ? '···' : 'Reply'}</button>
         </> : <a href="/login" style={{ flex: 1, alignSelf: 'center', fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
         {count > 0 && <button onClick={onOpen} style={{ alignSelf: 'center', background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
-      </div>
-      <div style={{ minHeight: 0, overflow: 'hidden' }}>
-        {[...latest].reverse().map(c => (
-          <div key={c.id} style={line}>
-            <span style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 13px sans-serif', color: 'var(--lv-pri)' }}>{c.username?.[0]?.toUpperCase()}</span>
-            <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
-            <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{stampShort(c.created_at)}</span>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -1729,6 +1787,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const [plPop, setPlPop] = useState(null)
   const cardEl = useRef(null)
   const feedMode = useFeedMode()
+  const qcPriv = useQueryClient()
 
   const tracks = post.tracks || []
   const [srcPref, setSrcPref] = useSourcePref()
@@ -1848,11 +1907,19 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   }
   const highlighted = tracks.filter(t => hlOf(t).n > 0).length
   // Text sizes: the track names, and the comments + reply box (the record title's size). Change these two lines to resize them.
-  const trackText = 15
+  const trackText = 13
   const textSize = 20
   // Highlight colours: yours, and the wall owner's (or, off a wall, the poster's).
   const MINE_HL = 'var(--theme-accent)', OWNER_HL = 'var(--theme-showcase)'
   const ownerName = feedMode.type === 'wall' ? feedMode.username : posterName
+  // Private replies waiting for the post's owner (only asked for on your own posts).
+  const { data: privData } = useQuery({
+    queryKey: ['private-count', post.id],
+    queryFn: async () => { const r = await fetch(`${API}/posts/${post.id}/comments/private-count`, { headers: authHeaders() }); return r.ok ? r.json() : { private: 0 } },
+    enabled: !!me && posterName === me,
+    staleTime: 30_000,
+  })
+  const privateWaiting = privData?.private || 0
 
   const row = (t, i) => {
     const u = urlOf(t)
@@ -1984,13 +2051,14 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       )}
 
       {/* replies under the post */}
-      <CardReplies fill={!showDesc} size={textSize} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
+      <CardReplies fill={!showDesc} size={textSize} posterName={posterName} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
 
       {/* footer: actions, then who posted it / who else / which public playlists */}
       <div style={{ marginTop: 'auto', paddingTop: 10, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
         <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
+        {privateWaiting > 0 && <button onClick={() => { setCommentsOpen(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--theme-accent)' }}>🔒 {privateWaiting} private</button>}
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
@@ -2051,7 +2119,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               <div style={{ fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 18, lineHeight: 1.4, color: 'var(--lv-pri)', paddingLeft: 12, borderLeft: '3px solid var(--theme-accent)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</div>
             </>}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', margin: '18px 0 2px' }}><span>Replies</span><span>oldest first</span></div>
-            <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={9999} inputSize={13} drawer />
+            <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={9999} inputSize={13} drawer ownerName={posterName} />
           </div>
         </div>
       )}

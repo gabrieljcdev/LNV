@@ -148,7 +148,26 @@ not built):
 
 ## TODO
 
-### Added 9 Oct (read this first — newest)
+### Added 10 Oct (read this first — newest)
+**State:** `dedupe` has the Spotify fix (live), and the card work below (commits `4294751`…`9b5bf6c`, **pushed but NOT yet deployed** when this was written — the live backend has no highlight route, playlists or latest replies until `git pull` + build + `systemctl restart lnv` on the server). Mockups: `frontend/mockup5.html` (card bottom, post windows, replies drawer, tracklist rows) and `frontend/mockup6.html` (the whole 800×820 card, replies panel, playlists pop-out); both are served by the dev server.
+
+**Built 10 Oct (check on live after the deploy):**
+- Spotify: ends-of-track hands over to the next track; seeking/clicking inside the Spotify embed no longer pauses it (`lib/playerGuard.js`, `TrackPlayer.jsx`). Still to confirm with a real album.
+- Artist drawer: a track artist/remixer with no Discogs id on the post (Dixon) now finds his discography (`GET /api/discogs/artist-id?name=`, exact single match only).
+- Shelf card: tracklist as rounded rows, title first then bold artists ("Title – **Artist**", also in spotlight rows); ☆/★ highlights per track (`track_highlights` table, `PUT/DELETE /api/posts/:id/tracks/:trackId/highlight`; your colour = accent gradient, the wall owner's/poster's = blue gradient, both = split); the post title or a short note (≤300) is "The post" quote, a description sits under it (all posts, old and new); reply box under the post with replies below it, newest first (`latestComments`, up to 6); footer: poster chip, main number, exact date + time, "Also posted by" chips, "In playlists" chips + pop-out (public lists only: `playlists.kind='list' AND on_profile=1`); replies side panel in the artist/label drawer style.
+- Compose: short post (300 chars) by default, "write a full post" = title + description; **a new post needs a comment** (a line, or a title/description).
+- Text sizes (one line each in `ShelfCard`, `Feed.jsx`): `trackText = 13` (track names), `textSize = 20` (comments, reply box, "The post" quote). Sleeve is back to 390 (card padding cut to `SHELF_PAD_Y = 44`).
+- `timeAgo` now reads server UTC times as UTC.
+
+**To do (gabriel, 10 Oct):**
+- **Taste / recommendations database — a SEPARATE database file (decided 10 Oct), used alongside the music DB.** The music/catalogue DB is going to get very big and hard to maintain, so start the user-activity data in its own SQLite file from the beginning (attach it like the catalogue-split plan in `catalogue-scale-plan`, or open it as a second connection). What goes in: one `events` table (user, kind = highlight / play / skip / add-to-playlist / reply / post, post + track ids, time), plus per-user taste summaries; `track_highlights` is the first signal (consider moving it there). Purpose: the site's "algorithm" — suggest tracks from what people highlight and play, per wall. Decide: file name/location (`/var/lib/lnv/`, back it up with the nightly `lnv-backup`), what a privacy-safe event looks like, and keep it out of the music DB's backups so restores stay small.
+- Confirm the star, the playlists chips, replies and the post time on live after the deploy; check a post with a title **and** a description, and a post with several replies at 20px.
+- Playlist "In playlists" chip only shows public lists — decide whether shared-by-link lists should show too.
+- The description text under a title is still 13px (`descSize`); decide whether to match the 15/20 sizes.
+- Short post still to do: in the compose card, replies drawer polish on phone; phone feed was never touched.
+- The earlier "9 Oct" list below still stands (auto-play through to the next post, jump-to-playing-post, pocket mode, Discogs OAuth, merge PR #9, etc.).
+
+### Added 9 Oct (older — still valid)
 **State:** `dedupe` / PR #9 holds everything from 7–9 Oct, committed and pushed, PR description current (no CI, auto-merge off). What was built, the decisions and how to test/revert: **`claude/2026-10-09-handover.md`**. Old cards: `?cards=old` / tag `pre-shelf-stack` / `claude/old-cards/`.
 
 **⏹ Stopped — 9 Oct 2026.** Done since the 8 Oct note: Admin now shows artist/label names (not `#ids`); the Artists and Labels tabs include gabriel's own Discogs records, each row "N posts / M in catalogue"; the two Discogs lists show record counts on the profile and are private again (a start-up migration had made them public); the Discogs link is username-only with an optional profile-code check. Still running in the background: the playable check on the 214 records and ~260 queued catalogue crawls (Admin → Status).

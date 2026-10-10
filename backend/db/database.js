@@ -368,6 +368,8 @@ const migrations = [
     FOREIGN KEY (post_track_id) REFERENCES post_tracks(id) ON DELETE CASCADE
   )`,
   'CREATE INDEX IF NOT EXISTS idx_track_highlights_user ON track_highlights(user_id)',
+  // A private comment (2026-10-10): only its author and the post's owner can see it; it is left out of the public count.
+  'ALTER TABLE comments ADD COLUMN private INTEGER NOT NULL DEFAULT 0',
   // Profiles (2026-10-05): up to 3 labels a user pins as favourites, and the
   // playlists they choose to show (shown = readable by its share link).
   `CREATE TABLE IF NOT EXISTS profile_pins (

@@ -61,12 +61,12 @@ function getFullPost(postId) {
       AND EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id AND t.post_id = ?)
     ORDER BY p.id DESC LIMIT 12`).all(postId);
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
-  const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
+  const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ? AND private = 0').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
   // Everyone else who has it on their wall (♥'d it), first to latest.
   const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
   // The newest replies, oldest of them first, for the card's reply strip (it shows as many as fit).
-  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
+  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? AND c.private = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
   const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
@@ -491,17 +491,46 @@ router.delete('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) =>
 
 router.get('/:id/comments', (req, res, next) => {
   try {
-    const comments = db.prepare('SELECT c.*, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC').all(Number(req.params.id));
-    res.json(comments);
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post) return res.json([]);
+    const all = db.prepare('SELECT c.*, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC, c.id ASC').all(post.id);
+    // A private comment is seen by whoever wrote it, and by the post's owner (or an admin).
+    const sees = c => !c.private || (req.user && (c.user_id === req.user.id || canModify(post, req.user)));
+    res.json(all.filter(sees));
+  } catch (err) { next(err); }
+});
+
+// How many private comments the owner has waiting on a post (owner / admin only, else 0).
+router.get('/:id/comments/private-count', (req, res, next) => {
+  try {
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post || !req.user || !canModify(post, req.user)) return res.json({ private: 0 });
+    res.json({ private: db.prepare('SELECT COUNT(*) AS c FROM comments WHERE post_id = ? AND private = 1').get(post.id).c });
+  } catch (err) { next(err); }
+});
+
+// Delete a comment: its author, the post's owner, or an admin.
+router.delete('/:id/comments/:commentId', requireAuth, (req, res, next) => {
+  try {
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    const c = post && db.prepare('SELECT id, user_id FROM comments WHERE id = ? AND post_id = ?').get(Number(req.params.commentId), post.id);
+    if (!c) return res.status(404).json({ error: 'Comment not found' });
+    if (c.user_id !== req.user.id && !canModify(post, req.user)) return res.status(403).json({ error: 'You can only delete your own comments, or comments on your own post.' });
+    db.prepare('DELETE FROM comments WHERE id = ?').run(c.id);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
 router.post('/:id/comments', requireAuth, (req, res, next) => {
   try {
     const user_id = req.user.id;
-    const { content } = req.body;
+    const content = String(req.body.content || '').trim().slice(0, 300);
     if (!content) return res.status(400).json({ error: 'Content is required' });
-    const result = db.prepare('INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)').run(Number(req.params.id), user_id, content);
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    // Private = only you and the post's owner see it. Pointless on your own post, so it stays public there.
+    const priv = req.body.private && post.user_id !== user_id ? 1 : 0;
+    const result = db.prepare('INSERT INTO comments (post_id, user_id, content, private) VALUES (?, ?, ?, ?)').run(post.id, user_id, content, priv);
     const comment = db.prepare('SELECT c.*, u.username, u.display_name FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?').get(result.lastInsertRowid);
     res.status(201).json(comment);
   } catch (err) { next(err); }

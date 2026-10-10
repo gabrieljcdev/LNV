@@ -255,7 +255,7 @@ export function profileOf(ownerId, viewerId) {
     out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow);
     out.private = {
       hearted: db.prepare('SELECT COUNT(DISTINCT j.user_id) c FROM post_joins j JOIN posts p ON p.id = j.post_id WHERE p.wall_user_id = ?').get(ownerId).c,
-      replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ?').get(ownerId, ownerId).c,
+      replies: db.prepare('SELECT COUNT(*) c FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND c.user_id <> ? AND c.private = 0').get(ownerId, ownerId).c,
     };
   } else if (viewerId) {
     out.following = !!db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(viewerId, ownerId);
