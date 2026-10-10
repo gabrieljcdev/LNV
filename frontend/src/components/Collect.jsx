@@ -668,7 +668,7 @@ export function WelcomeCard({ compact = false }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <span style={head}>Welcome</span>
       <h1 style={{ margin: 0, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 0.95, letterSpacing: '-0.02em' }}>Late Night Vibes</h1>
-      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. People post a record they love and say why. Every one is linked to Discogs, filed by artist, label and genre, and playable right here.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
         <a href="/login?tab=create" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, background: pri, color: 'var(--theme-showcase)', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Create an account</a>
         <a href="/login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, border: `1px solid ${fill(45)}`, color: pri, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>Log in</a>
@@ -690,16 +690,17 @@ export function WelcomeCard({ compact = false }) {
         <h2 style={head}>How it works</h2>
         <ul style={list}>
           <li>{compact ? b('Swipe') : b('Scroll sideways')} through the posts.</li>
-          <li>{b(compact ? 'Tap a cover' : 'Click a cover')} to play it.</li>
+          <li>{b(compact ? 'Tap a cover' : 'Click a cover')} to play it, or a track to play just that one.</li>
           <li>{b('Every post has a number')} — {compact ? 'search it to jump there.' : <>press <kbd style={kbd}>/</kbd> and type it to jump there.</>}</li>
         </ul>
       </section>
       <section>
         <h2 style={head}>With an account</h2>
         <ul style={list}>
-          <li>{b('Post')} a record from a link.</li>
-          <li>{b('♥ a record')} to keep it in your feed.</li>
-          <li>{b('Follow people')} to see what they're posting — your feed is newest first, no algorithm.</li>
+          <li>{b('Post')} a record from a link, with a line on why it matters.</li>
+          <li>{b('☆ highlight tracks')} — the one you're posting it for, and the ones others should hear.</li>
+          <li>{b('Reply')} to a post, or send the poster a private note.</li>
+          <li>{b('♥ a record')} to keep it in your feed, and {b('follow people')} to see what they're posting — newest first, no algorithm.</li>
         </ul>
       </section>
       <button onClick={() => openD3?.('about')} style={{ ...plain, alignSelf: 'flex-start', fontSize: 14, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>More in About →</button>

@@ -615,14 +615,19 @@ export function AboutDrawer() {
   return <>
     <DrawerHead title="About" count="est. 2024" />
     <DrawerBody>
-      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
       <h3 style={h3}>Finding your way</h3>
       <ul style={{ margin: 0, paddingLeft: 18, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.7 }}>
         <li>Scroll or drag to move along the feed.</li>
         <li>Every post has a number, like a page. Press <kbd style={kbd}>/</kbd> and type <kbd style={kbd}>54</kbd> to go straight to it.</li>
         <li>The search finds artists, labels, genres, tracks and catalogue numbers.</li>
         <li>Click a cover to play it, or a track to play that one. ▶ on the strip plays something at random.</li>
+        <li>Click off a drawer and it waits for you: what was playing keeps playing, and it opens where you left it (it resets after ten minutes away).</li>
       </ul>
+      <h3 style={h3}>Highlights and replies</h3>
+      <p style={p}>Tap ☆ on a track to highlight it. The poster picks the track they’re posting the record for, and everyone else can highlight the one they’d play, so a record’s best moments show up on the card. Replies sit under the post; the 🔒 sends one privately to whoever posted it. You can delete your own replies.</p>
+      <h3 style={h3}>Playlists and your Discogs shelf</h3>
+      <p style={p}>Add any track to a playlist with +. Playlists on a profile show up on the posts they contain (“In playlists”). Connect your Discogs name and your collection and wantlist become private playlists of their own.</p>
       {/* 2026-10-04: the players are the platforms' own, ads included — so
           point people at the ways to hear them without. No ad-blocker
           suggestions: the YouTube embed terms forbid encouraging that. */}
@@ -634,7 +639,7 @@ export function AboutDrawer() {
         <li><b style={{ color: PRI }}>Bandcamp has no ads</b> — and buying there pays artists directly. Look for the BUY ↗ link on a card.</li>
       </ul>
       <h3 style={h3}>Posting</h3>
-      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Add a post title and a few lines on why it matters.</p>
+      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Then say something about it: a line is enough, and it’s what starts the conversation. Prefer to write more? Choose “write a full post” for a title and a description.</p>
       {/* 2026-10-05: the introductions' rules, in full (Collect.jsx IntroCard,
           backend collectionsService introductionsFor). Keep them in step. */}
       <h3 style={h3}>Introductions <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', border: `1px solid ${LINE}`, borderRadius: 99, padding: '1px 7px', verticalAlign: 'middle' }}>α ALPHA</span></h3>
