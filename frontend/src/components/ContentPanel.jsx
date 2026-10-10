@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
@@ -56,12 +56,44 @@ function FilesPage() {
   );
 }
 
+// Persistent drawers (gabriel, 2026-10-10): clicking off a drawer no longer throws it away. It stays mounted (hidden),
+// so a track playing inside it keeps playing and reopening it puts you back where you were (the artist you had open,
+// the filter you typed, the scroll). A drawer you have left is dropped after DRAWER_KEEP_MS (10 minutes), which resets its
+// place and stops anything playing in it. The newest DRAWER_KEEP_MAX are kept; opening a drawer with a different name
+// ("open Dixon") is its own entry, as it always started fresh.
+const DRAWER_KEEP_MS = 10 * 60 * 1000;
+const DRAWER_KEEP_MAX = 4;
+
 export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
   const isOpen    = !!d3Content;
-  const Component = COMPONENTS[d3Content];
   const phone = usePhone();
+  const activeKey = d3Content ? d3Content + JSON.stringify(d3Props || {}) : null;
+  const [entries, setEntries] = useState([]); // { key, content, props, closed, since }  (`since`: when the timer noticed it closed)
 
+  // When what is open changes, update the kept list in the same render (no flash of an empty panel).
+  const [seenKey, setSeenKey] = useState(null);
+  if (activeKey !== seenKey) {
+    setSeenKey(activeKey);
+    let next = entries.map(e => e.key === activeKey ? { ...e, closed: false, since: null } : { ...e, closed: true });
+    if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null }];
+    setEntries(next.slice(-DRAWER_KEEP_MAX));
+  }
+
+  // The 10-minute reset: a timer notices when a drawer has been closed and drops it once it has been closed that long
+  // (it checks every 15 seconds, so the reset lands within 15 seconds of the 10 minutes).
+  useEffect(() => {
+    const t = setInterval(() => setEntries(prev => {
+      const now = Date.now();
+      const marked = prev.map(e => (e.closed ? (e.since ? e : { ...e, since: now }) : (e.since ? { ...e, since: null } : e)));
+      const next = marked.filter(e => !e.closed || now - e.since < DRAWER_KEEP_MS);
+      const changed = next.length !== prev.length || next.some((e, i) => e !== prev[i]);
+      return changed ? next : prev;
+    }), 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  const list = entries;
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') closeD3(); };
     window.addEventListener('keydown', onKey);
@@ -108,9 +140,21 @@ export default function ContentPanel() {
         boxShadow: isOpen ? '4px 0 40px rgba(0,0,0,0.30)' : 'none',
         visibility: isOpen ? 'visible' : 'hidden',
       }}>
-        {/* Keyed by what's open, so opening another name starts fresh
-            (filter cleared, the right detail shown). */}
-        {isOpen && Component && <Component key={d3Content + JSON.stringify(d3Props || {})} {...d3Props} />}
+        {/* One entry per drawer kept alive, keyed by what it is (so opening another name starts fresh). The one on show
+            fills the panel; the others stay mounted but hidden (visibility, not display: a player inside keeps playing). */}
+        {list.map(e => {
+          const C = COMPONENTS[e.content];
+          if (!C) return null;
+          const active = isOpen && e.key === activeKey;
+          return (
+            <div key={e.key} aria-hidden={!active}
+              style={active
+                ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
+                : { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', visibility: 'hidden', pointerEvents: 'none' }}>
+              <C {...e.props} />
+            </div>
+          );
+        })}
       </div>
     </>
   );
