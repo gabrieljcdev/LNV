@@ -1981,17 +1981,18 @@ function PairBox({ name, sub, open, onOpen, children, d, bodyRef }) {
   )
 }
 
-// ── Notes card (?cards=notes, 12 Oct 2026, gabriel) ──────────────────────────────────────────────────
-// Built from the "Post card directions" canvas (FullPost board). The same header box as the paired card, then
+// ── Notes card (default; ?cards=notes, 12 Oct 2026, gabriel) ──────────────────────────────────────────────────
+// The default card since 12 Oct 2026 (`?cards=paired` goes back to the paired boxes). Built from the "Post card directions" canvas (FullPost board). The same header box as the paired card, then
 // two columns: the cover, Plays from and Details on the left; Tracks (highlights on top, the full list under the
 // big side letters) and the post on the right. Replies open in a small square pop-out over the card.
 // Type everywhere matches the drawers: spaced capitals for labels, Barlow 700 17px for names, Plex Mono for numbers.
 const NOTES_CARDS = (() => {
   try {
     const q = new URLSearchParams(window.location.search).get('cards')
-    if (q === 'notes') localStorage.setItem('lnv-cards', q)
-    return localStorage.getItem('lnv-cards') === 'notes'
-  } catch { return false }
+    if (q === 'notes' || q === 'paired' || q === 'new' || q === 'old') localStorage.setItem('lnv-cards', q)
+    const v = localStorage.getItem('lnv-cards')
+    return v !== 'paired' && v !== 'new' && v !== 'old' // the default card since 12 Oct 2026; ?cards=paired = the paired boxes, ?cards=new / ?cards=old = the older cards
+  } catch { return true }
 })()
 const NOTE_TINT = 'color-mix(in srgb, var(--lv-pri) 5%, transparent)'
 const NOTE_HAIR = 'color-mix(in srgb, var(--lv-pri) 10%, transparent)'
@@ -2520,7 +2521,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                 </NoteFold>
                 {/* the whole record, in order, under one big letter per side */}
                 {sides.map(g => (
-                  <div key={g.key + g.items[0].i} style={{ display: 'grid', gridTemplateColumns: g.key ? '30px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
+                  <div key={g.key + (g.items[0]?.i ?? 0)} style={{ display: 'grid', gridTemplateColumns: g.key ? '30px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
                     {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: 25.5, lineHeight: '36px', color: 'var(--lv-ter)' }}>{g.key}</span>}
                     <div>
                       {g.items.map(({ t, i }) => {
