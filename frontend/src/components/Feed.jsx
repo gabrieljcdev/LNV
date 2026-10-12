@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
@@ -2000,11 +2000,11 @@ const NOTE_HAIR2 = 'color-mix(in srgb, var(--lv-pri) 26%, transparent)'
 const NOTE_BOX = { borderRadius: 30, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }
 const NOTE_FOLD_MS = 380
 const NOTE_FOLD_EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)'
-const noteLabel = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-sec)' })
-const noteName = d => ({ fontFamily: d.bodyFf, fontSize: 17, lineHeight: 1.2, fontWeight: 700 })
-const noteMeta = d => ({ fontFamily: d.monoFf, fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: 'var(--lv-ter)' })
+const noteLabel = (d, size = 10) => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: size, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-sec)' })
+const noteName = d => ({ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.2, fontWeight: 700 })
+const noteMeta = (d, size = 11) => ({ fontFamily: d.monoFf, fontSize: size, fontVariantNumeric: 'tabular-nums', color: 'var(--lv-ter)' })
 // The pills of the nav strip (Strip.jsx tabs, BrowseGrid's drawer pills), lying down.
-const notePill = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', lineHeight: 1, textTransform: 'lowercase', whiteSpace: 'nowrap', textDecoration: 'none', padding: '11px 19px', borderRadius: 999, border: '1px solid var(--theme-border)', color: 'var(--lv-ter)', background: 'transparent', cursor: 'pointer' })
+const notePill = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11.5, letterSpacing: '0.06em', lineHeight: 1, textTransform: 'lowercase', whiteSpace: 'nowrap', textDecoration: 'none', padding: '9px 15px', borderRadius: 999, border: '1px solid var(--theme-border)', color: 'var(--lv-ter)', background: 'transparent', cursor: 'pointer' })
 const NOTE_CSS = '.lnv-np{transition:background .15s,border-color .15s,color .15s}.lnv-np:hover{background:var(--theme-dark3)!important;color:var(--lv-pri)!important}'
   + '.lnv-sp{transition:filter .15s}.lnv-sp:hover{filter:brightness(1.15)}'
   + '.lnv-nr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent)}'
@@ -2023,13 +2023,14 @@ function inkOnHex(hex) {
   const L = 0.2126 * f(parseInt(full.slice(0, 2), 16)) + 0.7152 * f(parseInt(full.slice(2, 4), 16)) + 0.0722 * f(parseInt(full.slice(4, 6), 16))
   return 1.05 / (L + 0.05) >= 3.9 ? '#fff' : '#111'
 }
-// Sides from the positions: "A1", "B2" -> A, B; "1-1", "2-3" -> 1, 2. Anything else is one group with no letter.
+// Sides from the positions as Discogs gives them: "A1", "B2", "C" -> A, B, C; "AA" (double A-side) -> AA; "1-1", "CD2-3", "2.4" -> disc 1, 2.
+// Anything else ("1", "2", no position) is one group with no letter.
 function noteSides(tracks) {
   const key = t => {
     const p = String(t.position || '').trim()
-    let m = p.match(/^([A-Za-z])\d*$/) || p.match(/^([A-Za-z])\d/)
+    let m = p.match(/^([A-Za-z]{1,2})\d*[a-z]?$/)
     if (m) return m[1].toUpperCase()
-    m = p.match(/^(\d+)[-.]\d+$/)
+    m = p.match(/^[A-Za-z]*(\d+)[-.]\d+$/)
     return m ? m[1] : ''
   }
   const groups = []
@@ -2062,6 +2063,12 @@ function NoteFold({ open, children, shift = -14 }) {
     </div>
   )
 }
+// Which post's replies pop-out is open (one at a time). It follows you along the feed: ShelfCard closes it after three posts.
+let chatPostId = null
+const chatSubs = new Set()
+const setChatPost = id => { if (chatPostId !== id) { chatPostId = id; chatSubs.forEach(f => f()) } }
+const useChatPost = () => useSyncExternalStore(f => { chatSubs.add(f); return () => { chatSubs.delete(f) } }, () => chatPostId)
+const CHAT_POSTS_KEPT = 3 // how many posts the pop-out stays with you for
 // The replies pop-out: a quiet square (three quarters of the cover), the replies, and a reply bar. Drag it by its top.
 function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   const [comments, setComments] = useState(null)
@@ -2111,9 +2118,9 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   }
   return (
     <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
-      style={{ position: 'absolute', right: 0, bottom: 0, zIndex: 20, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
+      style={{ position: 'fixed', right: 32, bottom: 96, zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
       <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
-        <span style={noteLabel(d)}>Replies</span><span style={noteLabel(d)}>{shown.filter(c => !c.private).length}</span>
+        <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
         <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
       </div>
       <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '2px 8px', ...INNER_SCROLL_STYLE }}>
@@ -2122,9 +2129,9 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
           <div key={c.id}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <b style={{ fontFamily: d.bodyFf, fontSize: 15, fontWeight: 700 }}><CommentAuthor name={c.username} /></b>
-              <span style={noteMeta(d)}>{stampShort(c.created_at)}</span>
-              {c.private && <span style={{ ...noteMeta(d), color: 'var(--theme-accent)' }}>private</span>}
-              {canDelete(c) && <button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...noteMeta(d) }}>delete</button>}
+              <span style={noteMeta(d, 12.5)}>{stampShort(c.created_at)}</span>
+              {c.private && <span style={{ ...noteMeta(d, 12.5), color: 'var(--theme-accent)' }}>private</span>}
+              {canDelete(c) && <button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...noteMeta(d, 12.5) }}>delete</button>}
             </div>
             <div style={{ marginTop: 2, fontFamily: d.bodyFf, fontSize: 15, lineHeight: 1.35, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</div>
           </div>
@@ -2142,7 +2149,7 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
           <button onClick={submit} disabled={!text.trim() || busy} aria-label="Send reply"
             style={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: cardBg, fontSize: 14, cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>↑</button>
         </div>
-      ) : <a href="/login" style={{ flexShrink: 0, marginTop: 8, ...noteLabel(d), color: 'var(--theme-accent)', textDecoration: 'none', padding: '0 8px' }}>Log in to reply →</a>}
+      ) : <a href="/login" style={{ flexShrink: 0, marginTop: 8, ...noteLabel(d, 11), color: 'var(--theme-accent)', textDecoration: 'none', padding: '0 8px' }}>Log in to reply →</a>}
       {ask && <ConfirmPop at={ask} message="Delete this reply?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
     </div>
   )
@@ -2155,7 +2162,9 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
-  const [notesReply, setNotesReply] = useState(false) // the notes card's replies pop-out
+  const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
+  const notesReply = chatId === post.id
+  const setNotesReply = v => setChatPost((typeof v === 'function' ? v(notesReply) : v) ? post.id : null)
   const [pairL, setPairL] = useState('p') // which of Plays from / The post is open
   const [pairR, setPairR] = useState('auto') // 'auto': Tracks and Details both open if the column has room (Details folds when the tracklist is long); 't' / 'd': the person swapped them by hand
   const [autoD, setAutoD] = useState(true)
@@ -2168,6 +2177,20 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const dMine = post.discogs_id ? (dRecs?.records || []).find(r => String(r.discogs_id) === String(post.discogs_id)) : null
   const inColl = !!dMine?.lists.includes('collection'), inWant = !!dMine?.lists.includes('wantlist') // which of Tracks / Details is open
   const cardEl = useRef(null)
+  // The replies pop-out follows you along the feed, back or forward, and closes once you are CHAT_POSTS_KEPT posts away from the one it was opened on.
+  useEffect(() => {
+    if (!notesReply) return
+    const start = cardEl.current ? cardEl.current.getBoundingClientRect().left : 0 // where the post sat when it was opened
+    const check = () => {
+      const el = cardEl.current
+      if (!el) return
+      const away = Math.abs(el.getBoundingClientRect().left - start) / ((el.offsetWidth || 800) + 28) // posts away, a post being its card plus the gap
+      if (away >= CHAT_POSTS_KEPT + 0.5) setChatPost(null)
+    }
+    document.addEventListener('scroll', check, true)
+    return () => document.removeEventListener('scroll', check, true)
+  }, [notesReply])
+  useEffect(() => () => { if (chatPostId === post.id) setChatPost(null) }, [post.id])
   const feedMode = useFeedMode()
   const qcPriv = useQueryClient()
 
@@ -2382,7 +2405,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
         <style>{NOTE_CSS}</style>
-        <div ref={hdrR} style={{ flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+        <div ref={hdrR} style={{ position: 'relative', flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
             <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
               {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
             </div>
@@ -2403,6 +2426,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
               {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
             </div>
+            <span style={{ position: 'absolute', right: 16, bottom: 14, width: 46, height: 46, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 500, fontSize: 13, background: cardBg, color: 'var(--lv-pri)' }}>{num}</span>
             {post.genres?.length > 0 && (
               <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
                 {post.genres.map(g => (
@@ -2422,28 +2446,20 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               ) : (
                 <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
                   {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                  <span style={{ position: 'absolute', left: 16, top: 16, width: 54, height: 54, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 500, fontSize: 15, background: cardBg, color: 'var(--lv-pri)' }}>{num}</span>
-                  {firstUrl && <span aria-hidden="true" style={{ position: 'absolute', right: 16, bottom: 16, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 16, background: cardBg, color: 'var(--lv-pri)', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>▶</span>}
                 </div>
               )}
             </div>
             {locations.length > 0 && (
-              <div style={{ ...NOTE_BOX, flexShrink: 0, padding: '14px 10px 10px' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', padding: '0 10px 4px' }}>
-                  <span style={L}>Plays from</span>
-                  {activeUrl && nowP && <span style={{ ...MT, marginLeft: 'auto' }}>playing on {(SOURCE_NAME[nowP] || nowP).toLowerCase()}</span>}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 10px 4px' }}>
-                  {locations.map(({ p, n }) => {
-                    const on = nowP === p, c = shelfColor(p)
-                    return (
-                      <button key={p} className="lnv-sp" onClick={() => playFrom(p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
-                        style={{ ...NP, cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
-                        {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, opacity: 0.8, marginLeft: 6 }}>{n}/{tracks.length}</span>}
-                      </button>
-                    )
-                  })}
-                </div>
+              <div style={{ ...NOTE_BOX, flexShrink: 0, display: 'flex', flexWrap: 'nowrap', gap: 3, padding: 8, overflow: 'hidden' }}>
+                {locations.map(({ p, n }) => {
+                  const on = nowP === p, c = shelfColor(p)
+                  return (
+                    <button key={p} className="lnv-sp" onClick={() => playFrom(p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
+                      style={{ ...NP, padding: '9px 11px', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
+                      {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 10, letterSpacing: 0, opacity: 0.8, marginLeft: 6 }}>{n}/{tracks.length}</span>}
+                    </button>
+                  )
+                })}
               </div>
             )}
             <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 10px 10px', ...INNER_SCROLL_STYLE }}>
@@ -2521,8 +2537,8 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                 </NoteFold>
                 {/* the whole record, in order, under one big letter per side */}
                 {sides.map(g => (
-                  <div key={g.key + (g.items[0]?.i ?? 0)} style={{ display: 'grid', gridTemplateColumns: g.key ? '30px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
-                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: 25.5, lineHeight: '36px', color: 'var(--lv-ter)' }}>{g.key}</span>}
+                  <div key={g.key + (g.items[0]?.i ?? 0)} style={{ display: 'grid', gridTemplateColumns: g.key ? '26px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
+                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: g.key.length > 1 ? 15 : 21, lineHeight: '30px', color: 'var(--lv-ter)' }}>{g.key}</span>}
                     <div>
                       {g.items.map(({ t, i }) => {
                         const u = urlOf(t), on = !!activeUrl && u === activeUrl
@@ -2530,7 +2546,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                         const v = shelfTrack(t, comp)
                         return (
                           <div key={t.id || i}>
-                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 36, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
+                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 30, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
                               <button onClick={() => playIdx(i)} title={u ? undefined : 'No link for this track yet'}
                                 style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', alignItems: 'baseline', border: 'none', background: 'none', padding: '6px 0', textAlign: 'left', cursor: u ? 'pointer' : 'default', ...NM, color: on ? 'var(--theme-accent)' : 'var(--lv-pri)', opacity: u ? 1 : 0.55 }}>
                                 <NoteDash />
@@ -2559,12 +2575,12 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               <div style={{ flexShrink: 0, marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
                 {posterName && <span style={{ fontFamily: d.bodyFf, fontSize: 13, color: 'var(--lv-sec)' }}>— <b style={{ fontWeight: 700, color: 'var(--lv-sec)' }}>{posterName}</b></span>}
                 <button className="lnv-np" onClick={() => setNotesReply(v => !v)} aria-expanded={notesReply}
-                  style={{ ...NP, marginLeft: 'auto', ...(notesReply ? { background: 'var(--lv-pri)', borderColor: 'var(--lv-pri)', color: cardBg } : null) }}>
+                  style={{ ...NP, fontSize: 13, padding: '11px 19px', marginLeft: 'auto', ...(notesReply ? { background: 'var(--lv-pri)', borderColor: 'var(--lv-pri)', color: cardBg } : null) }}>
                   reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, marginLeft: 6 }}>{commentCount}</span>}
                 </button>
               </div>
             </div>
-            {notesReply && <NoteReplies post={post} posterName={posterName} size={replySize} d={d} cardBg={cardBg} onClose={() => setNotesReply(false)} onCount={setCommentCount} />}
+            {notesReply && createPortal(<NoteReplies post={post} posterName={posterName} size={replySize} d={d} cardBg={cardBg} onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
           </div>
         </div>
         {/* one pill across the foot: who posted it, main number, time, edit / delete */}
