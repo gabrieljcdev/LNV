@@ -1998,6 +1998,9 @@ const NOTE_TINT = 'color-mix(in srgb, var(--lv-pri) 5%, transparent)'
 const NOTE_HAIR = 'color-mix(in srgb, var(--lv-pri) 10%, transparent)'
 const NOTE_HAIR2 = 'color-mix(in srgb, var(--lv-pri) 26%, transparent)'
 const NOTE_BOX = { borderRadius: 30, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }
+const NOTES_GAP = 8 // the one gap between every box on the notes card, across and down
+const NOTES_PAD_TOP = 56 // below the search bar (its box ends at 48px) ...
+const NOTES_PAD_BOTTOM = 72 // ... and above the New post button (it starts 64px up from the bottom)
 const NOTE_FOLD_MS = 380
 const NOTE_FOLD_EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)'
 const noteLabel = (d, size = 10) => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: size, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-sec)' })
@@ -2403,9 +2406,9 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
     )
     return (
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
-        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${NOTES_PAD_TOP}px 0 ${NOTES_PAD_BOTTOM}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
         <style>{NOTE_CSS}</style>
-        <div ref={hdrR} style={{ position: 'relative', flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+        <div ref={hdrR} style={{ position: 'relative', flexShrink: 0, margin: `0 ${d.bandPadX}px ${NOTES_GAP}px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
             <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
               {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
             </div>
@@ -2437,10 +2440,10 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               </div>
             )}
         </div>
-        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, padding: `0 ${d.bandPadX}px` }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: NOTES_GAP, padding: `0 ${d.bandPadX}px` }}>
           {/* left: the cover, Plays from, Details */}
-          <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ position: 'relative', width: d.artSize, height: `min(${d.artSize}px, calc(100vh - ${2 * (PAIRED_PAD_Y + FLOAT_INSET_Y) + 300}px))`, flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+          <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: NOTES_GAP }}>
+            <div style={{ position: 'relative', width: d.artSize, height: `min(${d.artSize}px, calc(100vh - ${NOTES_PAD_TOP + NOTES_PAD_BOTTOM + 2 * FLOAT_INSET_Y + 300}px))`, flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
               {playingSrc ? (
                 <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
               ) : (
@@ -2455,44 +2458,44 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                   const on = nowP === p, c = shelfColor(p)
                   return (
                     <button key={p} className="lnv-sp" onClick={() => playFrom(p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
-                      style={{ ...NP, padding: '9px 11px', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
-                      {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 10, letterSpacing: 0, opacity: 0.8, marginLeft: 6 }}>{n}/{tracks.length}</span>}
+                      style={{ ...NP, fontSize: 8, padding: '6px 8px', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
+                      {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 7, letterSpacing: 0, opacity: 0.8, marginLeft: 4 }}>{n}/{tracks.length}</span>}
                     </button>
                   )
                 })}
               </div>
             )}
-            <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 10px 10px', ...INNER_SCROLL_STYLE }}>
+            <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '8px 6px 6px', ...INNER_SCROLL_STYLE }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '0 10px 4px' }}>
                 <span style={L}>Playlists</span><span style={L}>{(post.playlists || []).length}</span>
                 <AddToPlaylistButton post={post} label="+ add" align="right" style={{ ...L, marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }} />
               </div>
               {(post.playlists || []).map(pl => (
                 <button key={pl.id} className="lnv-nr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`Open ${pl.name}`}
-                  style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '7px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                  style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '3px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
                   <NoteDash /><span style={NM}>{pl.name}</span><span style={MT}>{pl.owner}</span>
                 </button>
               ))}
-              <div style={{ display: 'flex', padding: '8px 10px 0' }}>
+              <div style={{ display: 'flex', padding: '4px 10px 0' }}>
                 <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
               </div>
-              <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
               </div>
               <button className="lnv-nr" onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this"
-                style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '7px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '3px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
                 <NoteDash /><span style={{ ...NM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keptBy.slice(0, 3).join(', ')}</span><span style={MT}>{keptBy.length > 3 ? `+${keptBy.length - 3}` : ''}</span>
               </button>
               {contributors.length > 0 && <>
-                <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={L}>Artists</span><span style={L}>{contributors.length}</span>
                 </div>
-                <div style={{ padding: '7px 10px', fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.5, color: 'var(--lv-sec)' }}>
+                <div style={{ padding: '3px 10px', fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.5, color: 'var(--lv-sec)' }}>
                   {contributors.slice(0, 12).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 12 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 12} more</span>}
                 </div>
               </>}
-              <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}` }}><span style={L}>Discogs</span></div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '8px 10px 4px' }}>
+              <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}` }}><span style={L}>Discogs</span></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '4px 10px 2px' }}>
                 {discogsPill('c', !!dAcct?.linked && inColl, '+ collection', 'in your collection')}
                 {discogsPill('w', !!dAcct?.linked && inWant, '+ wantlist', 'on your wantlist')}
                 <a className="lnv-np" href={buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`} target="_blank" rel="noopener noreferrer" style={NP}>buy ↗</a>
@@ -2500,7 +2503,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             </div>
           </div>
           {/* right: Tracks (highlights on top, then the whole record), then the post */}
-          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: NOTES_GAP }}>
             <div style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 10px 10px' }}>
               <div style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 10, padding: '0 10px' }}>
                 <span style={L}>{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</span>
@@ -2584,7 +2587,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           </div>
         </div>
         {/* one pill across the foot: who posted it, main number, time, edit / delete */}
-        <div style={{ flexShrink: 0, margin: `${SHELF_PAD_Y / 2}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${NOTE_HAIR}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12.5 }}>
+        <div style={{ flexShrink: 0, margin: `${NOTES_GAP}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${NOTE_HAIR}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12.5 }}>
           {posterName && <UserChip name={posterName} d={d} />}
           <FollowedTag post={post} />
           <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12.5, color: 'var(--lv-ter)' }} />
