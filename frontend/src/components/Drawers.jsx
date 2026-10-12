@@ -7,6 +7,7 @@ import ReleasePreview from './ReleasePreview'
 import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
 import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
+import { openWall, openPlaylistFeed } from '../lib/collections'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -694,6 +695,42 @@ export function AboutDrawer() {
       <p style={{ ...p, fontFamily: MONO, fontSize: 14 }}>React · Node · SQLite · Discogs API · YouTube Data API</p>
     </DrawerBody>
   </>
+}
+
+// "In playlists" / "Kept by" on a post card (2026-10-12): who has this record. Each row opens that person's feed or that
+// public playlist, so people can find each other through the records they share.
+export function PostListDrawer({ kind, title, post, lists = [], people = [] }) {
+  const { close } = useDrawerNav()
+  const isLists = kind === 'playlists'
+  const rows = isLists ? lists : people
+  const go = fn => { fn(); close?.() }
+  const rowStyle = { display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '12px 4px', background: 'none', border: 'none', borderBottom: `1px solid ${LINE}`, cursor: 'pointer', textAlign: 'left', fontFamily: SANS, color: PRI }
+  return (
+    <>
+      <DrawerHead title={title} count={`${rows.length}`}>
+        {post && <div style={{ fontFamily: MONO, fontSize: 12.5, letterSpacing: '0.04em', textTransform: 'uppercase', color: SEC }}>{post}</div>}
+      </DrawerHead>
+      <DrawerBody>
+        {rows.length === 0 && <div style={{ padding: '20px 4px', fontFamily: SANS, fontSize: 15, color: SEC }}>{isLists ? 'Not in any public playlist yet.' : 'Nobody has kept this yet.'}</div>}
+        {isLists ? lists.map(pl => (
+          <button key={pl.id} onClick={() => go(() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name }))} style={rowStyle}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: 'block', fontWeight: 800, fontSize: 18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</b>
+              <small style={{ fontFamily: MONO, fontSize: 12, color: TER }}>by {pl.owner} · {pl.track_count} track{pl.track_count === 1 ? '' : 's'}</small>
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>open →</span>
+          </button>
+        )) : people.map(n => (
+          <button key={n} onClick={() => go(() => openWall(n))} style={rowStyle}>
+            <i style={{ width: 34, height: 34, borderRadius: '50%', background: SEC, color: 'var(--theme-bg)', display: 'grid', placeItems: 'center', font: '800 15px sans-serif', fontStyle: 'normal', flexShrink: 0 }}>{n[0]?.toUpperCase()}</i>
+            <b style={{ flex: 1, fontWeight: 800, fontSize: 18 }}>{n}</b>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>their feed →</span>
+          </button>
+        ))}
+        {isLists && rows.length > 0 && <div style={{ padding: '14px 4px', fontFamily: MONO, fontSize: 11.5, color: TER }}>Public playlists only.</div>}
+      </DrawerBody>
+    </>
+  )
 }
 
 // Shared with the walls and playlists drawers (CollectionDrawers.jsx).

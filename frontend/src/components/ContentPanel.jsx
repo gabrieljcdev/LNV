@@ -5,7 +5,7 @@ import { isLoggedIn } from '../lib/auth';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
-import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, DrawerHead, DrawerBody } from './Drawers';
+import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, PostListDrawer, DrawerHead, DrawerBody } from './Drawers';
 import { AdminDrawer } from './AdminDrawer';
 import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 import { usePhone } from '../lib/usePhone';
@@ -21,6 +21,8 @@ const COMPONENTS = {
   genres:  (props) => <GenresDrawer {...props} />,
   live:    (props) => <LiveDrawer {...props} />,
   about:   (props) => <AboutDrawer {...props} />,
+  // Who has a record: the playlists it is in / the people who kept it (the post card's Details tiles).
+  postlist: (props) => <PostListDrawer {...props} />,
   // Community boards (alpha, 2026-10-06) — the strip's community tab.
   community: (props) => <CommunityDrawer {...props} />,
   // Admin accounts only (the strip's admin button); every call it makes is

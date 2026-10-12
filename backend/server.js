@@ -36,7 +36,9 @@ import db from './db/database.js';
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500 });
+// 500 requests per visitor per 15 minutes on the live site. On a developer's PC (NODE_ENV not 'production') it is 20000,
+// because every page reload makes dozens of requests; RATE_LIMIT_MAX overrides either.
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.RATE_LIMIT_MAX) || (process.env.NODE_ENV === 'production' ? 500 : 20000) });
 
 // Behind Caddy every request arrives from the proxy; trust its X-Forwarded-For so the rate limit and the
 // request log see the real visitor, not one shared address. (Only the one hop in front of us.)
