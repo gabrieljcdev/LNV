@@ -1981,6 +1981,172 @@ function PairBox({ name, sub, open, onOpen, children, d, bodyRef }) {
   )
 }
 
+// ── Notes card (?cards=notes, 12 Oct 2026, gabriel) ──────────────────────────────────────────────────
+// Built from the "Post card directions" canvas (FullPost board). The same header box as the paired card, then
+// two columns: the cover, Plays from and Details on the left; Tracks (highlights on top, the full list under the
+// big side letters) and the post on the right. Replies open in a small square pop-out over the card.
+// Type everywhere matches the drawers: spaced capitals for labels, Barlow 700 17px for names, Plex Mono for numbers.
+const NOTES_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'notes') localStorage.setItem('lnv-cards', q)
+    return localStorage.getItem('lnv-cards') === 'notes'
+  } catch { return false }
+})()
+const NOTE_TINT = 'color-mix(in srgb, var(--lv-pri) 5%, transparent)'
+const NOTE_HAIR = 'color-mix(in srgb, var(--lv-pri) 10%, transparent)'
+const NOTE_HAIR2 = 'color-mix(in srgb, var(--lv-pri) 26%, transparent)'
+const NOTE_BOX = { borderRadius: 30, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }
+const NOTE_FOLD_MS = 380
+const NOTE_FOLD_EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)'
+const noteLabel = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-sec)' })
+const noteName = d => ({ fontFamily: d.bodyFf, fontSize: 17, lineHeight: 1.2, fontWeight: 700 })
+const noteMeta = d => ({ fontFamily: d.monoFf, fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: 'var(--lv-ter)' })
+// The pills of the nav strip (Strip.jsx tabs, BrowseGrid's drawer pills), lying down.
+const notePill = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', lineHeight: 1, textTransform: 'lowercase', whiteSpace: 'nowrap', textDecoration: 'none', padding: '11px 19px', borderRadius: 999, border: '1px solid var(--theme-border)', color: 'var(--lv-ter)', background: 'transparent', cursor: 'pointer' })
+const NOTE_CSS = '.lnv-np{transition:background .15s,border-color .15s,color .15s}.lnv-np:hover{background:var(--theme-dark3)!important;color:var(--lv-pri)!important}'
+  + '.lnv-sp{transition:filter .15s}.lnv-sp:hover{filter:brightness(1.15)}'
+  + '.lnv-nr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent)}'
+  + '.lnv-nr .lnv-off{opacity:.35;transition:opacity .15s}.lnv-nr:hover .lnv-off{opacity:1}'
+  + '@media (prefers-reduced-motion: reduce){.lnv-fold{transition:none!important}}'
+// The short dash before every name.
+function NoteDash() {
+  return <span aria-hidden="true" style={{ display: 'inline-block', width: 4.5, height: 2, borderRadius: 1, background: 'var(--lv-ter)', transform: 'translateY(-5px)' }} />
+}
+// Black or white text on a platform colour, whichever reads.
+function inkOnHex(hex) {
+  const h = String(hex || '').replace('#', '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  if (full.length !== 6) return '#fff'
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+  const L = 0.2126 * f(parseInt(full.slice(0, 2), 16)) + 0.7152 * f(parseInt(full.slice(2, 4), 16)) + 0.0722 * f(parseInt(full.slice(4, 6), 16))
+  return 1.05 / (L + 0.05) >= 3.9 ? '#fff' : '#111'
+}
+// Sides from the positions: "A1", "B2" -> A, B; "1-1", "2-3" -> 1, 2. Anything else is one group with no letter.
+function noteSides(tracks) {
+  const key = t => {
+    const p = String(t.position || '').trim()
+    let m = p.match(/^([A-Za-z])\d*$/) || p.match(/^([A-Za-z])\d/)
+    if (m) return m[1].toUpperCase()
+    m = p.match(/^(\d+)[-.]\d+$/)
+    return m ? m[1] : ''
+  }
+  const groups = []
+  tracks.forEach((t, i) => {
+    const k = key(t)
+    const last = groups[groups.length - 1]
+    if (last && last.key === k) last.items.push({ t, i })
+    else groups.push({ key: k, items: [{ t, i }] })
+  })
+  return groups.length > 1 || (groups[0] && groups[0].key) ? groups : [{ key: '', items: tracks.map((t, i) => ({ t, i })) }]
+}
+// "50:06" from the tracks' durations (m:ss or h:mm:ss); '' if any is missing.
+function noteRuntime(tracks) {
+  let s = 0
+  for (const t of tracks) {
+    const parts = String(t.duration || '').split(':').map(Number)
+    if (!t.duration || parts.some(isNaN)) return ''
+    s += parts.reduce((a, v) => a * 60 + v, 0)
+  }
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
+}
+// One fold: open = its content's height, closed = nothing; both ways animate.
+function NoteFold({ open, children, shift = -14 }) {
+  return (
+    <div className="lnv-fold" aria-hidden={!open} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: `grid-template-rows ${NOTE_FOLD_MS}ms ${NOTE_FOLD_EASE}, opacity ${NOTE_FOLD_MS * 0.8}ms ease` }}>
+      <div style={{ overflow: 'hidden', minHeight: 0 }}>
+        <div className="lnv-fold" style={{ transform: `translateY(${open ? 0 : shift}px)`, transition: `transform ${NOTE_FOLD_MS}ms ${NOTE_FOLD_EASE}` }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+// The replies pop-out: a quiet square (three quarters of the cover), the replies, and a reply bar. Drag it by its top.
+function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
+  const [comments, setComments] = useState(null)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [priv, setPriv] = useState(false)
+  const [ask, setAsk] = useState(null)
+  const [off, setOff] = useState({ x: 0, y: 0 })
+  const drag = useRef(null)
+  const listRef = useRef(null)
+  const me = getUserId(), meName = getUser()
+  useEffect(() => {
+    let dead = false
+    fetch(`${API}/posts/${post.id}/comments`).then(r => r.ok ? r.json() : []).then(x => { if (!dead) setComments(Array.isArray(x) ? x : []) }).catch(() => { if (!dead) setComments([]) })
+    return () => { dead = true }
+  }, [post.id])
+  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight }, [comments])
+  useEffect(() => {
+    const move = e => { if (drag.current) setOff({ x: e.clientX - drag.current.x, y: e.clientY - drag.current.y }) }
+    const up = () => { drag.current = null }
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); window.addEventListener('keydown', esc)
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc) }
+  }, [onClose])
+  const shown = (comments || [])
+  const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
+  async function submit() {
+    const content = text.trim()
+    if (!content || busy || !me) return
+    setBusy(true)
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300), private: priv }) })
+      if (!res.ok) throw new Error(String(res.status))
+      const saved = await res.json()
+      setComments(prev => [...(prev || []), saved]); setText(''); setPriv(false)
+      if (!saved.private) onCount(shown.filter(c => !c.private).length + 1)
+    } catch { window.alert('Could not post that reply — try again.') } finally { setBusy(false) }
+  }
+  async function remove(c) {
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      const rest = shown.filter(x => x.id !== c.id)
+      setComments(rest)
+      if (!c.private) onCount(rest.filter(x => !x.private).length)
+    } catch { window.alert('Could not delete that reply — try again.') }
+  }
+  return (
+    <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
+      style={{ position: 'absolute', right: 0, bottom: 0, zIndex: 20, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
+      <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
+        <span style={noteLabel(d)}>Replies</span><span style={noteLabel(d)}>{shown.filter(c => !c.private).length}</span>
+        <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
+      </div>
+      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '2px 8px', ...INNER_SCROLL_STYLE }}>
+        {comments && !shown.length && <div style={{ margin: 'auto 0', textAlign: 'center', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>No replies yet.</div>}
+        {shown.map(c => (
+          <div key={c.id}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <b style={{ fontFamily: d.bodyFf, fontSize: 15, fontWeight: 700 }}><CommentAuthor name={c.username} /></b>
+              <span style={noteMeta(d)}>{stampShort(c.created_at)}</span>
+              {c.private && <span style={{ ...noteMeta(d), color: 'var(--theme-accent)' }}>private</span>}
+              {canDelete(c) && <button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...noteMeta(d) }}>delete</button>}
+            </div>
+            <div style={{ marginTop: 2, fontFamily: d.bodyFf, fontSize: 15, lineHeight: 1.35, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</div>
+          </div>
+        ))}
+      </div>
+      {me ? (
+        <div style={{ flexShrink: 0, marginTop: 8, height: 44, display: 'flex', alignItems: 'center', gap: 4, padding: '0 5px 0 16px', borderRadius: 99, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }}>
+          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} aria-label="Reply"
+            placeholder={priv ? `Private to ${posterName}…` : 'Reply…'}
+            style={{ flex: 1, minWidth: 0, height: '100%', border: 'none', background: 'transparent', color: 'var(--lv-pri)', fontFamily: d.bodyFf, fontSize: 15, outline: 'none' }} />
+          {posterName && meName && posterName !== meName && (
+            <button onClick={() => setPriv(v => !v)} aria-pressed={priv} title={priv ? `Private: only you and ${posterName} will see it` : `Make this reply private to ${posterName}`}
+              style={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', border: 'none', background: priv ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : 'none', cursor: 'pointer', fontSize: 13 }}>🔒</button>
+          )}
+          <button onClick={submit} disabled={!text.trim() || busy} aria-label="Send reply"
+            style={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: cardBg, fontSize: 14, cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>↑</button>
+        </div>
+      ) : <a href="/login" style={{ flexShrink: 0, marginTop: 8, ...noteLabel(d), color: 'var(--theme-accent)', textDecoration: 'none', padding: '0 8px' }}>Log in to reply →</a>}
+      {ask && <ConfirmPop at={ask} message="Delete this reply?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
+    </div>
+  )
+}
+
 function ShelfCard({ post, cardBg, d, onEdit }) {
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
@@ -1988,6 +2154,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
+  const [notesReply, setNotesReply] = useState(false) // the notes card's replies pop-out
   const [pairL, setPairL] = useState('p') // which of Plays from / The post is open
   const [pairR, setPairR] = useState('auto') // 'auto': Tracks and Details both open if the column has room (Details folds when the tracklist is long); 't' / 'd': the person swapped them by hand
   const [autoD, setAutoD] = useState(true)
@@ -2189,6 +2356,232 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
     )
   }
 
+  if (NOTES_CARDS) {
+    const L = noteLabel(d), NM = noteName(d), MT = noteMeta(d), NP = notePill(d)
+    const runtime = noteRuntime(tracks)
+    const sides = noteSides(tracks)
+    const picked = t => { const h = hlOf(t); return (!!me && h.by.includes(me)) || (!!ownerName && h.by.includes(ownerName)) }
+    const nPicked = tracks.filter(picked).length
+    const playIdx = i => { const u = urlOf(tracks[i]); if (u) setActiveUrl(activeUrl === u ? null : u) }
+    const firstPicked = tracks.findIndex(t => picked(t) && urlOf(t))
+    const playTop = () => { const i = firstPicked >= 0 ? firstPicked : tracks.findIndex(t => urlOf(t)); if (i >= 0) setActiveUrl(urlOf(tracks[i])) }
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const replySize = Math.round(d.artSize * 0.75)
+    const discogsPill = (key, on, add, yes) => on
+      ? <span key={key} style={{ ...NP, cursor: 'default', borderColor: 'var(--lv-sec)', color: 'var(--lv-pri)' }}>✓ {yes}</span>
+      : discogsExact ? <a key={key} className="lnv-np" href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={NP}>{add} ↗</a> : null
+    const star = (t, h, mine, big) => (
+      <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} className={mine ? undefined : 'lnv-off'} aria-pressed={mine}
+        aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+        title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+        style={{ width: big ? 30 : 28, height: big ? 30 : 28, border: 'none', background: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 14, color: mine ? 'var(--theme-accent)' : 'var(--lv-pri)' }}>{mine ? '★' : '☆'}</button>
+    )
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
+        <style>{NOTE_CSS}</style>
+        <div ref={hdrR} style={{ flexShrink: 0, alignSelf: 'flex-start', width: 'fit-content', maxWidth: `calc(100% - ${2 * d.bandPadX}px)`, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+            </div>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+            <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+              {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+              {label && (catNo || post.year) ? ' · ' : ''}
+              {[catNo, post.year].filter(Boolean).join(' · ')}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12, flexShrink: 0 }}>
+              <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
+              {locations.map(({ p, n }) => (
+                <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                  style={{ ...badge, ...(PAIRED_CARDS ? mutedPill(p, 24) : { border: 'none', background: shelfColor(p), color: p === 'beatport' ? '#000' : '#fff' }), cursor: 'pointer' }}>
+                  {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+                </button>
+              ))}
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            </div>
+            {post.genres?.length > 0 && (
+              <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+                {post.genres.map(g => (
+                  <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                    style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                ))}
+                <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+              </div>
+            )}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, padding: `0 ${d.bandPadX}px` }}>
+          {/* left: the cover, Plays from, Details */}
+          <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ position: 'relative', width: d.artSize, height: `min(${d.artSize}px, calc(100vh - ${2 * (PAIRED_PAD_Y + FLOAT_INSET_Y) + 300}px))`, flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+              {playingSrc ? (
+                <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+              ) : (
+                <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                  {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                  <span style={{ position: 'absolute', left: 16, top: 16, width: 54, height: 54, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 500, fontSize: 15, background: cardBg, color: 'var(--lv-pri)' }}>{num}</span>
+                  {firstUrl && <span aria-hidden="true" style={{ position: 'absolute', right: 16, bottom: 16, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 16, background: cardBg, color: 'var(--lv-pri)', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>▶</span>}
+                </div>
+              )}
+            </div>
+            {locations.length > 0 && (
+              <div style={{ ...NOTE_BOX, flexShrink: 0, padding: '14px 10px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', padding: '0 10px 4px' }}>
+                  <span style={L}>Plays from</span>
+                  {activeUrl && nowP && <span style={{ ...MT, marginLeft: 'auto' }}>playing on {(SOURCE_NAME[nowP] || nowP).toLowerCase()}</span>}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 10px 4px' }}>
+                  {locations.map(({ p, n }) => {
+                    const on = nowP === p, c = shelfColor(p)
+                    return (
+                      <button key={p} className="lnv-sp" onClick={() => playFrom(p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
+                        style={{ ...NP, cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
+                        {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, opacity: 0.8, marginLeft: 6 }}>{n}/{tracks.length}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 10px 10px', ...INNER_SCROLL_STYLE }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '0 10px 4px' }}>
+                <span style={L}>Playlists</span><span style={L}>{(post.playlists || []).length}</span>
+                <AddToPlaylistButton post={post} label="+ add" align="right" style={{ ...L, marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }} />
+              </div>
+              {(post.playlists || []).map(pl => (
+                <button key={pl.id} className="lnv-nr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`Open ${pl.name}`}
+                  style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '7px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                  <NoteDash /><span style={NM}>{pl.name}</span><span style={MT}>{pl.owner}</span>
+                </button>
+              ))}
+              <div style={{ display: 'flex', padding: '8px 10px 0' }}>
+                <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
+              </div>
+              <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
+              </div>
+              <button className="lnv-nr" onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this"
+                style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '7px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                <NoteDash /><span style={{ ...NM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keptBy.slice(0, 3).join(', ')}</span><span style={MT}>{keptBy.length > 3 ? `+${keptBy.length - 3}` : ''}</span>
+              </button>
+              {contributors.length > 0 && <>
+                <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={L}>Artists</span><span style={L}>{contributors.length}</span>
+                </div>
+                <div style={{ padding: '7px 10px', fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.5, color: 'var(--lv-sec)' }}>
+                  {contributors.slice(0, 12).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 12 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 12} more</span>}
+                </div>
+              </>}
+              <div style={{ margin: '12px 10px 0', paddingTop: 12, borderTop: `1px solid ${NOTE_HAIR}` }}><span style={L}>Discogs</span></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '8px 10px 4px' }}>
+                {discogsPill('c', !!dAcct?.linked && inColl, '+ collection', 'in your collection')}
+                {discogsPill('w', !!dAcct?.linked && inWant, '+ wantlist', 'on your wantlist')}
+                <a className="lnv-np" href={buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`} target="_blank" rel="noopener noreferrer" style={NP}>buy ↗</a>
+              </div>
+            </div>
+          </div>
+          {/* right: Tracks (highlights on top, then the whole record), then the post */}
+          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 10px 10px' }}>
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 10, padding: '0 10px' }}>
+                <span style={L}>{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</span>
+                {tracks.some(t => urlOf(t)) && <button onClick={playTop} style={{ marginLeft: 'auto', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{nPicked ? '▶ play highlights' : '▶ play all'}</button>}
+              </div>
+              <div data-inner-scroll="" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto', marginTop: 4, ...INNER_SCROLL_STYLE }}>
+                {/* highlights: every track is here, folded away unless the poster or you picked it, so adding and removing one animates */}
+                <NoteFold open={nPicked > 0} shift={0}>
+                  <div style={{ paddingTop: 6 }}>
+                    <div style={{ display: 'flex', gap: 8, margin: '0 10px 6px', ...L }}><span>Highlights</span><span>{nPicked}</span></div>
+                    {tracks.map((t, i) => {
+                      const h = hlOf(t), mine = !!me && h.by.includes(me), own = !!ownerName && h.by.includes(ownerName)
+                      const u = urlOf(t), on = !!activeUrl && u === activeUrl
+                      const who = [own && ownerName !== me ? ownerName : null, mine ? 'you' : null].filter(Boolean).join(' + ')
+                      return (
+                        <NoteFold key={t.id || i} open={own || mine}>
+                          <div style={{ paddingBottom: 6 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto 30px', gap: 10, alignItems: 'center', padding: '7px 4px 7px 7px', borderRadius: 18, background: `color-mix(in srgb, var(--theme-accent) ${on ? 30 : 16}%, transparent)` }}>
+                              <button onClick={() => playIdx(i)} disabled={!u} aria-label={`${on ? 'Stop' : 'Play'} ${t.title}`}
+                                style={{ width: 38, height: 38, borderRadius: '50%', border: on ? 'none' : `1px solid ${NOTE_HAIR2}`, background: on ? 'var(--lv-pri)' : 'none', color: on ? cardBg : 'var(--lv-pri)', fontSize: 12, cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.4 }}>{on ? '❚❚' : '▶'}</button>
+                              <button onClick={() => playIdx(i)} style={{ minWidth: 0, border: 'none', background: 'none', padding: 0, textAlign: 'left', color: 'var(--lv-pri)', cursor: u ? 'pointer' : 'default' }}>
+                                <span style={{ display: 'block', fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)' }}>{[t.position, t.duration, who].filter(Boolean).join(' · ')}</span>
+                                <span style={{ display: 'block', ...NM, lineHeight: 1.15 }}>{shelfTrack(t, comp).title}</span>
+                              </button>
+                              <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-sec)' }}>★{h.n}</span>
+                              {star(t, h, mine, true)}
+                            </div>
+                          </div>
+                        </NoteFold>
+                      )
+                    })}
+                    <div style={{ margin: '4px 10px 0', borderTop: `1px solid ${NOTE_HAIR}` }} />
+                  </div>
+                </NoteFold>
+                {/* the whole record, in order, under one big letter per side */}
+                {sides.map(g => (
+                  <div key={g.key + g.items[0].i} style={{ display: 'grid', gridTemplateColumns: g.key ? '30px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
+                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: 25.5, lineHeight: '36px', color: 'var(--lv-ter)' }}>{g.key}</span>}
+                    <div>
+                      {g.items.map(({ t, i }) => {
+                        const u = urlOf(t), on = !!activeUrl && u === activeUrl
+                        const h = hlOf(t), mine = !!me && h.by.includes(me)
+                        const v = shelfTrack(t, comp)
+                        return (
+                          <div key={t.id || i}>
+                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 36, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
+                              <button onClick={() => playIdx(i)} title={u ? undefined : 'No link for this track yet'}
+                                style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', alignItems: 'baseline', border: 'none', background: 'none', padding: '6px 0', textAlign: 'left', cursor: u ? 'pointer' : 'default', ...NM, color: on ? 'var(--theme-accent)' : 'var(--lv-pri)', opacity: u ? 1 : 0.55 }}>
+                                <NoteDash />
+                                <span style={{ overflowWrap: 'anywhere' }}>{v.title}{(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, color: 'var(--lv-sec)' }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}</span>
+                              </button>
+                              <span style={MT}>{t.duration || ''}</span>
+                              <span style={{ fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)', textAlign: 'right' }}>{h.n || ''}</span>
+                              <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: 15, color: 'var(--lv-pri)' }} /> : null}</span>
+                              {star(t, h, mine, false)}
+                            </div>
+                            {on && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={g.key ? 8 : 20} />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ ...NOTE_BOX, flexShrink: 0, padding: '16px 20px 14px', maxHeight: '45%', display: 'flex', flexDirection: 'column' }}>
+              <div data-inner-scroll="" style={{ minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+                {quoteText && <p style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 22, lineHeight: 1.22, letterSpacing: '-0.01em', color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
+                {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+                {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+              </div>
+              <div style={{ flexShrink: 0, marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                {posterName && <span style={{ fontFamily: d.bodyFf, fontSize: 13, color: 'var(--lv-sec)' }}>— <b style={{ fontWeight: 700, color: 'var(--lv-sec)' }}>{posterName}</b></span>}
+                <button className="lnv-np" onClick={() => setNotesReply(v => !v)} aria-expanded={notesReply}
+                  style={{ ...NP, marginLeft: 'auto', ...(notesReply ? { background: 'var(--lv-pri)', borderColor: 'var(--lv-pri)', color: cardBg } : null) }}>
+                  reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, marginLeft: 6 }}>{commentCount}</span>}
+                </button>
+              </div>
+            </div>
+            {notesReply && <NoteReplies post={post} posterName={posterName} size={replySize} d={d} cardBg={cardBg} onClose={() => setNotesReply(false)} onCount={setCommentCount} />}
+          </div>
+        </div>
+        {/* one pill across the foot: who posted it, main number, time, edit / delete */}
+        <div style={{ flexShrink: 0, margin: `${SHELF_PAD_Y / 2}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${NOTE_HAIR}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12.5 }}>
+          {posterName && <UserChip name={posterName} d={d} />}
+          <FollowedTag post={post} />
+          <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12.5, color: 'var(--lv-ter)' }} />
+          {privateWaiting > 0 && <button onClick={() => { setNotesReply(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+          <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+          {canModify && <>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </>}
+        </div>
+      </div>
+    )
+  }
+
   if (PAIRED_CARDS) {
     const cap = { fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)' }
     const chip = { display: 'inline-block', margin: '0 5px 5px 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '4px 11px', borderRadius: 99, border: '1px solid var(--lv-sec)', background: 'none', color: 'var(--lv-pri)', cursor: 'pointer' }
@@ -2200,7 +2593,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
         <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
         {/* the header box (gabriel, 12 Oct; from mockup24): the artist, the title, the release line, the location pills and the genres in a soft box of their own */}
-        <div ref={hdrR} style={{ flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+        <div ref={hdrR} style={{ flexShrink: 0, alignSelf: 'flex-start', width: 'fit-content', maxWidth: `calc(100% - ${2 * d.bandPadX}px)`, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
             <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
               {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
             </div>

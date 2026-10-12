@@ -173,7 +173,8 @@ export function FollowedTag({ post, style }) {
 // rather than post it again. The count is how many people have it on their
 // wall; on your own post the heart is simply on. Who else has it shows as
 // "& dan" beside the poster (AlsoPosted).
-export function HeartButton({ post, size, style }) {
+// `text(on, count)` / `onStyle`: the notes card draws it as a "+ add to feed" pill instead of a heart.
+export function HeartButton({ post, size, style, text, onStyle }) {
   const qc = useQueryClient()
   const me = getUser()
   const [mine, setMine] = useState(null) // local answer until the feed refreshes
@@ -199,8 +200,8 @@ export function HeartButton({ post, size, style }) {
   return (
     <button onClick={click} disabled={busy} aria-pressed={on}
       title={own ? 'Your post — it’s in your feed' : on ? 'In your feed — tap to take it out' : 'Keep it — in your feed and your followers’ feeds'}
-      style={{ ...plain, whiteSpace: 'nowrap', cursor: own ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
-      <span style={size ? { fontSize: size } : null}>{on ? '♥' : '♡'}</span>{count > 1 ? ` ${count}` : ''}
+      style={{ ...plain, whiteSpace: 'nowrap', cursor: own ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, ...style, ...(on ? (onStyle || { color: 'var(--theme-accent)' }) : null) }}>
+      {text ? text(on, count) : <><span style={size ? { fontSize: size } : null}>{on ? '♥' : '♡'}</span>{count > 1 ? ` ${count}` : ''}</>}
     </button>
   )
 }
