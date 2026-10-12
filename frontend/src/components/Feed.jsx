@@ -2381,7 +2381,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
         <style>{NOTE_CSS}</style>
-        <div ref={hdrR} style={{ flexShrink: 0, alignSelf: 'flex-start', width: 'fit-content', maxWidth: `calc(100% - ${2 * d.bandPadX}px)`, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+        <div ref={hdrR} style={{ flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
             <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
               {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
             </div>
@@ -2593,7 +2593,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
         <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
         {/* the header box (gabriel, 12 Oct; from mockup24): the artist, the title, the release line, the location pills and the genres in a soft box of their own */}
-        <div ref={hdrR} style={{ flexShrink: 0, alignSelf: 'flex-start', width: 'fit-content', maxWidth: `calc(100% - ${2 * d.bandPadX}px)`, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+        <div ref={hdrR} style={{ flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
             <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
               {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
             </div>
