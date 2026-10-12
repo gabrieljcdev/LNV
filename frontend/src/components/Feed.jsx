@@ -1263,7 +1263,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         </div>
 
         {/* under the video: ONE box (gabriel, 12 Oct) — the info on the left, the options on the right, the post along the bottom */}
-        <div style={{ flex: '0 0 auto', marginTop: 22, border: '1px solid color-mix(in srgb, var(--lv-pri) 40%, transparent)', borderRadius: 28, background: 'color-mix(in srgb, var(--lv-pri) 9%, transparent)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: '0 0 auto', marginTop: 22, border: `1px solid ${CARD_LINE}`, borderRadius: 28, background: 'color-mix(in srgb, var(--lv-pri) 9%, transparent)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 28, padding: '20px 26px 14px' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
@@ -1299,10 +1299,10 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
               </div>
             </div>
           </div>
-          <div style={{ height: 1, margin: '0 26px', background: 'color-mix(in srgb, var(--lv-pri) 22%, transparent)' }} />
+          <div style={{ height: 1, margin: '0 26px', background: CARD_LINE }} />
           <div style={{ padding: '12px 26px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, fontFamily: SANS, fontSize: 16 }}>
-              <b style={{ fontWeight: 500, letterSpacing: '-0.01em' }}>The post</b>
+              <b style={{ fontWeight: 600, letterSpacing: '-0.01em' }}>The post</b>
               <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', gap: 28 }}>
@@ -1322,7 +1322,7 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         </div>
 
         {/* one pill across the foot, above the compose button */}
-        <div style={{ flexShrink: 0, margin: '28px 0 0', height: 44, padding: '0 20px 0 5px', border: '1px solid color-mix(in srgb, var(--lv-pri) 40%, transparent)', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: MONO, fontSize: 12 }}>
+        <div style={{ flexShrink: 0, margin: '28px 0 0', height: 44, padding: '0 20px 0 5px', border: `1px solid ${CARD_LINE}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: MONO, fontSize: 12 }}>
           {poster && <UserChip name={poster} d={T} />}
           <MainNumber post={post} style={{ fontFamily: MONO, fontSize: T.stampSize, color: 'var(--lv-ter)' }} />
           <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
@@ -1952,15 +1952,31 @@ function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.ti
 }
 
 // One of the paired boxes: the open one is a tinted box that hugs its content (and scrolls if the column is short); the other is an outlined pill. Hover (or tap) the pill and it swaps with the open one.
+// How a box opens: slow and weighted (gabriel, 12 Oct) — a short pause after the cursor arrives, then the two boxes of
+// a pair trade places over PAIR_MS with a heavy ease (slow off the mark, settles gently). Bodies stay mounted so they can
+// animate; a closed one has zero height.
+const PAIR_MS = 750
+const PAIR_EASE = 'cubic-bezier(0.65, 0, 0.25, 1)'
+const PAIR_HOVER_DELAY = 160
+const CARD_LINE = 'color-mix(in srgb, var(--lv-pri) 16%, transparent)' // the boxes' outlines: barely there
 function PairBox({ name, sub, open, onOpen, children, d, bodyRef }) {
+  const timer = useRef(null)
+  const arm = () => { if (!open && !timer.current) timer.current = setTimeout(() => { timer.current = null; onOpen() }, PAIR_HOVER_DELAY) }
+  const disarm = () => { clearTimeout(timer.current); timer.current = null }
+  useEffect(() => disarm, [])
+  const ease = `${PAIR_MS}ms ${PAIR_EASE}`
   return (
-    <div onMouseEnter={open ? undefined : onOpen} onClick={open ? undefined : onOpen}
-      style={{ border: '1px solid color-mix(in srgb, var(--lv-pri) 40%, transparent)', borderRadius: 24, flex: open ? '0 1 auto' : '0 0 auto', minHeight: open ? 0 : undefined, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: open ? 'color-mix(in srgb, var(--lv-pri) 9%, transparent)' : 'transparent', cursor: open ? 'default' : 'pointer', transition: 'background 0.25s' }}>
-      <div style={{ display: 'flex', gap: 10, padding: '0 18px', height: open ? 38 : 44, flexShrink: 0, alignItems: 'center', fontFamily: d.bodyFf, color: 'var(--lv-pri)' }}>
-        <b style={{ fontWeight: 500, fontSize: 16, letterSpacing: '-0.01em' }}>{name}</b>
+    <div onMouseEnter={arm} onMouseLeave={disarm} onClick={() => { disarm(); if (!open) onOpen() }}
+      style={{ border: `1px solid ${CARD_LINE}`, borderRadius: 24, flex: open ? '0 1 auto' : '0 0 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: open ? 'color-mix(in srgb, var(--lv-pri) 9%, transparent)' : 'transparent', cursor: open ? 'default' : 'pointer', transition: `background ${ease}` }}>
+      <div style={{ display: 'flex', gap: 10, padding: '0 18px', height: open ? 38 : 44, flexShrink: 0, alignItems: 'center', fontFamily: d.bodyFf, color: 'var(--lv-pri)', transition: `height ${ease}` }}>
+        <b style={{ fontWeight: 600, fontSize: 16, letterSpacing: '-0.01em' }}>{name}</b>
         <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{sub}</span>
       </div>
-      {open && <div ref={bodyRef} data-inner-scroll="" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '0 18px 12px', ...INNER_SCROLL_STYLE }}>{children}</div>}
+      <div aria-hidden={!open} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', flex: open ? '0 1 auto' : '0 0 auto', minHeight: 0, opacity: open ? 1 : 0, transitionProperty: 'grid-template-rows, opacity', transitionDuration: `${PAIR_MS}ms, ${PAIR_MS * 0.6}ms`, transitionTimingFunction: PAIR_EASE }}>
+        <div ref={bodyRef} data-inner-scroll={open ? '' : undefined} style={{ minHeight: 0, overflowY: open ? 'auto' : 'hidden', overflowX: 'hidden', padding: '0 18px', ...INNER_SCROLL_STYLE }}>
+          <div style={{ paddingBottom: 12 }}>{children}</div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2060,7 +2076,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
     const check = () => {
       if (detBody.current) detH.current = detBody.current.scrollHeight + 50
       const trk = (trkBody.current ? trkBody.current.scrollHeight : tracks.length * 38) + 50
-      const need = (hdrR.current?.offsetHeight || 0) + 12 + trk + detH.current + 3 * 9
+      const need = (hdrR.current?.offsetHeight || 0) + 38 + trk + detH.current + 3 * 9
       setAutoD(need <= col.clientHeight)
     }
     check()
@@ -2223,7 +2239,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           </div>
           {/* right: artist / title, then Tracks / Details */}
           <div ref={colR} style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
-            <div ref={hdrR} style={{ flexShrink: 0 }}>
+            <div ref={hdrR} style={{ flexShrink: 0, marginBottom: 26 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14, flexShrink: 0 }}>
               <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
               {locations.map(({ p, n }) => (
@@ -2257,7 +2273,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             <PairBox d={d} name="Tracks" sub={`${tracks.length}${highlighted ? ` · ${highlighted} ★` : ''}`} open={tracksOpen} onOpen={() => setPairR('t')} bodyRef={trkBody}>
               {tracks.map(row)}
             </PairBox>
-            <PairBox d={d} name="Details" sub="discogs · yours · playlists" open={detailsOpen} onOpen={() => setPairR('d')} bodyRef={detBody}>
+            <PairBox d={d} name="Details" sub="lists · discogs · buy" open={detailsOpen} onOpen={() => setPairR('d')} bodyRef={detBody}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '2px 0 10px' }}>
                 {[['In playlists', nPlaylists, { kind: 'playlists', lists: post.playlists || [] }], ['Kept by', 1 + (post.alsoPostedBy || []).length, { kind: 'people', people: [posterName, ...(post.alsoPostedBy || [])].filter(Boolean) }]].map(([k, n, props]) => (
                   <button key={k} onClick={() => openD3?.('postlist', { ...props, title: k, post: [artist, post.title].filter(Boolean).join(' – ') })} title={`See ${k === 'Kept by' ? 'who kept this' : 'the playlists it is in'}`}
@@ -2266,34 +2282,23 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start', fontFamily: d.bodyFf, fontWeight: 400, fontSize: 14, color: 'var(--lv-pri)' }}>
-                {contributors.length > 0 && <><span style={dt}>Artists</span><span style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5 }}>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}</span></>}
-                {dAcct?.linked && <>
-                  <span style={dt}>Discogs</span>
-                  <span style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-                    {[['collection', inColl, 'In your collection', '＋ add to collection'], ['wantlist', inWant, 'On your wantlist', '♡ add to wantlist']].map(([k, on, yes, add]) => (
-                      <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        {on ? <span style={{ fontWeight: 500 }}>✓ {yes}</span>
-                          : <>
-                            <span style={{ color: 'var(--lv-ter)', fontWeight: 500 }}>Not in your {k}</span>
-                            {discogsExact && <a href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={{ ...chip, margin: 0, textDecoration: 'none' }}>{add} ↗</a>}
-                          </>}
-                      </span>
-                    ))}
-                  </span>
-                </>}
-                <span style={dt}>Buy</span>
-                <span>{(() => {
+              {/* the actions as pills, flush left under the tiles (no row labels) */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', margin: '0 0 12px' }}>
+                {dAcct?.linked && [['collection', inColl, 'add to Discogs collection', 'In your Discogs collection', '＋'], ['wantlist', inWant, 'add to Discogs wantlist', 'On your Discogs wantlist', '♡']].map(([k, on, add, yes, ic]) => (
+                  on ? <span key={k} style={{ ...chip, margin: 0, fontSize: 13, cursor: 'default', background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)' }}>✓ {yes}</span>
+                    : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={{ ...chip, margin: 0, fontSize: 13, textDecoration: 'none' }}>{ic} {add} ↗</a> : null
+                ))}
+                {(() => {
                   const href = buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`
                   const where = buyHref && platformOfUrl(post.stream_url) === 'bandcamp' && !post.discogs_id ? 'Bandcamp' : 'Discogs'
-                  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ ...chip, margin: 0, textDecoration: 'none' }}>Buy on {where} ↗</a>
-                })()}</span>
-                <span style={dt}>Yours</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <AddToPlaylistButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
-                  <HeartButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
-                  <FollowedTag post={post} />
-                </span>
+                  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ ...chip, margin: 0, fontSize: 13, textDecoration: 'none' }}>Buy on {where} ↗</a>
+                })()}
+                <AddToPlaylistButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
+                <HeartButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
+                <FollowedTag post={post} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start', fontFamily: d.bodyFf, fontWeight: 400, fontSize: 14, color: 'var(--lv-pri)' }}>
+                {contributors.length > 0 && <><span style={dt}>Artists</span><span style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5 }}>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}</span></>}
                 {nPlaylists > 0 && <><span style={dt}>Playlists</span><span>{post.playlists.map(pl => <button key={pl.id} onClick={plBtn} title={`${pl.name} · by ${pl.owner}`} style={chip}>♫ {pl.name}</button>)}</span></>}
                 {(post.alsoPostedBy || []).length > 0 && <><span style={dt}>Also by</span><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{post.alsoPostedBy.slice(0, 4).map(n => <UserChip key={n} name={n} d={d} />)}{post.alsoPostedBy.length > 4 && <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>+{post.alsoPostedBy.length - 4}</span>}</span></>}
               </div>
@@ -2301,7 +2306,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           </div>
         </div>
         {/* one pill across the foot: who posted it, main number, time, edit / delete */}
-        <div style={{ flexShrink: 0, margin: `${SHELF_PAD_Y / 2}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: '1px solid color-mix(in srgb, var(--lv-pri) 40%, transparent)', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12 }}>
+        <div style={{ flexShrink: 0, margin: `${SHELF_PAD_Y / 2}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${CARD_LINE}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12 }}>
           {posterName && <UserChip name={posterName} d={d} />}
           <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
           {privateWaiting > 0 && <button onClick={() => { setCommentsOpen(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting} private</button>}
