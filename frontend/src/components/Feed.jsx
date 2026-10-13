@@ -2397,6 +2397,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
 
   if (NOTES_CARDS) {
     const L = noteLabel(d), NM = noteName(d), MT = noteMeta(d), NP = notePill(d)
+    const TN = { ...NM, fontSize: 12 }, TM = { ...MT, fontSize: 10 } // the tracklist's own, smaller type
     const runtime = noteRuntime(tracks)
     const sides = noteSides(tracks)
     const picked = t => { const h = hlOf(t); return (!!me && h.by.includes(me)) || (!!ownerName && h.by.includes(ownerName)) }
@@ -2487,8 +2488,8 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               ))}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 0' }}>
                 <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
-              </div>
                 <AddToPlaylistButton post={post} label="+ add" align="left" style={{ ...NP, cursor: 'pointer' }} />
+              </div>
               <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
               </div>
@@ -2535,7 +2536,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                                 style={{ width: 38, height: 38, borderRadius: '50%', border: on ? 'none' : `1px solid ${NOTE_HAIR2}`, background: on ? 'var(--lv-pri)' : 'none', color: on ? cardBg : 'var(--lv-pri)', fontSize: 12, cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.4 }}>{on ? '❚❚' : '▶'}</button>
                               <button onClick={() => playIdx(i)} style={{ minWidth: 0, border: 'none', background: 'none', padding: 0, textAlign: 'left', color: 'var(--lv-pri)', cursor: u ? 'pointer' : 'default' }}>
                                 <span style={{ display: 'block', fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)' }}>{[t.position, t.duration, who].filter(Boolean).join(' · ')}</span>
-                                <span style={{ display: 'block', ...NM, lineHeight: 1.15 }}>{shelfTrack(t, comp).title}</span>
+                                <span style={{ display: 'block', ...TN, lineHeight: 1.15 }}>{shelfTrack(t, comp).title}</span>
                               </button>
                               <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-sec)' }}>★{h.n}</span>
                               {star(t, h, mine, true)}
@@ -2550,7 +2551,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                 {/* the whole record, in order, under one big letter per side */}
                 {sides.map(g => (
                   <div key={g.key + (g.items[0]?.i ?? 0)} style={{ display: 'grid', gridTemplateColumns: g.key ? '26px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
-                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: g.key.length > 1 ? 15 : 21, lineHeight: '30px', color: 'var(--lv-ter)' }}>{g.key}</span>}
+                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: g.key.length > 1 ? 13 : 18, lineHeight: '26px', color: 'var(--lv-ter)' }}>{g.key}</span>}
                     <div>
                       {g.items.map(({ t, i }) => {
                         const u = urlOf(t), on = !!activeUrl && u === activeUrl
@@ -2558,13 +2559,13 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                         const v = shelfTrack(t, comp)
                         return (
                           <div key={t.id || i}>
-                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 30, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
+                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 26, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
                               <button onClick={() => playIdx(i)} title={u ? undefined : 'No link for this track yet'}
-                                style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', alignItems: 'baseline', border: 'none', background: 'none', padding: '6px 0', textAlign: 'left', cursor: u ? 'pointer' : 'default', ...NM, color: on ? 'var(--theme-accent)' : 'var(--lv-pri)', opacity: u ? 1 : 0.55 }}>
+                                style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', alignItems: 'baseline', border: 'none', background: 'none', padding: '6px 0', textAlign: 'left', cursor: u ? 'pointer' : 'default', ...TN, color: on ? 'var(--theme-accent)' : 'var(--lv-pri)', opacity: u ? 1 : 0.55 }}>
                                 <NoteDash />
                                 <span style={{ overflowWrap: 'anywhere' }}>{v.title}{(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, color: 'var(--lv-sec)' }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}</span>
                               </button>
-                              <span style={MT}>{t.duration || ''}</span>
+                              <span style={TM}>{t.duration || ''}</span>
                               <span style={{ fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)', textAlign: 'right' }}>{h.n || ''}</span>
                               <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: 15, color: 'var(--lv-pri)' }} /> : null}</span>
                               {star(t, h, mine, false)}
