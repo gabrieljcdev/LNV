@@ -2402,8 +2402,6 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
     const picked = t => { const h = hlOf(t); return (!!me && h.by.includes(me)) || (!!ownerName && h.by.includes(ownerName)) }
     const nPicked = tracks.filter(picked).length
     const playIdx = i => { const u = urlOf(tracks[i]); if (u) setActiveUrl(activeUrl === u ? null : u) }
-    const firstPicked = tracks.findIndex(t => picked(t) && urlOf(t))
-    const playTop = () => { const i = firstPicked >= 0 ? firstPicked : tracks.findIndex(t => urlOf(t)); if (i >= 0) setActiveUrl(urlOf(tracks[i])) }
     const nowP = srcPref || platformOf(activeUrl || firstUrl)
     const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
     const replySize = Math.round(d.artSize * 0.75)
@@ -2480,7 +2478,6 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '8px 6px 6px', ...INNER_SCROLL_STYLE }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '0 10px 4px' }}>
                 <span style={L}>Playlists</span><span style={L}>{(post.playlists || []).length}</span>
-                <AddToPlaylistButton post={post} label="+ add" align="right" style={{ ...L, marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }} />
               </div>
               {(post.playlists || []).map(pl => (
                 <button key={pl.id} className="lnv-nr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`Open ${pl.name}`}
@@ -2488,9 +2485,10 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
                   <NoteDash /><span style={NM}>{pl.name}</span><span style={MT}>{pl.owner}</span>
                 </button>
               ))}
-              <div style={{ display: 'flex', padding: '4px 10px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 0' }}>
                 <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
               </div>
+                <AddToPlaylistButton post={post} label="+ add" align="left" style={{ ...NP, cursor: 'pointer' }} />
               <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
               </div>
@@ -2519,7 +2517,6 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
             <div style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 10px 10px' }}>
               <div style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 10, padding: '0 10px' }}>
                 <span style={L}>{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</span>
-                {tracks.some(t => urlOf(t)) && <button onClick={playTop} style={{ marginLeft: 'auto', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{nPicked ? '▶ play highlights' : '▶ play all'}</button>}
               </div>
               <div data-inner-scroll="" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto', marginTop: 4, ...INNER_SCROLL_STYLE }}>
                 {/* highlights: every track is here, folded away unless the poster or you picked it, so adding and removing one animates */}
