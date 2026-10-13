@@ -2069,10 +2069,22 @@ function NoteFold({ open, children, shift = -14 }) {
 // Which post's replies pop-out is open (one at a time). It follows you along the feed: ShelfCard closes it after three posts.
 let chatPostId = null
 const chatSubs = new Set()
-const setChatPost = id => { if (chatPostId !== id) { chatPostId = id; chatSubs.forEach(f => f()) } }
+let chatAt = null // where the reply button was clicked: the pop-out opens there
+const setChatPost = (id, at) => { if (at) chatAt = at; if (chatPostId !== id) { chatPostId = id; chatSubs.forEach(f => f()) } }
 const useChatPost = () => useSyncExternalStore(f => { chatSubs.add(f); return () => { chatSubs.delete(f) } }, () => chatPostId)
 const CHAT_POSTS_KEPT = 3 // how many posts the pop-out stays with you for
 // The replies pop-out: a quiet square (three quarters of the cover), the replies, and a reply bar. Drag it by its top.
+// Where the replies pop-out opens (2026-10-13): over the click that opened it, centred on the cursor and just above it (the reply
+// button sits low on the card), kept inside the window. No click point (e.g. opened by keyboard): the old bottom-right corner.
+function replyBoxSpot(at, size) {
+  if (!at) return { right: 32, bottom: 96 }
+  const m = 8, w = window.innerWidth, h = window.innerHeight
+  const left = Math.min(Math.max(at.x - size / 2, m), Math.max(m, w - size - m))
+  let top = at.y - size - 12
+  if (top < m) top = Math.min(at.y + 12, Math.max(m, h - size - m))
+  return { left, top: Math.max(m, top) }
+}
+
 function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   const [comments, setComments] = useState(null)
   const [text, setText] = useState('')
@@ -2121,7 +2133,7 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   }
   return (
     <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
-      style={{ position: 'fixed', right: 32, bottom: 96, zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
+      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
       <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
         <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
         <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
@@ -2167,7 +2179,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
   const [plPop, setPlPop] = useState(null)
   const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
   const notesReply = chatId === post.id
-  const setNotesReply = v => setChatPost((typeof v === 'function' ? v(notesReply) : v) ? post.id : null)
+  const setNotesReply = (v, at) => setChatPost((typeof v === 'function' ? v(notesReply) : v) ? post.id : null, at)
   const [pairL, setPairL] = useState('p') // which of Plays from / The post is open
   const [pairR, setPairR] = useState('auto') // 'auto': Tracks and Details both open if the column has room (Details folds when the tracklist is long); 't' / 'd': the person swapped them by hand
   const [autoD, setAutoD] = useState(true)
@@ -2577,7 +2589,7 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
               </div>
               <div style={{ flexShrink: 0, marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
                 {posterName && <span style={{ fontFamily: d.bodyFf, fontSize: 13, color: 'var(--lv-sec)' }}>— <b style={{ fontWeight: 700, color: 'var(--lv-sec)' }}>{posterName}</b></span>}
-                <button className="lnv-np" onClick={() => setNotesReply(v => !v)} aria-expanded={notesReply}
+                <button className="lnv-np" onClick={e => setNotesReply(v => !v, { x: e.clientX, y: e.clientY })} aria-expanded={notesReply}
                   style={{ ...NP, fontSize: 13, padding: '11px 19px', marginLeft: 'auto', ...(notesReply ? { background: 'var(--lv-pri)', borderColor: 'var(--lv-pri)', color: cardBg } : null) }}>
                   reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, marginLeft: 6 }}>{commentCount}</span>}
                 </button>
