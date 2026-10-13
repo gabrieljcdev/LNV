@@ -2336,6 +2336,7 @@ function PlaylistWheelPop({ post, added, setAdded, onClose }) {
   const inIds = new Set([...(post.playlists || []).map(p => p.id), ...added])
   const [note, setNote] = useState('')
   const [pulse, setPulse] = useState(null)
+  const [openable, setOpenable] = useState(null) // a playlist this release is already in: offered as an explicit "open" button, never opened by a tap on the slice
   useEffect(() => {
     const esc = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', esc)
@@ -2349,7 +2350,8 @@ function PlaylistWheelPop({ post, added, setAdded, onClose }) {
       try { const created = await playlistsApi.create(name); await addTo(created) } catch (err) { setNote(err.message) }
       return
     }
-    if (inIds.has(p.id)) { onClose(); openPlaylistFeed({ id: p.id, name: p.name }); return }
+    if (inIds.has(p.id)) { setNote(`Already in ${p.name}`); setOpenable(p); return }
+    setOpenable(null)
     await addTo(p)
   }
   async function addTo(p) {
@@ -2357,7 +2359,7 @@ function PlaylistWheelPop({ post, added, setAdded, onClose }) {
     try {
       const r = await playlistsApi.addTracks(p.id, tracks)
       setAdded(prev => new Set([...prev, p.id])); setPulse(p.id); setTimeout(() => setPulse(null), 600)
-      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`)
+      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`); setOpenable(p)
       qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['playlist', p.id] })
     } catch (err) { setNote(err.message) }
   }
@@ -2371,6 +2373,7 @@ function PlaylistWheelPop({ post, added, setAdded, onClose }) {
           : <PlaylistWheel lists={lists} inIds={inIds} size={S} onPick={pick} pulse={pulse} withNew />}
         <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 10, background: 'var(--theme-light2)', color: inkOnHex(themeHex('--theme-light2')), padding: '8px 8px 8px 18px', borderRadius: 999, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.05em', textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.25)' }}>
           <span>{note || (lists.length ? 'Tap a slice to add this release' : 'No playlists yet — make one')}</span>
+          {openable && <button onClick={() => { onClose(); openPlaylistFeed({ id: openable.id, name: openable.name }) }} title={`Switch the feed to ${openable.name}`} style={{ border: '1.5px solid currentColor', background: 'none', color: 'inherit', borderRadius: 999, padding: '5px 12px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer' }}>open ↗</button>}
           <button onClick={onClose} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>✕</button>
         </div>
       </div>

@@ -174,11 +174,20 @@ sudo -u lnv LNV_DB_PATH=/var/lib/lnv/vinyl_crate.db node admin.mjs list
 (`set-password.mjs` marks the email confirmed, so you can sign in without mail. The password goes in your shell history — clear it with `history -c` afterwards, or change it in the site once signed in.)
 
 ## 12. Updating the site later
+Run these as **root** (`ssh root@94.237.56.224`). Two things to know, both learnt on 13 Oct 2026:
+- `sudo -u lnv git pull` **fails**: the deploy key (`/root/lnv_deploy`) is readable by root only. Pull as root, then hand the files back to `lnv`.
+- `npm run build` has to run as root too: `frontend/node_modules/.vite-temp` and `frontend/dist` are root-owned, so building as `lnv` stops with EACCES.
 ```
-cd /opt/lnv && sudo -u lnv git pull
-cd backend && sudo -u lnv npm ci --omit=dev && systemctl restart lnv
-cd ../frontend && sudo -u lnv npm ci && sudo -u lnv npm run build      # Caddy picks up the new files by itself
+cd /opt/lnv
+git fetch && git log --oneline HEAD..origin/dedupe && git diff --stat HEAD origin/dedupe   # what is about to go live
+git pull
+chown -R lnv:lnv .git backend frontend/src                  # the service runs as lnv; git as root left root-owned files
+# only if backend/package-lock.json changed:  (cd backend && sudo -u lnv npm ci --omit=dev)
+# only if the backend changed (anything under backend/):     systemctl restart lnv
+# only if frontend/package-lock.json changed:  (cd frontend && npm ci)
+cd frontend && npm run build        # as root; Caddy picks up the new dist by itself
 ```
+A frontend-only change needs no restart. Then check: `curl -s https://waxopathy.com/ | grep -o 'assets/index-[^"]*\.js'` shows a new bundle name, and open the site.
 Watch the log: `journalctl -u lnv -f`.
 
 ## 13. Checklist before telling anyone
