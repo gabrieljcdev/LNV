@@ -2087,7 +2087,7 @@ function replyBoxSpot(at, size) {
   return { left, top: Math.max(m, top) }
 }
 
-function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun = false }) {
+function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun = false, sheet = false }) {
   const [comments, setComments] = useState(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -2138,7 +2138,7 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun 
   }
   return (
     <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
-      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)', ...(fun ? funRoot : null) }}>
+      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)', ...(fun ? funRoot : null), ...(sheet ? { left: 0, right: 0, bottom: 0, top: 'auto', width: 'auto', height: '72vh', borderRadius: '30px 30px 0 0', transform: 'none' } : null) }}>
       {fun && <style>{BLOCK_CSS}</style>}
       <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
         <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
@@ -2393,7 +2393,7 @@ function PlaylistMiniWheel({ post, added, onOpen }) {
   )
 }
 
-function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
+function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
   useThemeTick() // the blocks' hand-coloured spectrum is per palette: look again when the palette changes
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
@@ -2623,6 +2623,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
   }
 
   if (BLOCKS_CARDS) {
+    const ph = phone // the phone feed: one column, the slide scrolls instead of the blocks
     const runtime = noteRuntime(tracks)
     const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
     const nowP = srcPref || platformOf(activeUrl || firstUrl)
@@ -2635,8 +2636,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
     const dtStyle = { fontFamily: d.monoFf, fontWeight: 600, fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }
     const ddStyle = { margin: '2px 0 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 14 }
     const pillBtn = { fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, padding: '6px 12px', borderRadius: 99, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'none', whiteSpace: 'nowrap' }
-    const colFill = { display: 'flex', flexDirection: 'column', minHeight: 0 } // a block whose body can scroll, only if it has to
-    const scrollBody = { flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }
+    const colFill = ph ? {} : { display: 'flex', flexDirection: 'column', minHeight: 0 } // a block whose body can scroll, only if it has to
+    const scrollBody = ph ? {} : { flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }
     const ripple = e => {
       const blk = e.currentTarget.closest('section'); if (!blk) return
       const r = blk.getBoundingClientRect(), el = document.createElement('i')
@@ -2658,11 +2659,13 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
     )
     return (
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
-        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-bg)', padding: `${NOTES_PAD_TOP}px 20px ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+        style={ph
+          ? { position: 'relative', width: '100%', background: 'var(--theme-bg)', padding: '0 0 24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }
+          : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-bg)', padding: `${NOTES_PAD_TOP}px 20px ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
         <style>{BLOCK_CSS}</style>
         {/* the release: cover (the player takes its place), the header exactly as the card has had it, the post number in its circle */}
-        <Blk bg={W.hero} cut="br" style={{ flex: '0 0 auto', padding: '18px 24px 24px', display: 'grid', gridTemplateColumns: `${cov}px minmax(0, 1fr)`, gap: 24, alignItems: 'center' }}>
-          <div style={{ position: 'relative', width: cov, height: cov, borderRadius: 18, overflow: 'hidden', background: playingSrc ? '#000' : 'var(--theme-dark3)' }}>
+        <Blk bg={W.hero} cut="br" style={{ flex: '0 0 auto', padding: ph ? '14px 14px 22px' : '18px 24px 24px', display: 'grid', gridTemplateColumns: ph ? 'minmax(0, 1fr)' : `${cov}px minmax(0, 1fr)`, gap: ph ? 16 : 24, alignItems: 'center' }}>
+          <div style={{ position: 'relative', width: ph ? '100%' : cov, height: ph ? undefined : cov, aspectRatio: ph ? '1' : undefined, borderRadius: 18, overflow: 'hidden', background: playingSrc ? '#000' : 'var(--theme-dark3)' }}>
             {playingSrc ? (
               <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
             ) : (
@@ -2671,7 +2674,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
               </div>
             )}
           </div>
-          <div ref={hdrR} style={{ minWidth: 0, paddingRight: 56 }}>
+          <div ref={hdrR} style={{ minWidth: 0, paddingRight: ph ? 0 : 56 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
               <span style={{ ...badge, background: 'var(--theme-accent)', color: '#fff', borderRadius: 99 }}>{kind}</span>
               {locations.map(({ p, n }) => (
@@ -2704,10 +2707,10 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
               <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.04em', padding: '8px 16px', borderRadius: 999, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer' }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
             </div>
           </div>
-          <span aria-label={`Post ${num}`} style={{ position: 'absolute', right: 26, bottom: 32, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 600, fontSize: num.length > 3 ? 13 : 16, background: 'var(--lv-pri)', color: W.hero[1] }}>{num}</span>
+          <span aria-label={`Post ${num}`} style={{ position: 'absolute', right: ph ? 20 : 26, bottom: ph ? 24 : 32, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 600, fontSize: num.length > 3 ? 13 : 16, background: 'var(--lv-pri)', color: W.hero[1] }}>{num}</span>
         </Blk>
 
-        <div style={{ flex: '1 1 0', minHeight: 250, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
+        <div style={ph ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 } : { flex: '1 1 0', minHeight: 250, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
           {/* tracks: fills its space; only the list scrolls, and only if it has to */}
           <Blk bg={W.tracks} cut="bl" className="lnv-still" style={{ ...colFill, padding: '18px 22px 30px' }}>
             <h4 style={lab}><span>Tracks</span><span style={labSmall}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span></h4>
@@ -2737,7 +2740,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
               </div>
             </div>
           </Blk>
-          <div style={{ display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gap: 8, minHeight: 0 }}>
+          <div style={ph ? { display: 'grid', gap: 8 } : { display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gap: 8, minHeight: 0 }}>
             {/* plays from: a click on a source floods the block with that source's colour */}
             <Blk bg={W.plays} cut="tr" style={{ padding: '18px 22px 20px' }}>
               {wash && <div aria-hidden="true" key={wash.p} style={{ position: 'absolute', inset: 0, background: shelfColor(wash.p), animation: 'lnvWash .7s cubic-bezier(.3,.8,.2,1) forwards', '--wx': `${wash.x}px`, '--wy': `${wash.y}px` }} />}
@@ -2797,7 +2800,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
         </div>
 
         {/* the post: its text scrolls inside the block if it is long; the foot (who, when, edit) stays put */}
-        <Blk bg={W.post} cut="tl" style={{ ...colFill, flex: '0 1 auto', minHeight: 120, maxHeight: '34%', padding: '16px 24px 18px' }}>
+        <Blk bg={W.post} cut="tl" style={ph ? { padding: '16px 18px 18px' } : { ...colFill, flex: '0 1 auto', minHeight: 120, maxHeight: '34%', padding: '16px 24px 18px' }}>
           <h4 style={{ ...lab, marginBottom: 8 }}><span>The post</span><span style={labSmall}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></h4>
           <div data-inner-scroll="" style={{ ...scrollBody, flex: '0 1 auto' }}>
             {quoteText && <p style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 20, lineHeight: 1.22, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
@@ -2814,7 +2817,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
               </div>
             )}
           </div>
-          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, fontFamily: d.monoFf, fontSize: 12 }}>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, rowGap: 8, flexWrap: ph ? 'wrap' : 'nowrap', marginTop: 10, fontFamily: d.monoFf, fontSize: 12 }}>
             {posterName && <UserChip name={posterName} d={d} />}
             <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12, color: 'var(--lv-ter)' }} />
             {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, { x: e.clientX, y: e.clientY }); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
@@ -2830,7 +2833,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
           </div>
         </Blk>
 
-        {notesReply && createPortal(<NoteReplies fun post={post} posterName={posterName} size={Math.max(replySizeBlocks, 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+        {notesReply && createPortal(<NoteReplies fun sheet={ph} post={post} posterName={posterName} size={Math.max(replySizeBlocks, 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
         {pieOpen && <PlaylistWheelPop post={post} added={addedPl} setAdded={setAddedPl} onClose={() => setPieOpen(false)} />}
       </div>
     )
@@ -4614,13 +4617,13 @@ function PhoneOpening({ deckRef, ctlRef }) {
   )
 }
 
-function Slide({ bg, children }) {
+function Slide({ bg, children, bare = false }) {
   const ref = useRef(null)
   const ink = useInk(ref)
   return (
-    <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
+    <section style={{ flex: '0 0 100%', minWidth: 0, height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
       <div ref={ref} data-inner-scroll=""
-        style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: PHONE_RADIUS, background: bg, boxShadow: '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
+        style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: bare ? 0 : PHONE_RADIUS, background: bg, boxShadow: bare ? 'none' : '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
         {children}
       </div>
     </section>
@@ -4841,6 +4844,8 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
   // Card colours by the shelf's own index, so introductions don't shift them.
   let shelfIdx = -1
   const bgs = list.map(it => it.kind === 'intro' ? cardBg(0, it) : cardBg(++shelfIdx, it))
+  let phonePostIdx = -1 // posts only (no spotlights / live sets): the blocks card walks its colour spectrum by this
+  const blocksOf = list.map(it => (BLOCKS_CARDS && it.kind === 'post' && !isLiveSetPost(it.post) ? ++phonePostIdx : -1))
   // A wall's card (WallCard) leads it; the posts follow.
   const head = header ? 1 : 0
 
@@ -4907,7 +4912,11 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
         {header && <Slide bg="var(--theme-showcase)">{header}</Slide>}
         {list.length === 0 ? (
           <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
-        ) : list.map((it, i) => (
+        ) : list.map((it, i) => blocksOf[i] >= 0 ? (
+          <Slide key={it.key} bg="var(--theme-bg)" bare>
+            <ShelfCard post={latestPost ? latestPost(it.post) : it.post} cardBg="var(--theme-bg)" d={D} onEdit={onEdit} idx={blocksOf[i]} phone />
+          </Slide>
+        ) : (
           <Slide key={it.key} bg={bgs[i]}>
             {it.kind === 'intro'
               ? <IntroCard intro={it.intro} compact placeholder={!!it.intro.placeholder} />
