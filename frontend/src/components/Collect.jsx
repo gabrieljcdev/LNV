@@ -375,7 +375,7 @@ export function WallCard({ username, compact = false, friends }) {
   const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`]
   const shell = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, color: pri, fontFamily: SANS, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
   const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
   if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
@@ -647,24 +647,27 @@ export function WallCard({ username, compact = false, friends }) {
     </section>
   )
   const favourites = labelsSection || artistsSection || channelsSection
-  const identityBlock = <Blk bg={tone('showcase')} cut={cut('br')} style={{ padding: compact ? '22px 18px 26px' : '28px 26px 32px' }}>{identity}</Blk>
+  const top = compact ? 0 : 60 // the first block of each column runs up to the top of the page; its content starts below the search bar
+  const identityBlock = <Blk bg={tone('showcase')} cut={cut('br')} style={{ padding: compact ? '22px 18px 26px' : `${top + 20}px 26px 32px`, height: compact ? undefined : '100%' }}>{identity}</Blk>
   const extrasBlock = ownerExtras && <Blk bg={tone('light1')} cut={cut('bl')} style={{ padding: compact ? '18px 18px 20px' : '22px 24px 24px' }}>{ownerExtras}</Blk>
-  const blocks = [
-    <Blk key="sound" bg={tone('accent')} cut={cut('tr')} style={{ padding: pad }}>{soundSection}</Blk>,
-    favourites && <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}</Blk>,
-    playlistsSection && <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: pad }}>{playlistsSection}</Blk>,
-    <Blk key="fol" bg={tone('light1')} style={{ padding: pad }}>{followsSection}</Blk>,
-    commonSection && <Blk key="com" bg={(c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>,
+  // [key, block, flexible]: one block of the right-hand column takes the leftover height and scrolls inside itself only if it has to
+  const flexKey = playlistsSection ? 'pl' : 'fol'
+  const parts = [
+    ['sound', <Blk key="sound" bg={tone('accent')} cut={cut('tr')} style={{ padding: compact ? pad : `${top + 14}px 28px 26px` }}>{soundSection}</Blk>],
+    favourites && ['fav', <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}</Blk>],
+    playlistsSection && ['pl', <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: compact ? pad : '24px 28px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact ? null : { flex: 1, overflowY: 'auto', paddingBottom: 24, scrollbarWidth: 'none' }) }}>{playlistsSection}</div></Blk>],
+    ['fol', <Blk key="fol" bg={tone('light1')} style={{ padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact || flexKey !== 'fol' ? null : { flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }) }}>{followsSection}</div></Blk>],
+    commonSection && ['com', <Blk key="com" bg={(c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>],
   ].filter(Boolean)
 
   return (
     <div {...cardTag} style={shell}>
       <style>{BLOCK_CSS}</style>
       {compact
-        ? <>{identityBlock}{extrasBlock}{blocks}</>
-        : <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 8, alignItems: 'start' }}>
-          <div style={{ display: 'grid', gap: 8 }}>{identityBlock}{extrasBlock}</div>
-          <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>{blocks}</div>
+        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{identityBlock}{extrasBlock}{parts.map(x => x[1])}</div>
+        : <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 8, height: '100%', minHeight: 640 }}>
+          <div style={{ display: 'grid', gridTemplateRows: extrasBlock ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', gap: 8, minHeight: 0 }}>{identityBlock}{extrasBlock}</div>
+          <div style={{ display: 'grid', gridTemplateRows: parts.map(x => (x[0] === flexKey ? 'minmax(0, 1fr)' : 'auto')).join(' '), gap: 8, minWidth: 0, minHeight: 0 }}>{parts.map(x => x[1])}</div>
         </div>}
     </div>
   )
