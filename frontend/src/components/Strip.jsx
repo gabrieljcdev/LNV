@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
+import BrandScaleTool, { readBrandScale, applyBrandScale } from './BrandScaleTool';
 import { getUser, logout, isAdmin } from '../lib/auth';
 import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
@@ -161,6 +162,12 @@ export default function Strip({ activeView }) {
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+
+  // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
+  // sliders (BrandScaleTool.jsx) win over these.
+  useEffect(() => {
+    if (railWordmarkRef.current) applyBrandScale(railWordmarkRef.current, readBrandScale() || { chewing: 84, ceiling: 24, left: 23, bottom: 6 });
+  }, [railWordmarkRef]);
   const feedMode = useFeedMode();
 
   async function handleLogout() {
@@ -178,6 +185,8 @@ export default function Strip({ activeView }) {
     } catch (err) { console.error('Random error:', err); }
   }
 
+  const brandTool = typeof location !== 'undefined' && new URLSearchParams(location.search).has('brandtool');
+
   return (
     <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
@@ -190,6 +199,7 @@ export default function Strip({ activeView }) {
         // covers' radius); was 14, too subtle at this height. Feed.jsx's
         // FLOAT_RADIUS (cards, intro) is set from STRIP_RADIUS so all match.
         borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS }}>
+        {brandTool && <BrandScaleTool brandRef={railWordmarkRef} />}
         {/* FADE text wordmark. FIXED position (round 23) — never moves as
             the rail collapses, only opacity animates (fadeTextOpacity,
             LayoutProvider). ROUND 24: gabriel wants this centered for the
@@ -206,22 +216,24 @@ export default function Strip({ activeView }) {
           id="lnv-brand"
           ref={railWordmarkRef}
           style={{
+            // CHEWING THE CEILING (chosen brand, 2026-10-12): CHEWING stands where
+            // FADE did (vertical, big); THE CEILING carries on from the end of the G on the
+            // same baseline, so the bottoms of every letter are flush.
             position: 'absolute',
             left: '28px',
             bottom: '40px',
-            writingMode: 'vertical-rl',
-            transform: 'rotate(180deg)',
             fontFamily: 'Barlow, sans-serif',
-            fontSize: '100px',
             fontWeight: 900,
             color: 'var(--pastel-blue-mid)',
-            letterSpacing: '-3px',
-            lineHeight: '36px',
             whiteSpace: 'nowrap',
             opacity: 0,
           }}
         >
-          FADE
+          {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
+            <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
+            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
+          </div>
         </div>
       </div>
       {/* Zone 2 — the old "secondary strip" color. Only its `left` is

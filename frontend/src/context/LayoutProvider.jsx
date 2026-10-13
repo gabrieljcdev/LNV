@@ -188,7 +188,7 @@ export function LayoutProvider({ children }) {
    // ROUND 23 — gabriel corrected round 22: the FADE text has a FIXED
    // position, it never moves. `left` is a plain static value in Strip.jsx
    // (centered for the rail's at-rest width) — only opacity is written here.
-   if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = `${fadeTextOpacity}`;
+   if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = `${fadeTextOpacity}`; // CHEWING THE CEILING fades in like FADE did
    // Kept from round 16's diagnostic instinct — cheap, no behavior change,
    // useful if another round of live numbers is ever needed again.
    window.lnvDebugStrip = { windowInnerWidth: window.innerWidth, introWidth, effectiveRange, scrollX, raw, outerWidth, railZoneWidth, tabsOpacity, barsT, textT, fBarsOpacity, fadeTextOpacity };
@@ -212,7 +212,7 @@ export function LayoutProvider({ children }) {
    if (railZoneRef.current) railZoneRef.current.style.width = `${RAIL_OPEN_WIDTH}px`;
    if (secondaryStripRef.current) secondaryStripRef.current.style.visibility = '';
    if (navTabsRef.current) navTabsRef.current.style.opacity = '0'; // hidden at rest, before the first handleFeedScroll frame runs
-   if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = '0'; // FADE text - fixed position (Strip.jsx), only opacity animates
+   if (railWordmarkRef.current) railWordmarkRef.current.style.opacity = '0'; // wordmark - fixed position (Strip.jsx), only opacity animates
    if (fBarsRef.current) {
      fBarsRef.current.style.opacity = '1'; // F-bars - fully visible at rest
      fBarsRef.current.style.left = `${RAIL_OPEN_WIDTH + F_BARS_LEFT_GAP}px`;
