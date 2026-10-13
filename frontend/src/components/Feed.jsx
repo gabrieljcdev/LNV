@@ -2111,8 +2111,7 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun 
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc) }
   }, [onClose])
   const shown = (comments || [])
-  const FUN_TONES = ['dark3', 'light1', 'accent']
-  const funCard = i => { const t = FUN_TONES[i % 3]; const dark = inkOnHex(themeHex(`--theme-${t}`)) === '#fff'; return { background: `var(--theme-${t})`, ...(dark ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', borderRadius: 20, padding: '10px 14px', transform: `rotate(${[-1, 1.2, -1.4][i % 3]}deg)`, animation: 'lnvRin .5s cubic-bezier(.2,1.2,.3,1) backwards' } }
+  const funCard = () => ({ background: 'color-mix(in srgb, currentColor 10%, transparent)', borderRadius: 20, padding: '10px 14px', flexShrink: 0 })
   const funRoot = { background: 'var(--theme-sidebar)', ...(inkOnHex(themeHex('--theme-sidebar')) === '#fff' ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', border: 'none', borderRadius: 30, clipPath: 'polygon(38px 0, 100% 0, 100% 100%, 0 100%, 0 38px)', boxShadow: '0 20px 50px rgba(0,0,0,0.35)', animation: 'lnvPop .5s cubic-bezier(.2,1.2,.3,1)' }
   const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
   async function submit() {
@@ -2144,10 +2143,10 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun 
         <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
         <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
       </div>
-      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '2px 8px', ...INNER_SCROLL_STYLE }}>
+      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: fun ? 'hidden' : 'auto', display: 'flex', flexDirection: 'column', justifyContent: fun ? 'flex-end' : undefined, gap: fun ? 8 : 12, padding: '2px 8px', ...(fun ? null : INNER_SCROLL_STYLE) }}>
         {comments && !shown.length && <div style={{ margin: 'auto 0', textAlign: 'center', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>No replies yet.</div>}
-        {shown.map((c, ci) => (
-          <div key={c.id} className={fun ? 'lnv-rc' : undefined} style={fun ? funCard(ci) : undefined}>
+        {shown.map(c => (
+          <div key={c.id} className={fun ? 'lnv-rc' : undefined} style={fun ? funCard() : undefined}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <b style={{ fontFamily: d.bodyFf, fontSize: 15, fontWeight: 700 }}><CommentAuthor name={c.username} /></b>
               <span style={noteMeta(d, 12.5)}>{stampShort(c.created_at)}</span>
@@ -2207,7 +2206,7 @@ const BLOCK_CSS = '.lnv-bk{transition:transform .35s cubic-bezier(.2,.9,.3,1.3),
   + '.lnv-pr{transition:background .2s}.lnv-pr:hover{background:color-mix(in srgb,currentColor 14%,transparent)}'
   + '.lnv-bar i{display:block;height:100%;border-radius:99px;background:currentColor;width:0;animation:lnvGrow .9s .2s cubic-bezier(.2,.9,.3,1) forwards}@keyframes lnvGrow{to{width:var(--w)}}'
   + '.lnv-wheel{transition:transform .5s cubic-bezier(.2,.9,.3,1.5)}.lnv-wheel:hover{transform:rotate(40deg) scale(1.1)}'
-  + '.lnv-rc{transition:transform .35s cubic-bezier(.2,.9,.3,1.5);animation:lnvRin .5s cubic-bezier(.2,1.2,.3,1) backwards}.lnv-rc:hover{transform:rotate(0) scale(1.03)!important}@keyframes lnvRin{from{transform:translateY(24px) scale(.8);opacity:0}}'
+  + '.lnv-rc{transition:transform .35s cubic-bezier(.2,.9,.3,1.5),box-shadow .35s}.lnv-rc:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 10px 22px rgba(0,0,0,.18)}'
   + '.lnv-pt{cursor:pointer;transform-box:fill-box;transform-origin:center;opacity:0;animation:lnvPin .55s cubic-bezier(.2,1.3,.3,1) forwards;animation-delay:calc(var(--i)*50ms)}@keyframes lnvPin{from{transform:scale(.2) rotate(-40deg);opacity:0}to{transform:none;opacity:1}}'
   + '.lnv-pt .n{transition:transform .3s;transform-box:fill-box;transform-origin:center}.lnv-pt:hover .n{transform:scale(1.08)}.lnv-pt:hover .o{filter:brightness(1.18)}.lnv-pt.pulse .n{animation:lnvPulse .5s}@keyframes lnvPulse{40%{transform:scale(1.22)}}'
   + '@keyframes lnvPop{from{transform:scale(.4) rotate(-8deg);opacity:0}}@keyframes lnvFade{from{opacity:0}}'
@@ -2252,16 +2251,42 @@ const handSpectrum = () => {
     if (raw !== handRaw) {
       handRaw = raw
       const local = raw ? JSON.parse(raw) : null
-      handVal = local?.pals ? { mode: local.mode || BLOCK_SPECTRUM.mode, pals: { ...BLOCK_SPECTRUM.pals, ...local.pals } } : BLOCK_SPECTRUM
+      handVal = local?.pals ? { mode: local.mode || BLOCK_SPECTRUM.mode, order: local.order || BLOCK_SPECTRUM.order, pals: { ...BLOCK_SPECTRUM.pals, ...local.pals } } : BLOCK_SPECTRUM
     }
   } catch { handVal = BLOCK_SPECTRUM }
   return handVal
 }
+// How the 8 looks are arranged along the feed (gabriel, 13 Oct): by tone, light to dark, following the colour of the profile card (the
+// showcase-coloured card the feed opens with). Each look gets a tone (the area-weighted lightness of its five blocks); the looks are sorted
+// by it and the feed starts at the end nearest the profile card (a dark card -> darkest look first, getting lighter; a light card -> lightest
+// first, getting darker) and walks there and back (ping-pong) so there is never a jump. `order: 'hand'` keeps them exactly as set in the tool.
+const hexLum = h => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
+  if (!m) return 0
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+  const n = parseInt(m[1], 16)
+  return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255)
+}
+const LOOK_WEIGHT = { hero: 0.3, tracks: 0.25, plays: 0.15, details: 0.15, post: 0.15 }
+let toneKey = '', toneOrder = null
+function toneSorted(looks) {
+  const tokens = ['bg', 'sidebar', 'dark1', 'dark2', 'dark3', 'light1', 'light2', 'showcase', 'accent'].map(k => themeHex(`--theme-${k}`))
+  const key = getActivePaletteName() + '|' + tokens.join(',') + '|' + JSON.stringify(looks)
+  if (key === toneKey && toneOrder) return toneOrder
+  const hex = v => (/^#/.test(v) ? v : themeHex(`--theme-${v}`))
+  const tone = l => Object.entries(LOOK_WEIGHT).reduce((s, [k, w]) => s + w * hexLum(hex(l[k])), 0)
+  const sorted = [...looks].sort((a, b) => tone(a) - tone(b)) // darkest first
+  if (hexLum(themeHex('--theme-showcase')) >= 0.35) sorted.reverse() // a light profile card: start light and go dark
+  toneKey = key; toneOrder = sorted
+  return sorted
+}
 const handLook = idx => {
-  const sp = handSpectrum(), looks = sp?.pals?.[getActivePaletteName()]
-  if (!looks?.length) return null
+  const sp = handSpectrum(), raw = sp?.pals?.[getActivePaletteName()]
+  if (!raw?.length) return null
+  const byTone = (sp.order || 'tone') === 'tone'
+  const looks = byTone ? toneSorted(raw) : raw
   const n = looks.length, i = Math.max(0, idx || 0)
-  const k = sp.mode === 'pingpong' && n > 1 ? (() => { const m = i % (2 * (n - 1)); return m < n ? m : 2 * (n - 1) - m })() : i % n
+  const k = (byTone || sp.mode === 'pingpong') && n > 1 ? (() => { const m = i % (2 * (n - 1)); return m < n ? m : 2 * (n - 1) - m })() : i % n
   const l = looks[k] || looks[0]
   // a look names palette colours ('accent', 'light2'...) so it follows the palette; plain hex still works
   const col = v => (/^#/.test(v) ? v : `var(--theme-${v})`)
@@ -2292,14 +2317,16 @@ function wedgePath(cx, cy, r0, r1, a0, a1) {
   const f = v => v.toFixed(1)
   return `M${f(x0)} ${f(y0)}A${r1} ${r1} 0 ${L} 1 ${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}A${r0} ${r0} 0 ${L} 0 ${f(x3)} ${f(y3)}Z`
 }
-// Your playlists as petals: the dark outer petal is the room, the lighter inner one grows with the number of tracks in it, and it lights up
-// (accent) when this release is already in it. `mini` is the little wheel in Details (no names); `onPick(i)` is the big one's click.
+// Playlists as petals: the dark outer petal is the room, the lighter inner one grows with the number of tracks in it, and it lights up
+// (accent) when it holds the thing being added. `mini` is the little wheel in Details (no names); `onPick(p)` is the big one's click.
+// `p.sub` is an extra small line under a petal's name (the owner, on the wheel of other people's playlists).
 function PlaylistWheel({ lists, inIds, size, mini, onPick, pulse, withNew }) {
   const items = withNew ? [...lists, { id: 'new', name: 'New playlist', track_count: 0, isNew: true }] : lists
   const n = Math.max(items.length, 2)
   const cx = size / 2, cy = size / 2, R = size / 2 - (mini ? 3 : 18), r0 = size * (mini ? 0.16 : 0.1), th = (2 * Math.PI) / n
   const mx = Math.max(1, ...lists.map(p => p.track_count || 0)), sw = mini ? 2 : 12
   const memberInk = '#fff', plainInk = inkOnHex(themeHex('--theme-light2'))
+  const room = 'color-mix(in srgb, var(--theme-dark1) 55%, #000)'
   return (
     <svg viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}>
       {items.map((p, i) => {
@@ -2310,16 +2337,18 @@ function PlaylistWheel({ lists, inIds, size, mini, onPick, pulse, withNew }) {
         const lr = (r0 + ri) / 2 + 2, tx = cx + lr * Math.cos(am), ty = cy + lr * Math.sin(am)
         const fillIn = inn ? 'var(--theme-accent)' : 'var(--theme-light2)'
         const ink = inn ? memberInk : plainInk
-        if (mini) return <g key={p.id}><path d={outer} stroke="color-mix(in srgb, var(--theme-dark1) 55%, #000)" strokeWidth={sw} strokeLinejoin="round" fill="color-mix(in srgb, var(--theme-dark1) 55%, #000)" /><path d={inner} stroke={fillIn} strokeWidth={sw} strokeLinejoin="round" fill={fillIn} /></g>
+        if (mini) return <g key={p.id}><path d={outer} stroke={room} strokeWidth={sw} strokeLinejoin="round" fill={room} /><path d={inner} stroke={fillIn} strokeWidth={sw} strokeLinejoin="round" fill={fillIn} /></g>
+        const nm = String(p.name || '')
         return (
-          <g key={p.id} className={`lnv-pt${pulse === p.id ? ' pulse' : ''}`} style={{ '--i': i }} onClick={() => onPick(p)} role="button" aria-label={p.isNew ? 'New playlist' : `${inn ? 'Open' : 'Add to'} ${p.name}`}>
-            <path className="o" d={outer} stroke="color-mix(in srgb, var(--theme-dark1) 55%, #000)" strokeWidth={sw} strokeLinejoin="round" fill="color-mix(in srgb, var(--theme-dark1) 55%, #000)" />
+          <g key={p.id} className={`lnv-pt${pulse === p.id ? ' pulse' : ''}`} style={{ '--i': i }} onClick={() => onPick(p)} role="button" aria-label={p.isNew ? 'New playlist' : p.sub ? `Open ${nm}` : `${inn ? 'Added to' : 'Add to'} ${nm}`}>
+            <path className="o" d={outer} stroke={room} strokeWidth={sw} strokeLinejoin="round" fill={room} />
             <path className="n" d={inner} stroke={p.isNew ? 'none' : fillIn} strokeWidth={sw} strokeLinejoin="round" fill={p.isNew ? 'none' : fillIn} strokeDasharray={p.isNew ? '6 6' : undefined} />
             {p.isNew
               ? <text x={tx} y={ty + 8} textAnchor="middle" fontSize="28" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: '#fff', pointerEvents: 'none' }}>＋</text>
               : <>
-                <text x={tx} y={ty - 4} textAnchor="middle" fontSize="22" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{inn ? '✓ ' : ''}{p.track_count || 0}</text>
-                <text x={tx} y={ty + 14} textAnchor="middle" fontSize="12.5" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{p.name.length > 14 ? `${p.name.slice(0, 13)}…` : p.name}</text>
+                <text x={tx} y={ty - (p.sub ? 10 : 4)} textAnchor="middle" fontSize="22" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{inn ? '✓ ' : ''}{p.track_count || 0}</text>
+                <text x={tx} y={ty + (p.sub ? 7 : 14)} textAnchor="middle" fontSize="12.5" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{nm.length > 14 ? `${nm.slice(0, 13)}…` : nm}</text>
+                {p.sub && <text x={tx} y={ty + 21} textAnchor="middle" fontSize="10.5" style={{ fontFamily: BLOCK_CP, fill: ink, opacity: 0.75, pointerEvents: 'none' }}>{String(p.sub).length > 16 ? `${String(p.sub).slice(0, 15)}…` : p.sub}</text>}
               </>}
           </g>
         )
@@ -2327,22 +2356,57 @@ function PlaylistWheel({ lists, inIds, size, mini, onPick, pulse, withNew }) {
     </svg>
   )
 }
-// The wheel as a pop-out: a scrim, the wheel springing open, and a caption pill. Tap a slice to add this release; a lit slice opens that playlist.
-function PlaylistWheelPop({ post, added, setAdded, onClose }) {
+// Where the wheel opens: centred on the cursor (kept on screen), springing out from it. A click anywhere else closes it.
+function WheelShell({ at, onClose, children }) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  const w = Math.min(380, vw - 24, vh - 130), h = w + 64
+  const cx = at ? at.x : vw / 2, cy = at ? at.y : vh / 2 - 32
+  const left = Math.min(Math.max(12, cx - w / 2), Math.max(12, vw - w - 12)), top = Math.min(Math.max(12, cy - w / 2), Math.max(12, vh - h - 12))
+  return createPortal(
+    <div onMouseDown={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'color-mix(in srgb, var(--theme-dark1) 38%, transparent)', animation: 'lnvFade .2s' }}>
+      <style>{BLOCK_CSS}</style>
+      <div onMouseDown={e => e.stopPropagation()} style={{ position: 'absolute', left, top, width: w, textAlign: 'center', transformOrigin: `${cx - left}px ${cy - top}px`, animation: 'lnvPop .45s cubic-bezier(.2,1.2,.3,1)', filter: 'drop-shadow(0 18px 28px rgba(0,0,0,0.35))' }}>
+        {children}
+      </div>
+    </div>,
+    document.body
+  )
+}
+const WHEEL_PILL = { display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--theme-light2)', padding: '7px 8px 7px 16px', borderRadius: 999, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 11.5, letterSpacing: '0.05em', textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.25)' }
+function WheelCaption({ children, onClose, extra }) {
+  return (
+    <div style={{ marginTop: 8 }}>
+      {extra}
+      <div style={{ ...WHEEL_PILL, color: inkOnHex(themeHex('--theme-light2')) }}>
+        <span>{children}</span>
+        <button onClick={onClose} aria-label="Close" style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕</button>
+      </div>
+    </div>
+  )
+}
+// What has been added in this session, so a slice stays lit: track url (or "p:<post>") -> playlist ids.
+const addedMemo = new Map()
+// The "+" on a track opens this at the cursor: your playlists as petals; tap one to add that track (or, with the switch, the whole release).
+function PlaylistWheelPop({ post, tracks: given, title, at, onClose }) {
   const { playlists } = usePlaylists()
   const qc = useQueryClient()
   const signedIn = isLoggedIn()
   const lists = playlists.filter(p => p.role && p.release_count == null)
-  const inIds = new Set([...(post.playlists || []).map(p => p.id), ...added])
+  const all = playableTracks(post).filter(t => t.url && t.title)
+  const mine = (given || []).filter(t => t.url && t.title)
+  const [scope, setScope] = useState(mine.length ? 'track' : 'all')
+  const tracks = scope === 'track' && mine.length ? mine : all
+  const key = scope === 'track' && mine.length ? `t:${mine[0].url}` : `p:${post.id}`
+  const [, bump] = useState(0)
+  const inIds = new Set(addedMemo.get(key) || [])
   const [note, setNote] = useState('')
   const [pulse, setPulse] = useState(null)
-  const [openable, setOpenable] = useState(null) // a playlist this release is already in: offered as an explicit "open" button, never opened by a tap on the slice
   useEffect(() => {
     const esc = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', esc)
     return () => window.removeEventListener('keydown', esc)
   }, [onClose])
-  const tracks = playableTracks(post).filter(t => t.url && t.title)
+  const what = scope === 'track' && mine.length ? `“${title || mine[0].title}”` : `all ${all.length} tracks`
   async function pick(p) {
     if (p.isNew) {
       const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno, Sunday mornings', ok: 'Create', maxLength: 60 })
@@ -2350,48 +2414,59 @@ function PlaylistWheelPop({ post, added, setAdded, onClose }) {
       try { const created = await playlistsApi.create(name); await addTo(created) } catch (err) { setNote(err.message) }
       return
     }
-    if (inIds.has(p.id)) { setNote(`Already in ${p.name}`); setOpenable(p); return }
-    setOpenable(null)
+    if (inIds.has(p.id)) { setNote(`Already in ${p.name}`); return }
     await addTo(p)
   }
   async function addTo(p) {
     if (!tracks.length) return setNote('Nothing playable to add yet.')
     try {
       const r = await playlistsApi.addTracks(p.id, tracks)
-      setAdded(prev => new Set([...prev, p.id])); setPulse(p.id); setTimeout(() => setPulse(null), 600)
-      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`); setOpenable(p)
+      addedMemo.set(key, new Set([...(addedMemo.get(key) || []), p.id])); bump(x => x + 1)
+      setPulse(p.id); setTimeout(() => setPulse(null), 600)
+      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`)
       qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['playlist', p.id] })
     } catch (err) { setNote(err.message) }
   }
-  const S = 520, w = Math.min(S, window.innerWidth - 32, window.innerHeight - 130)
-  return createPortal(
-    <div onMouseDown={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'color-mix(in srgb, var(--theme-dark1) 62%, transparent)', display: 'grid', placeItems: 'center', animation: 'lnvFade .25s' }}>
-      <style>{BLOCK_CSS}</style>
-      <div onMouseDown={e => e.stopPropagation()} style={{ width: w, textAlign: 'center', filter: 'drop-shadow(0 20px 30px rgba(0,0,0,0.35))' }}>
-        {!signedIn
-          ? <div style={{ ...INK_DARK_BG, color: '#fff', padding: 30, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 18, letterSpacing: '0.05em', textTransform: 'uppercase' }}><a href="/login" style={{ color: 'var(--theme-light2)' }}>Sign in</a> to make playlists</div>
-          : <PlaylistWheel lists={lists} inIds={inIds} size={S} onPick={pick} pulse={pulse} withNew />}
-        <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 10, background: 'var(--theme-light2)', color: inkOnHex(themeHex('--theme-light2')), padding: '8px 8px 8px 18px', borderRadius: 999, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.05em', textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.25)' }}>
-          <span>{note || (lists.length ? 'Tap a slice to add this release' : 'No playlists yet — make one')}</span>
-          {openable && <button onClick={() => { onClose(); openPlaylistFeed({ id: openable.id, name: openable.name }) }} title={`Switch the feed to ${openable.name}`} style={{ border: '1.5px solid currentColor', background: 'none', color: 'inherit', borderRadius: 999, padding: '5px 12px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer' }}>open ↗</button>}
-          <button onClick={onClose} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>✕</button>
-        </div>
-      </div>
-    </div>,
-    document.body
+  const scopePill = on => ({ border: '1.5px solid currentColor', background: on ? 'var(--theme-light2)' : 'transparent', color: on ? inkOnHex(themeHex('--theme-light2')) : '#fff', borderRadius: 999, padding: '4px 11px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer' })
+  return (
+    <WheelShell at={at} onClose={onClose}>
+      {!signedIn
+        ? <div style={{ ...INK_DARK_BG, background: 'var(--theme-dark1)', borderRadius: 26, color: '#fff', padding: 26, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 16, letterSpacing: '0.05em', textTransform: 'uppercase' }}><a href="/login" style={{ color: 'var(--theme-light2)' }}>Sign in</a> to make playlists</div>
+        : <PlaylistWheel lists={lists} inIds={inIds} size={520} onPick={pick} pulse={pulse} withNew />}
+      <WheelCaption onClose={onClose}
+        extra={mine.length > 0 && all.length > 1 ? <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 6 }}><button onClick={() => { setScope('track'); setNote('') }} style={scopePill(scope === 'track')}>this track</button><button onClick={() => { setScope('all'); setNote('') }} style={scopePill(scope === 'all')}>all {all.length} tracks</button></div> : null}>
+        {note || (lists.length ? `Tap a slice to add ${what}` : 'No playlists yet: make one')}
+      </WheelCaption>
+    </WheelShell>
   )
 }
-// The little wheel in Details: this release's playlists at a glance; click opens the big one.
-function PlaylistMiniWheel({ post, added, onOpen }) {
-  const { playlists } = usePlaylists()
-  const lists = playlists.filter(p => p.role && p.release_count == null)
-  const inIds = new Set([...(post.playlists || []).map(p => p.id), ...added])
-  if (!lists.length && !(post.playlists || []).length) return <button onClick={onOpen} className="lnv-wheel" title="Add to a playlist" style={{ width: 96, height: 96, borderRadius: '50%', border: '2px dashed currentColor', background: 'none', color: 'inherit', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 28, cursor: 'pointer', opacity: 0.7 }}>＋</button>
-  const shown = lists.length ? lists : (post.playlists || []).map(p => ({ ...p, track_count: p.track_count || 1 }))
+// Other people's playlists that carry a track of this record (public lists on a profile, as the post data gives them).
+const othersPlaylists = post => (post.playlists || []).filter(p => p.owner !== getUser())
+// The wheel in Details opens this at the cursor: those playlists as petals (count, name, who made it); tap one to open it as a feed.
+function OthersWheelPop({ post, at, onClose }) {
+  const lists = othersPlaylists(post).map(p => ({ id: p.id, name: p.name, track_count: p.track_count || 0, sub: `by ${p.owner}`, token: p.token }))
+  useEffect(() => {
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [onClose])
   return (
-    <button onClick={onOpen} className="lnv-wheel" title="Your playlists: open the wheel" aria-label="Open the playlist wheel" style={{ position: 'relative', width: 112, height: 112, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}>
-      <PlaylistWheel lists={shown} inIds={inIds} size={112} mini />
-      <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, color: 'var(--lv-pri)' }}>{inIds.size}</span>
+    <WheelShell at={at} onClose={onClose}>
+      {lists.length
+        ? <PlaylistWheel lists={lists} inIds={new Set()} size={520} onPick={p => { onClose(); openPlaylistFeed({ token: p.token, id: p.id, name: p.name }) }} />
+        : <div style={{ ...INK_DARK_BG, background: 'var(--theme-dark1)', borderRadius: 26, color: '#fff', padding: 26, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, letterSpacing: '0.05em', textTransform: 'uppercase', lineHeight: 1.4 }}>Nobody else has put this record in a public playlist yet</div>}
+      <WheelCaption onClose={onClose}>{lists.length ? 'Playlists with this record · tap one to open' : 'Check back later'}</WheelCaption>
+    </WheelShell>
+  )
+}
+// The little wheel in Details: other people's playlists with this record at a glance; click opens the big one at the cursor.
+function PlaylistMiniWheel({ post, onOpen }) {
+  const lists = othersPlaylists(post).map(p => ({ ...p, track_count: p.track_count || 1 }))
+  if (!lists.length) return <button onClick={e => onOpen({ x: e.clientX, y: e.clientY })} className="lnv-wheel" title="Nobody else has put this record in a public playlist yet" aria-label="Other people's playlists with this record" style={{ width: 96, height: 96, borderRadius: '50%', border: '2px dashed currentColor', background: 'none', color: 'inherit', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 24, cursor: 'pointer', opacity: 0.7 }}>0</button>
+  return (
+    <button onClick={e => onOpen({ x: e.clientX, y: e.clientY })} className="lnv-wheel" title="Other people's playlists with this record" aria-label="Other people's playlists with this record" style={{ position: 'relative', width: 112, height: 112, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}>
+      <PlaylistWheel lists={lists} inIds={new Set(lists.map(p => p.id))} size={112} mini />
+      <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, color: 'var(--lv-pri)' }}>{lists.length}</span>
     </button>
   )
 }
@@ -2404,8 +2479,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
-  const [pieOpen, setPieOpen] = useState(false) // blocks card: the playlist wheel
-  const [addedPl, setAddedPl] = useState(() => new Set()) // playlists this release was added to just now
+  const [wheel, setWheel] = useState(null) // blocks card: the playlist wheels ({ kind: 'add', at, tracks, title } from a track's +, { kind: 'others', at } from the wheel in Details)
   const [wash, setWash] = useState(null) // blocks card: the source colour flooding Plays from
   const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
   const notesReply = chatId === post.id
@@ -2653,7 +2727,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       setWash(w => (w && w.p === p ? null : { p, x: e.clientX - r.left, y: e.clientY - r.top }))
       playFrom(p)
     }
-    const latest = (post.latestComments || []).slice(-2)
+    const clamp = n => (ph ? {} : { display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) // the post box never scrolls: a long post is cut with an ellipsis (hover for all of it)
     const star = (t, h, mine) => (
       <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} className={mine ? undefined : 'lnv-off'} aria-pressed={mine}
         aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
@@ -2713,7 +2787,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           <span aria-label={`Post ${num}`} style={{ position: 'absolute', right: ph ? 20 : 26, bottom: ph ? 24 : 32, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 600, fontSize: num.length > 3 ? 13 : 16, background: 'var(--lv-pri)', color: W.hero[1] }}>{num}</span>
         </Blk>
 
-        <div style={ph ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 } : { flex: '1 1 0', minHeight: 250, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
+        <div style={ph ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 } : { flex: '1 1 0', minHeight: 180, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
           {/* tracks: fills its space; only the list scrolls, and only if it has to */}
           <Blk bg={W.tracks} cut="bl" className="lnv-still" style={{ ...colFill, padding: '18px 22px 30px' }}>
             <h4 style={lab}><span>Tracks</span><span style={labSmall}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span></h4>
@@ -2733,7 +2807,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
                         </span>
                         <em style={{ fontFamily: d.monoFf, fontSize: 11, fontStyle: 'normal', opacity: 0.7 }}>{t.duration || ''}</em>
                         <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), outline: '1.5px solid color-mix(in srgb, currentColor 40%, transparent)' }} />)}</span>
-                        <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: 15, color: 'inherit' }} /> : null}</span>
+                        <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: { x: e.clientX, y: e.clientY }, tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', fontFamily: d.monoFf, fontSize: 15, lineHeight: 1 }}>+</button> : null}</span>
                         {star(t, h, mine)}
                       </div>
                       {on && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
@@ -2778,7 +2852,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
                     <div><dt style={dtStyle}>Kept by</dt><dd style={ddStyle}><button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{keptBy.length}</button></dd></div>
                     <div><dt style={dtStyle}>In playlists</dt><dd style={ddStyle}>{(post.playlists || []).length}</dd></div>
                   </dl>
-                  <PlaylistMiniWheel post={post} added={addedPl} onOpen={() => setPieOpen(true)} />
+                  <PlaylistMiniWheel post={post} onOpen={at => setWheel({ kind: 'others', at })} />
                 </div>
                 {(post.playlists || []).length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 10 }}>
@@ -2802,23 +2876,13 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           </div>
         </div>
 
-        {/* the post: its text scrolls inside the block if it is long; the foot (who, when, edit) stays put */}
-        <Blk bg={W.post} cut="tl" style={ph ? { padding: '16px 18px 18px' } : { ...colFill, flex: '0 1 auto', minHeight: 120, maxHeight: '34%', padding: '16px 24px 18px' }}>
+        {/* the post: no scrolling, no reply strip: the text, then who / reply / when */}
+        <Blk bg={W.post} cut="tl" style={ph ? { padding: '16px 18px 18px' } : { ...colFill, flex: '0 1 auto', padding: '16px 24px 18px' }}>
           <h4 style={{ ...lab, marginBottom: 8 }}><span>The post</span><span style={labSmall}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></h4>
-          <div data-inner-scroll="" style={{ ...scrollBody, flex: '0 1 auto' }}>
-            {quoteText && <p style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 20, lineHeight: 1.22, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
-            {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+          <div style={{ minHeight: 0, overflow: 'hidden' }}>
+            {quoteText && <p title={quoteText} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 20, lineHeight: 1.22, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...clamp(3) }}>{quoteText}</p>}
+            {showDesc && <p title={note} style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...clamp(3) }}>{note}</p>}
             {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
-            {latest.length > 0 && (
-              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
-                {latest.map((c, i) => (
-                  <button key={c.id} onClick={e => setNotesReply(true, { x: e.clientX, y: e.clientY })} className="lnv-rc" title="Open the replies"
-                    style={{ textAlign: 'left', border: 'none', cursor: 'pointer', padding: '8px 14px', borderRadius: 18, fontFamily: d.bodyFf, fontSize: 13, lineHeight: 1.3, background: 'color-mix(in srgb, currentColor 12%, transparent)', color: 'inherit', transform: `rotate(${i ? 1 : -0.8}deg)` }}>
-                    <b style={{ fontFamily: BLOCK_CP, fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: 8 }}>{c.username}</b>{c.content}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
           <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, rowGap: 8, flexWrap: ph ? 'wrap' : 'nowrap', marginTop: 10, fontFamily: d.monoFf, fontSize: 12 }}>
             {posterName && <UserChip name={posterName} d={d} />}
@@ -2837,7 +2901,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {notesReply && createPortal(<NoteReplies fun sheet={ph} post={post} posterName={posterName} size={Math.max(replySizeBlocks, 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
-        {pieOpen && <PlaylistWheelPop post={post} added={addedPl} setAdded={setAddedPl} onClose={() => setPieOpen(false)} />}
+        {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
+        {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
       </div>
     )
   }

@@ -6,6 +6,9 @@
 const L = (hero, tracks, plays, details, post) => ({ hero, tracks, plays, details, post })
 
 export const BLOCK_SPECTRUM = {
+  // order: 'tone' = the feed arranges the 8 looks light to dark by the colour of the profile card and walks them there and back (Feed.jsx toneSorted);
+  // 'hand' = exactly in the order below, using `mode`.
+  order: 'tone',
   mode: 'wrap',
   pals: {
     'Deep Night': [

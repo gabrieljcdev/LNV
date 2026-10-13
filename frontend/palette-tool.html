@@ -340,7 +340,7 @@ function renderSpecBar() {
   const name = names[cur], looks = spec.pals[name] || []
   $('spec').innerHTML = `<b style="font:700 12px var(--mono);letter-spacing:.06em;text-transform:uppercase">Spectrum for ${esc(name)} — 8 posts you colour by hand</b>
   <div class="st">${looks.map((l, i) => `<div>${BLOCK_KEYS.map(k => `<i class="${k === 'hero' ? 't' : ''}" style="background:${tokHex(name, l[k])}" title="${k}: ${l[k]}"></i>`).join('')}${i + 1}</div>`).join('')}</div>
-  <div class="sr"><span style="font:600 11px var(--mono)">Feed loop</span><select id="specMode"><option value="wrap"${spec.mode === 'wrap' ? ' selected' : ''}>wrap  1→8, 1→8…</option><option value="pingpong"${spec.mode === 'pingpong' ? ' selected' : ''}>ping-pong  1→8→1…</option></select>
+  <div class="sr"><span style="font:600 11px var(--mono)">Feed order</span><select id="specOrder"><option value="tone"${(spec.order || 'tone') === 'tone' ? ' selected' : ''}>light ↔ dark by the profile card</option><option value="hand"${spec.order === 'hand' ? ' selected' : ''}>exactly as set here</option></select><span style="font:600 11px var(--mono)">Loop (as set here)</span><select id="specMode"><option value="wrap"${spec.mode === 'wrap' ? ' selected' : ''}>wrap  1→8, 1→8…</option><option value="pingpong"${spec.mode === 'pingpong' ? ' selected' : ''}>ping-pong  1→8→1…</option></select>
   <button class="b" data-sp="rotate">Rotate →</button><button class="b" data-sp="reverse">Reverse</button><button class="b" data-sp="reseed">Re-seed from colourways</button><button class="b" data-sp="copy">Copy spectrum</button></div>
   <p>Click any box in a post and pick one of this time of day’s colours. As you scroll the feed, posts take these 8 looks in order, so the colour moves through your spectrum. Each palette has its own 8, and a look follows the palette if you change its colours.</p>`
 }
@@ -387,7 +387,7 @@ const line = n => { const p = eff(n), b = BUILTIN_PALETTES[names.indexOf(n)]; co
 const diff = n => KEYS.some(k => (eff(n)[k] ?? '') !== (base[n][k] ?? '')) || !!eff(n).isDark !== !!base[n].isDark
 async function copy(text) { $('code').value = text; try { await navigator.clipboard.writeText(text); say('Copied. Paste it to me, or into themeService.js.') } catch { $('code').select(); say('Select-all and copy from the box below.') } }
 $('copyOne').onclick = () => copy(line(names[cur])); $('copyAll').onclick = () => copy('export const PALETTES = [\n' + names.map(line).join('\n') + '\n]')
-$('apply').onclick = () => { snapNow('applied'); const o = {}; names.forEach(n => { if (diff(n)) { const p = eff(n); o[n] = Object.fromEntries([...KEYS.filter(k => p[k]).map(k => [k, p[k]]), ['isDark', !!p.isDark]]) } }); try { localStorage.setItem(APPLIED_KEY, JSON.stringify(o)); const sp = Object.keys(spec.pals).length ? { mode: spec.mode, pals: spec.pals } : null; if (sp) localStorage.setItem(SPEC_APPLIED, JSON.stringify(sp)); say(`Applied ${Object.keys(o).length} palette(s)${sp ? ` and the spectrum for ${Object.keys(sp.pals).length} of them` : ''}. Reload the feed (localhost:5173) to see them.`) } catch { say('Could not save.') } }
+$('apply').onclick = () => { snapNow('applied'); const o = {}; names.forEach(n => { if (diff(n)) { const p = eff(n); o[n] = Object.fromEntries([...KEYS.filter(k => p[k]).map(k => [k, p[k]]), ['isDark', !!p.isDark]]) } }); try { localStorage.setItem(APPLIED_KEY, JSON.stringify(o)); const sp = Object.keys(spec.pals).length ? { mode: spec.mode, order: spec.order || 'tone', pals: spec.pals } : null; if (sp) localStorage.setItem(SPEC_APPLIED, JSON.stringify(sp)); say(`Applied ${Object.keys(o).length} palette(s)${sp ? ` and the spectrum for ${Object.keys(sp.pals).length} of them` : ''}. Reload the feed (localhost:5173) to see them.`) } catch { say('Could not save.') } }
 $('clearApplied').onclick = () => { localStorage.removeItem(APPLIED_KEY); localStorage.removeItem(SPEC_APPLIED); say('Cleared. The feed is back on the built-in palettes after a reload.') }
 $('resetOne').onclick = () => { snapNow('before reset'); delete draft[names[cur]]; save(); render(); say('Reset to the built-in colours.') }
 $('resetAll').onclick = () => { if (confirm('Throw away every change in this tool (not what is applied to the feed)? A copy stays in History.')) { snapNow('before reset all'); draft = {}; save(); spec = { mode: 'wrap', pals: {} }; saveSpec(); render() } }
@@ -474,10 +474,10 @@ $('spec').addEventListener('click', e => {
   if (act === 'reverse') looks.reverse()
   if (['rotate', 'reverse', 'reseed'].includes(act)) snapNow('before ' + act)
   if (act === 'reseed') { delete spec.pals[name]; saveSpec(); drawGrid(); return say('Re-seeded from the colourways.') }
-  if (act === 'copy') return copy(JSON.stringify({ mode: spec.mode, pals: spec.pals }, null, 1))
+  if (act === 'copy') return copy(JSON.stringify({ mode: spec.mode, order: spec.order || 'tone', pals: spec.pals }, null, 1))
   saveSpec(); drawGrid()
 })
-$('spec').addEventListener('change', e => { if (e.target.id === 'specMode') { spec.mode = e.target.value; saveSpec() } })
+$('spec').addEventListener('change', e => { if (e.target.id === 'specMode') { spec.mode = e.target.value; saveSpec() } if (e.target.id === 'specOrder') { spec.order = e.target.value; saveSpec() } })
 
 $('restore').onclick = () => { const h = readHist(), e = h[+$('hist').value]; if (!e) return say('Nothing to restore.'); if (confirm('Go back to the version from ' + when(e.t) + '? (Your current work is saved to history first.)')) restoreEntry(e) }
 $('dl').onclick = () => { snapNow('download'); const blob = new Blob([JSON.stringify({ lnvPaletteTool: 1, saved: new Date().toISOString(), draft, spec }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'lnv-palette-work-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); say('Backup downloaded.') }
