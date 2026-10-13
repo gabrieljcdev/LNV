@@ -15,6 +15,8 @@ import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
+import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
+import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 import TrackPlayer from './TrackPlayer'
@@ -350,20 +352,6 @@ const FEED_SURFACE = 'var(--theme-bg)'
 // sat right at 3:1 on mid-tone spectrum cards. The --lv-* names are what
 // AlbumCard / LiveSetCard read; they used to be set once by useCardInk and
 // went stale when the palette changed (dark-on-dark after a switch).
-const INK_DARK_BG  = { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.72)', '--theme-border': 'rgba(255,255,255,0.18)' }
-const INK_LIGHT_BG = { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.66)', '--theme-border': 'rgba(0,0,0,0.12)' }
-for (const ink of [INK_DARK_BG, INK_LIGHT_BG]) {
-  ink['--lv-pri'] = ink['--theme-text-pri']; ink['--lv-sec'] = ink['--theme-text-sec']
-  ink['--lv-ter'] = ink['--theme-text-ter']; ink['--lv-line'] = ink['--theme-border']
-}
-function bgIsDark(el) {
-  const c = getComputedStyle(el).backgroundColor
-  const m = c.match(/\d+(\.\d+)?/g)
-  if (!m) return false
-  const k = /^color\(srgb/i.test(c) ? 255 : 1
-  const [r, g, b] = m.slice(0, 3).map(v => { v = (Number(v) * k) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18 // ≈ where white and black ink give equal contrast
-}
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
@@ -2019,15 +2007,6 @@ const NOTE_CSS = '.lnv-np{transition:background .15s,border-color .15s,color .15
 function NoteDash() {
   return <span aria-hidden="true" style={{ display: 'inline-block', width: 4.5, height: 2, borderRadius: 1, background: 'var(--lv-ter)', transform: 'translateY(-5px)' }} />
 }
-// Black or white text on a platform colour, whichever reads.
-function inkOnHex(hex) {
-  const h = String(hex || '').replace('#', '')
-  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
-  if (full.length !== 6) return '#fff'
-  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
-  const L = 0.2126 * f(parseInt(full.slice(0, 2), 16)) + 0.7152 * f(parseInt(full.slice(2, 4), 16)) + 0.0722 * f(parseInt(full.slice(4, 6), 16))
-  return 1.05 / (L + 0.05) >= 3.9 ? '#fff' : '#111'
-}
 // Sides from the positions as Discogs gives them: "A1", "B2", "C" -> A, B, C; "AA" (double A-side) -> AA; "1-1", "CD2-3", "2.4" -> disc 1, 2.
 // Anything else ("1", "2", no position) is one group with no letter.
 function noteSides(tracks) {
@@ -2187,43 +2166,6 @@ const BLOCKS_CARDS = (() => {
     return v === 'blocks' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
   } catch { return true }
 })()
-const BLOCK_RAD = 30 // block corner radius
-const BLOCK_CUT = 38 // the one cut corner
-const BLOCK_CP = "'Chakra Petch', 'Barlow', sans-serif"
-const BLOCK_CSS = '.lnv-bk{transition:transform .35s cubic-bezier(.2,.9,.3,1.3),box-shadow .35s}.lnv-bk:hover{transform:translateY(-3px) rotate(-.2deg);box-shadow:0 14px 30px rgba(0,0,0,.18)}'
-  + `.lnv-bk{border-radius:${BLOCK_RAD}px}`
-  + `.lnv-cut-br{clip-path:polygon(0 0,100% 0,100% calc(100% - ${BLOCK_CUT}px),calc(100% - ${BLOCK_CUT}px) 100%,0 100%)}`
-  + `.lnv-cut-bl{clip-path:polygon(0 0,100% 0,100% 100%,${BLOCK_CUT}px 100%,0 calc(100% - ${BLOCK_CUT}px))}`
-  + `.lnv-cut-tr{clip-path:polygon(0 0,calc(100% - ${BLOCK_CUT}px) 0,100% ${BLOCK_CUT}px,100% 100%,0 100%)}`
-  + `.lnv-cut-tl{clip-path:polygon(${BLOCK_CUT}px 0,100% 0,100% 100%,0 100%,0 ${BLOCK_CUT}px)}`
-  + '.lnv-tr{transition:transform .25s cubic-bezier(.2,.9,.3,1.5),background .2s,padding .25s}.lnv-tr:hover{transform:translateX(6px)}.lnv-tr.on{transform:translateX(10px)}'
-  + '.lnv-tr .lnv-off{opacity:.3;transition:opacity .15s}.lnv-tr:hover .lnv-off{opacity:1}'
-  + '.lnv-eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px;width:14px}.lnv-eq i{flex:1;background:currentColor;animation:lnvEq .8s ease-in-out infinite alternate}.lnv-eq i:nth-child(2){animation-delay:.2s}.lnv-eq i:nth-child(3){animation-delay:.4s}@keyframes lnvEq{from{height:20%}to{height:100%}}'
-  + '.lnv-rip{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--theme-accent);transform:translate(-50%,-50%) scale(1);opacity:.55;animation:lnvRip .8s ease-out forwards;pointer-events:none;z-index:0}@keyframes lnvRip{to{transform:translate(-50%,-50%) scale(60);opacity:0}}'
-  + '.lnv-num span{display:inline-block;transition:transform .6s cubic-bezier(.2,.9,.3,1.4)}.lnv-num span:hover{transform:rotateY(180deg) scale(1.06)}'
-  + '.lnv-still:hover{transform:none!important;box-shadow:none!important}'
-  + '.lnv-pb{transition:transform .25s cubic-bezier(.2,.9,.3,1.6),background .2s}.lnv-pb:hover{transform:translateY(-3px) scale(1.06)}.lnv-pb:active{transform:scale(.94)}'
-  + '.lnv-pr{transition:background .2s}.lnv-pr:hover{background:color-mix(in srgb,currentColor 14%,transparent)}'
-  + '.lnv-bar i{display:block;height:100%;border-radius:99px;background:currentColor;width:0;animation:lnvGrow .9s .2s cubic-bezier(.2,.9,.3,1) forwards}@keyframes lnvGrow{to{width:var(--w)}}'
-  + '.lnv-wheel{transition:transform .5s cubic-bezier(.2,.9,.3,1.5)}.lnv-wheel:hover{transform:rotate(40deg) scale(1.1)}'
-  + '.lnv-rc{transition:transform .35s cubic-bezier(.2,.9,.3,1.5),box-shadow .35s}.lnv-rc:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 10px 22px rgba(0,0,0,.18)}'
-  + '.lnv-pt{cursor:pointer;transform-box:fill-box;transform-origin:center;opacity:0;animation:lnvPin .55s cubic-bezier(.2,1.3,.3,1) forwards;animation-delay:calc(var(--i)*50ms)}@keyframes lnvPin{from{transform:scale(.2) rotate(-40deg);opacity:0}to{transform:none;opacity:1}}'
-  + '.lnv-pt .n{transition:transform .3s;transform-box:fill-box;transform-origin:center}.lnv-pt:hover .n{transform:scale(1.08)}.lnv-pt:hover .o{filter:brightness(1.18)}.lnv-pt.pulse .n{animation:lnvPulse .5s}@keyframes lnvPulse{40%{transform:scale(1.22)}}'
-  + '@keyframes lnvPop{from{transform:scale(.4) rotate(-8deg);opacity:0}}@keyframes lnvFade{from{opacity:0}}'
-  + '@media (prefers-reduced-motion: reduce){.lnv-bk,.lnv-tr,.lnv-pb,.lnv-cover,.lnv-rc,.lnv-pt,.lnv-num span,.lnv-wheel{transition:none!important;animation:none!important}.lnv-pt{opacity:1}.lnv-eq i{animation:none;height:60%}}'
-
-// The theme's colours as hex (read from :root), so a block can pick light or dark ink for whatever the palette puts under it.
-const themeHex = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-function useThemeTick() {
-  const [n, setN] = useState(0)
-  useEffect(() => {
-    let t = null
-    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => setN(x => x + 1), 450) }) // after the card colours have faded
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
-    return () => { mo.disconnect(); clearTimeout(t) }
-  }, [])
-  return n
-}
 // Colourways (gabriel, 13 Oct): the blocks do not keep one set of colours; each post takes the next "format" as you scroll, so the feed stays fresh.
 // Every entry is a CSS background for one block (a palette token, a mix of two, a gradient); [bg, base] where `base` is the plain colour the ink is judged against.
 const TK = k => `var(--theme-${k})`
@@ -2294,20 +2236,6 @@ const handLook = idx => {
 }
 const blockWay = idx => { const hand = handLook(idx); if (hand) return hand; const w = BLOCK_WAYS[((idx || 0) % BLOCK_WAYS.length + BLOCK_WAYS.length) % BLOCK_WAYS.length]; const m = w.f(idx || 0); return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Array.isArray(v) ? v : [v, v]])) }
 
-// One block: filled with a colour (or gradient) from the colourway, with light or dark ink set from `base`, so every --lv-* inside follows.
-function Blk({ bg, cut, className = '', style, children, ...rest }) {
-  const tick = useThemeTick()
-  const probe = useRef(null)
-  const [dark, setDark] = useState(false)
-  const [fill, base] = bg
-  useLayoutEffect(() => { if (probe.current) setDark(bgIsDark(probe.current)) }, [tick, base])
-  return (
-    <section className={`lnv-bk${cut ? ` lnv-cut-${cut}` : ''} ${className}`} style={{ position: 'relative', overflow: 'hidden', background: fill, ...(dark ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', transition: 'background .8s', ...style }} {...rest}>
-      <i ref={probe} aria-hidden="true" style={{ position: 'absolute', width: 0, height: 0, background: base }} />
-      {children}
-    </section>
-  )
-}
 
 // A wedge of the playlist wheel, between radii r0 and r1 and angles a0..a1 (SVG path).
 function wedgePath(cx, cy, r0, r1, a0, a1) {
@@ -4977,7 +4905,7 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
       </div>
       <div ref={deckRef} onScroll={onScroll} aria-label="Posts — swipe for the next one"
         style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', scrollbarWidth: 'none' }}>
-        {header && <Slide bg="var(--theme-showcase)">{header}</Slide>}
+        {header && (BLOCKS_CARDS ? <Slide bg="var(--theme-bg)" bare>{header}</Slide> : <Slide bg="var(--theme-showcase)">{header}</Slide>)}
         {list.length === 0 ? (
           <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
         ) : list.map((it, i) => blocksOf[i] >= 0 ? (
@@ -5547,11 +5475,11 @@ export default function Feed() {
         {/* No posts: the button rides with the first card there is (your profile / the welcome), in its lower-left corner. */}
         {!posts.length && composeAnchor}
         {/* A wall opens on its owner's card (2026-10-05). */}
-        {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
+        {feedMode.type === 'wall' && !search && <FloatSlot bare={BLOCKS_CARDS} key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
-        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
+        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
         {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
-        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot key="welcome"><WelcomeCard /></FloatSlot>}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="welcome"><WelcomeCard /></FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

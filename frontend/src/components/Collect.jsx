@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { DiscogsSetting } from './DiscogsConnect'
 import { askText } from './Dialogs'
+import { Blk } from './Blocks'
+import { BLOCK_CP, BLOCK_CSS } from '../lib/blocksKit'
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
@@ -370,9 +372,10 @@ export function WallCard({ username, compact = false, friends }) {
   const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
   const head = { margin: '0 0 9px', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: ter }
   const chip = { ...plain, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SANS, fontSize: compact ? 14 : 13, color: pri, padding: compact ? '8px 13px' : '6px 12px', borderRadius: 99, background: fill(12) }
+  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`]
   const shell = compact
-    ? { padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20, color: pri, fontFamily: SANS }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '90px 48px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s', color: pri, fontFamily: SANS, display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 44, alignContent: 'start' }
+    ? { display: 'flex', flexDirection: 'column', gap: 6, color: pri, fontFamily: SANS, padding: '0 0 24px' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
   const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
   if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
@@ -382,8 +385,8 @@ export function WallCard({ username, compact = false, friends }) {
   const since = (() => { try { return new Date(p.member_since.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) } catch { return '' } })()
   const max = Math.max(1, ...p.sound.map(x => x.count))
   const sectionTitle = (t, note) => (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
-      <h2 style={{ margin: 0, fontSize: compact ? 16 : 17, fontWeight: 700 }}>{t}</h2>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+      <h2 style={{ margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t}</h2>
       {note && <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{note}</span>}
     </div>
   )
@@ -397,9 +400,9 @@ export function WallCard({ username, compact = false, friends }) {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: compact ? 'center' : 'flex-start', flexDirection: compact ? 'row' : 'column', gap: 14 }}>
-        <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 88, height: compact ? 64 : 88, borderRadius: '50%', background: pri, color: 'var(--theme-showcase)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 44, fontWeight: 900 }}>{p.username.charAt(0).toUpperCase()}</div>
+        <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 88, height: compact ? 64 : 88, borderRadius: '50%', background: pri, color: 'var(--blk-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 44, fontWeight: 900 }}>{p.username.charAt(0).toUpperCase()}</div>
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: compact ? 38 : 52, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{p.username}</h1>
+          <h1 style={{ margin: 0, fontFamily: BLOCK_CP, fontSize: compact ? 34 : 38, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', textTransform: 'uppercase', overflowWrap: 'anywhere' }}>{p.username}</h1>
           <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: ter, lineHeight: 1.6 }}>
             {!compact && since && <>Member since {since}<br /></>}
             {p.post_count} {p.post_count === 1 ? 'post' : 'posts'} · {p.follower_count} {p.follower_count === 1 ? 'follower' : 'followers'}
@@ -413,7 +416,7 @@ export function WallCard({ username, compact = false, friends }) {
             style={{ resize: 'vertical', borderRadius: 12, border: `1px solid ${fill(30)}`, background: fill(8), color: pri, padding: '10px 12px', fontFamily: SANS, fontSize: 16, lineHeight: 1.45 }} />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button disabled={busy} onClick={() => act(async () => { await profileApi.bio(bioDraft); setBioDraft(null) })}
-              style={{ border: 0, borderRadius: 99, padding: '9px 18px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+              style={{ border: 0, borderRadius: 99, padding: '9px 18px', background: pri, color: 'var(--blk-bg)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Save</button>
             <button onClick={() => setBioDraft(null)} style={{ ...plain, color: sec, fontSize: 14 }}>Cancel</button>
             <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: ter }}>{280 - bioDraft.length}</span>
           </div>
@@ -426,13 +429,13 @@ export function WallCard({ username, compact = false, friends }) {
 
       {owner ? (bioDraft == null && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => setBioDraft(p.bio || '')} style={{ border: 0, borderRadius: 99, padding: '11px 20px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Edit profile</button>
+          <button onClick={() => setBioDraft(p.bio || '')} style={{ border: 0, borderRadius: 99, padding: '11px 20px', background: pri, color: 'var(--blk-bg)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Edit profile</button>
           <button onClick={() => setAsVisitor(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${fill(40)}`, borderRadius: 99, padding: '10px 16px', background: 'transparent', color: pri, fontFamily: SANS, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>View as visitor
           </button>
         </div>
       )) : preview ? (
-        <button disabled title="Visitors can follow you here" style={{ alignSelf: 'flex-start', border: 0, borderRadius: 99, padding: '11px 22px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, opacity: 0.7 }}>+ follow</button>
+        <button disabled title="Visitors can follow you here" style={{ alignSelf: 'flex-start', border: 0, borderRadius: 99, padding: '11px 22px', background: pri, color: 'var(--blk-bg)', fontFamily: SANS, fontSize: 14, fontWeight: 700, opacity: 0.7 }}>+ follow</button>
       ) : signedIn ? (
         <div style={{ display: 'flex', flexDirection: compact ? 'row' : 'column', alignItems: compact ? 'center' : 'flex-start', gap: 12 }}>
           <FollowButton username={username} />
@@ -448,6 +451,11 @@ export function WallCard({ username, compact = false, friends }) {
           style={{ ...plain, alignSelf: 'flex-start', fontFamily: MONO, fontSize: 11, color: ter, textAlign: 'left' }}>{copied ? '✓ link copied' : 'Copy a link to this profile'}</button>
       </>)}
 
+    </div>
+  )
+
+  const ownerExtras = owner ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {owner && friends && (
         // My feed's switch (2026-10-06): you + who you follow, or just you.
         <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
@@ -457,7 +465,7 @@ export function WallCard({ username, compact = false, friends }) {
           </span>
           <input type="checkbox" role="switch" checked={friends.on} onChange={e => friends.set(e.target.checked)} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
           <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: friends.on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
-            <span style={{ position: 'absolute', top: 3, left: friends.on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: friends.on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+            <span style={{ position: 'absolute', top: 3, left: friends.on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: friends.on ? 'var(--blk-bg)' : pri, transition: 'left 0.2s' }} />
           </span>
         </label>
       )}
@@ -477,7 +485,7 @@ export function WallCard({ username, compact = false, friends }) {
         </div>
       )}
     </div>
-  )
+  ) : null
 
   // A list led by favourites (♥): labels, artists, channels. Owners can
   // un-♥ from here; everyone else just opens the drawer.
@@ -525,7 +533,7 @@ export function WallCard({ username, compact = false, friends }) {
       <input id={`newlist-${username}`} autoFocus value={newList} maxLength={80} placeholder="Name it — e.g. Sunday sides" onChange={e => setNewList(e.target.value)}
         onKeyDown={e => { if (e.key === 'Escape') setNewList(null) }}
         style={{ flex: 1, minWidth: 0, borderRadius: 99, border: `1px solid ${fill(30)}`, background: fill(8), color: pri, padding: '8px 14px', fontFamily: SANS, fontSize: 16 }} />
-      <button type="submit" disabled={busy || !newList.trim()} style={{ border: 0, borderRadius: 99, padding: '9px 16px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: newList.trim() ? 1 : 0.5 }}>Create</button>
+      <button type="submit" disabled={busy || !newList.trim()} style={{ border: 0, borderRadius: 99, padding: '9px 16px', background: pri, color: 'var(--blk-bg)', fontFamily: SANS, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: newList.trim() ? 1 : 0.5 }}>Create</button>
       <button type="button" onClick={() => setNewList(null)} style={{ ...plain, color: sec, fontSize: 14 }}>Cancel</button>
     </form>
   )
@@ -592,7 +600,7 @@ export function WallCard({ username, compact = false, friends }) {
     <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>In common with you</h2>
-        <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '2px 7px' }}>α ALPHA</span>
+        <span title="Alpha — an early, experimental feature" style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--blk-bg)', background: pri, borderRadius: 99, padding: '2px 7px' }}>α ALPHA</span>
       </div>
       {!signedIn ? (
         <button onClick={() => askToSignIn('see what you have in common')} style={{ ...plain, fontSize: 14, color: sec, textDecoration: 'underline', textUnderlineOffset: 3 }}>Sign in to see what you both post</button>
@@ -620,32 +628,46 @@ export function WallCard({ username, compact = false, friends }) {
     </section>
   )
 
-  const taste = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
-      <section>
-        {sectionTitle(owner ? 'Your sound' : 'Their sound', owner ? 'worked out from what you post' : 'from what they post')}
-        {p.sound.length === 0 ? (
-          <div style={{ fontSize: 13, color: ter }}>{owner ? 'Post a few records and your sound shows up here.' : 'Nothing posted yet.'}</div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: `${compact ? 96 : 110}px minmax(0, 1fr) 28px`, gap: '7px 12px', alignItems: 'center', fontSize: 14 }}>
-            {p.sound.map(g => [
-              <button key={g.name + 'n'} onClick={() => openD3?.('genres', { filter: g.name })} style={{ ...plain, color: pri, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</button>,
-              <div key={g.name + 'b'} aria-hidden="true" style={{ height: 8, borderRadius: 99, background: fill(55), width: `${Math.max(8, (g.count / max) * 100)}%` }} />,
-              <span key={g.name + 'c'} style={{ fontFamily: MONO, fontSize: 11, textAlign: 'right' }}>{g.count}</span>,
-            ])}
-          </div>
-        )}
-      </section>
-      {labelsSection}
-      {artistsSection}
-      {channelsSection}
-      {playlistsSection}
-      {followsSection}
-      {commonSection}
+  const pad = compact ? '20px 18px 22px' : '24px 28px 26px'
+  const cut = c => (compact ? undefined : c)
+  const soundSection = (
+    <section>
+      {sectionTitle(owner ? 'Your sound' : 'Their sound', owner ? 'worked out from what you post' : 'from what they post')}
+      {p.sound.length === 0 ? (
+        <div style={{ fontSize: 13, color: ter }}>{owner ? 'Post a few records and your sound shows up here.' : 'Nothing posted yet.'}</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: `${compact ? 96 : 110}px minmax(0, 1fr) 28px`, gap: '7px 12px', alignItems: 'center', fontSize: 14 }}>
+          {p.sound.map(g => [
+            <button key={g.name + 'n'} onClick={() => openD3?.('genres', { filter: g.name })} style={{ ...plain, color: pri, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</button>,
+            <div key={g.name + 'b'} aria-hidden="true" style={{ height: 8, borderRadius: 99, background: fill(55), width: `${Math.max(8, (g.count / max) * 100)}%` }} />,
+            <span key={g.name + 'c'} style={{ fontFamily: MONO, fontSize: 11, textAlign: 'right' }}>{g.count}</span>,
+          ])}
+        </div>
+      )}
+    </section>
+  )
+  const favourites = labelsSection || artistsSection || channelsSection
+  const identityBlock = <Blk bg={tone('showcase')} cut={cut('br')} style={{ padding: compact ? '22px 18px 26px' : '28px 26px 32px' }}>{identity}</Blk>
+  const extrasBlock = ownerExtras && <Blk bg={tone('light1')} cut={cut('bl')} style={{ padding: compact ? '18px 18px 20px' : '22px 24px 24px' }}>{ownerExtras}</Blk>
+  const blocks = [
+    <Blk key="sound" bg={tone('accent')} cut={cut('tr')} style={{ padding: pad }}>{soundSection}</Blk>,
+    favourites && <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}</Blk>,
+    playlistsSection && <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: pad }}>{playlistsSection}</Blk>,
+    <Blk key="fol" bg={tone('light1')} style={{ padding: pad }}>{followsSection}</Blk>,
+    commonSection && <Blk key="com" bg={(c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>,
+  ].filter(Boolean)
+
+  return (
+    <div {...cardTag} style={shell}>
+      <style>{BLOCK_CSS}</style>
+      {compact
+        ? <>{identityBlock}{extrasBlock}{blocks}</>
+        : <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 8, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gap: 8 }}>{identityBlock}{extrasBlock}</div>
+          <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>{blocks}</div>
+        </div>}
     </div>
   )
-
-  return <div {...cardTag} style={shell}>{identity}{taste}</div>
 }
 
 // The welcome (2026-10-05, gabriel): signed out, the front page opens on
@@ -655,59 +677,60 @@ export function WallCard({ username, compact = false, friends }) {
 export function WelcomeCard({ compact = false }) {
   const { openD3 } = useLayout() || {}
   const owner = useFrontPageOwner()
-  const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)', ter = 'var(--theme-text-ter)'
+  const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)'
   const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
-  const head = { margin: '0 0 10px', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: ter }
-  const list = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, fontSize: compact ? 15 : 14.5, lineHeight: 1.45, color: sec }
+  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`]
+  const title = { margin: '0 0 14px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }
+  const list = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 11, fontSize: compact ? 15 : 14.5, lineHeight: 1.45, color: sec }
   const b = t => <b style={{ color: pri, fontWeight: 700 }}>{t}</b>
   const kbd = { fontFamily: MONO, fontSize: 12, border: `1px solid ${fill(35)}`, borderRadius: 4, padding: '0 5px', color: pri }
-  const shell = compact
-    ? { padding: '26px 20px 24px', display: 'flex', flexDirection: 'column', gap: 24, color: pri, fontFamily: SANS }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '90px 48px 40px', overflowY: 'auto', background: 'var(--theme-showcase)', transition: 'background 0.8s', color: pri, fontFamily: SANS, display: 'grid', gridTemplateColumns: '270px minmax(0, 1fr)', gap: 44, alignContent: 'start' }
-
-  const intro = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <span style={head}>Welcome</span>
-      <h1 style={{ margin: 0, fontSize: compact ? 40 : 52, fontWeight: 900, lineHeight: 0.95, letterSpacing: '-0.02em' }}>Late Night Vibes</h1>
-      <p style={{ margin: 0, fontSize: compact ? 17 : 17.5, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. Discover other people, listen to their collections, and build the database together.</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
-        <a href="/login?tab=create" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, background: pri, color: 'var(--theme-showcase)', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Create an account</a>
-        <a href="/login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 99, border: `1px solid ${fill(45)}`, color: pri, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>Log in</a>
+  const Li = ({ children }) => <li style={{ display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr)', gap: 6, alignItems: 'baseline' }}><span aria-hidden="true" style={{ opacity: 0.55, fontSize: 11 }}>◖</span><span>{children}</span></li>
+  const solid = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: 48, padding: '0 26px', borderRadius: 999, background: pri, color: 'var(--blk-bg)', fontFamily: BLOCK_CP, fontSize: 14, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', textDecoration: 'none' }
+  const outline = { ...solid, background: 'transparent', color: pri, border: `1.5px solid ${pri}` }
+  const root = compact
+    ? { display: 'flex', flexDirection: 'column', gap: 6, fontFamily: SANS, color: pri, padding: '0 0 24px' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
+  const pad = compact ? '22px 20px 24px' : '26px 30px 30px'
+  return (
+    <div data-profile-card="welcome" style={root}>
+      <style>{BLOCK_CSS}</style>
+      {/* the way in: the biggest block, in the colour the feed's colours follow */}
+      <Blk bg={tone('showcase')} cut={compact ? undefined : 'br'} style={{ padding: compact ? '26px 20px 30px' : '34px 36px 40px', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'flex-start' : 'flex-end', gap: 14, flex: compact ? '0 0 auto' : '1 1 auto', minHeight: compact ? undefined : 300 }}>
+        <span style={{ fontFamily: BLOCK_CP, fontWeight: 600, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.7 }}>Welcome</span>
+        <h1 style={{ margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: compact ? 40 : 64, lineHeight: 0.95, letterSpacing: '-0.01em', textTransform: 'uppercase' }}>Chewing<br />the Ceiling</h1>
+        <p style={{ margin: 0, maxWidth: 470, fontSize: compact ? 17 : 18, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. Discover other people, listen to their collections, and build the database together.</p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+          <a className="lnv-pb" href="/login?tab=create" style={solid}>Create an account</a>
+          <a className="lnv-pb" href="/login" style={outline}>Log in</a>
+        </div>
+      </Blk>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'minmax(0, 1fr)' : '1fr 1fr', gap: compact ? 6 : 8 }}>
+        <Blk bg={tone('light1')} cut={compact ? undefined : 'bl'} style={{ padding: pad }}>
+          <h2 style={title}>How it works</h2>
+          <ul style={list}>
+            <Li>{compact ? b('Swipe') : b('Scroll sideways')} through the posts.</Li>
+            <Li>{b(compact ? 'Tap a cover' : 'Click a cover')} to play it.</Li>
+            <Li>{b('Every post has a number')} — {compact ? 'search it to jump there.' : <>press <kbd style={kbd}>/</kbd> and type it to jump there.</>}</Li>
+          </ul>
+        </Blk>
+        <Blk bg={tone('accent')} cut={compact ? undefined : 'tr'} style={{ padding: pad }}>
+          <h2 style={title}>With an account</h2>
+          <ul style={list}>
+            <Li>{b('Post')} a record from a link, with a line on why.</Li>
+            <Li>{b('Discover users')} and listen to their collections: follow people, make playlists, bring in your Discogs.</Li>
+            <Li>{b('Add a link')} to a track with no player. It's a community-built database, so every link you find plays for everyone.</Li>
+          </ul>
+        </Blk>
       </div>
+      {/* the front page is someone's own wall (the first friend's): say so */}
+      <Blk bg={tone('dark3')} cut={compact ? undefined : 'tl'} style={{ padding: compact ? '18px 20px 20px' : '20px 30px 22px', display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'flex-start' : 'center', gap: 14, justifyContent: 'space-between' }}>
+        <p style={{ margin: 0, fontSize: compact ? 15 : 15.5, lineHeight: 1.5, color: sec, maxWidth: 520 }}>
+          You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3 }}>{owner}'s</button> : 'my'} feed — the records I've posted and kept. Make an account and you get a feed of your own.
+        </p>
+        <button className="lnv-pb" onClick={() => openD3?.('about')} style={{ ...plain, flexShrink: 0, border: `1.5px solid ${pri}`, borderRadius: 999, padding: '9px 18px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: pri }}>More in About →</button>
+      </Blk>
     </div>
   )
-
-  // The front page is someone's own wall (the first friend's) — say so.
-  const wall = (
-    <section style={{ padding: compact ? '14px 16px' : '16px 18px', borderRadius: 16, background: fill(12), fontSize: compact ? 15 : 15.5, lineHeight: 1.5, color: sec }}>
-      You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700 }}>{owner}'s</button> : 'my'} feed — the records I've posted and kept. Make an account and you get a feed of your own.
-    </section>
-  )
-
-  const how = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
-      {wall}
-      <section>
-        <h2 style={head}>How it works</h2>
-        <ul style={list}>
-          <li>{compact ? b('Swipe') : b('Scroll sideways')} through the posts.</li>
-          <li>{b(compact ? 'Tap a cover' : 'Click a cover')} to play it.</li>
-          <li>{b('Every post has a number')} — {compact ? 'search it to jump there.' : <>press <kbd style={kbd}>/</kbd> and type it to jump there.</>}</li>
-        </ul>
-      </section>
-      <section>
-        <h2 style={head}>With an account</h2>
-        <ul style={list}>
-          <li>{b('Post')} a record from a link, with a line on why.</li>
-          <li>{b('Discover users')} and listen to their collections: follow people, make playlists, bring in your Discogs.</li>
-          <li>{b('Add a link')} to a track with no player. It's a community-built database, so every link you find plays for everyone.</li>
-        </ul>
-      </section>
-      <button onClick={() => openD3?.('about')} style={{ ...plain, alignSelf: 'flex-start', fontSize: 14, color: pri, textDecoration: 'underline', textUnderlineOffset: 3 }}>More in About →</button>
-    </div>
-  )
-
-  return <div data-profile-card="welcome" style={shell}>{intro}{how}</div>
 }
 
 // An introduction (alpha, 2026-10-05, from the "LNV Introductions Mockup"
@@ -876,12 +899,12 @@ function IntroSettings({ pri, ter, fill }) {
       <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>Introductions
-            <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
+            <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--blk-bg, var(--theme-showcase))', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
           <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{on ? 'Now and then, someone to follow — always with why' : 'Off — your feed is only posts'}</span>
         </span>
         <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={e => act(() => introApi.setOff(!e.target.checked))} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
         <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
-          <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+          <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--blk-bg, var(--theme-showcase))' : pri, transition: 'left 0.2s' }} />
         </span>
       </label>
       {st.dismissed.length > 0 && (
@@ -914,12 +937,12 @@ function BoardsSetting({ pri, ter, fill }) {
     <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10), cursor: 'pointer' }}>
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>Community boards
-          <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
+          <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--blk-bg, var(--theme-showcase))', background: pri, borderRadius: 99, padding: '1px 6px' }}>α</span></span>
         <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{on ? 'You can show up on the boards' : 'Off — you see the boards, you’re not on them'}</span>
       </span>
       <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={e => flip(e.target.checked)} style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
       <span aria-hidden="true" style={{ flexShrink: 0, width: 42, height: 24, borderRadius: 99, background: on ? pri : fill(25), position: 'relative', transition: 'background 0.2s' }}>
-        <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--theme-showcase)' : pri, transition: 'left 0.2s' }} />
+        <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: on ? 'var(--blk-bg, var(--theme-showcase))' : pri, transition: 'left 0.2s' }} />
       </span>
     </label>
   )

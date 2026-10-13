@@ -155,7 +155,7 @@ export function DiscogsSetting({ pri, ter, fill }) {
         <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>Discogs</span>
         <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>{sub}</span>
       </span>
-      <button onClick={() => setOpen(true)} style={{ border: 0, borderRadius: 99, padding: '8px 16px', background: pri, color: 'var(--theme-showcase)', fontFamily: SANS, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{st?.linked ? 'Manage' : 'Connect'}</button>
+      <button onClick={() => setOpen(true)} style={{ border: 0, borderRadius: 99, padding: '8px 16px', background: pri, color: 'var(--blk-bg, var(--theme-showcase))', fontFamily: SANS, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{st?.linked ? 'Manage' : 'Connect'}</button>
     </div>
     {open && <DiscogsConnect onClose={() => setOpen(false)} />}
   </>

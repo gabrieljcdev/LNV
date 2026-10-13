@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { signIn, register, resendConfirmation, isLoggedIn, getUser, logout, forgotPassword, resetPassword, checkResetLink } from '../lib/auth';
 import { applyPalette, getAutoIndex } from '../services/themeService';
+import { Blk } from '../components/Blocks';
+import { BLOCK_CP, BLOCK_CSS } from '../lib/blocksKit';
 
 // ── Sign in / Create account (2026-10-01) ─────────────────────────────────────
 // One card, two tabs. Creating an account sends a confirmation email; the
@@ -110,7 +112,7 @@ export default function Login() {
     finally { setBusy(false); }
   }
 
-  const tabBtn = active => ({ flex: 1, border: 'none', borderRadius: 99, padding: '9px 0', cursor: 'pointer', fontFamily: SANS, fontSize: 14, fontWeight: 700, background: active ? 'var(--theme-text-pri)' : 'transparent', color: active ? 'var(--theme-bg)' : 'var(--theme-text-sec)' });
+  const tabBtn = active => ({ flex: 1, border: 'none', borderRadius: 99, padding: '9px 0', cursor: 'pointer', fontFamily: SANS, fontSize: 14, fontWeight: 700, background: active ? 'var(--theme-text-pri)' : 'transparent', color: active ? 'var(--blk-bg)' : 'var(--theme-text-sec)' });
   const errFor = f => error?.field === f ? <span style={{ color: '#c2410c', textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: 13 }}>{error.message}</span> : null;
 
   let body;
@@ -211,16 +213,21 @@ export default function Login() {
     </>;
   }
 
+  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`];
   return (
     <div style={{ minHeight: '100vh', background: 'var(--theme-bg)', color: 'var(--theme-text-pri)', display: 'grid', placeItems: 'center', padding: '32px 16px', boxSizing: 'border-box', transition: 'background 0.8s' }}>
-      <div style={{ width: '100%', maxWidth: 420, display: 'grid', gap: 22 }}>
-        <Link to="/" style={{ textDecoration: 'none', color: 'var(--theme-text-pri)' }}>
-          <div style={{ fontFamily: SANS, fontWeight: 900, fontSize: 44, letterSpacing: '-0.03em', lineHeight: 0.9 }}>Late Night<br />Vibes</div>
-          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', marginTop: 10 }}>← back to the feed</div>
-        </Link>
-        <div style={{ background: 'var(--theme-sidebar)', borderRadius: 40, padding: '30px 30px 34px', display: 'grid', gap: 18, boxShadow: '0 0 48px rgba(0,0,0,0.11), 0 30px 60px -12px rgba(0,0,0,0.19)' }}>
+      <style>{BLOCK_CSS}</style>
+      <div style={{ width: '100%', maxWidth: 480, display: 'grid', gap: 8 }}>
+        {/* the sign-in page is the blocks look too: the name in the profile card's colour, the form in a block of its own */}
+        <Blk bg={tone('showcase')} cut="br" style={{ padding: '30px 30px 34px' }}>
+          <Link to="/" style={{ textDecoration: 'none', color: 'inherit', display: 'grid', gap: 14 }}>
+            <div style={{ fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 46, letterSpacing: '-0.01em', lineHeight: 0.95, textTransform: 'uppercase' }}>Chewing<br />the Ceiling</div>
+            <span className="lnv-pb" style={{ justifySelf: 'start', border: '1.5px solid currentColor', borderRadius: 999, padding: '8px 16px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase' }}>← back to the feed</span>
+          </Link>
+        </Blk>
+        <Blk bg={tone('light2')} cut="tl" style={{ padding: '30px 30px 34px', display: 'grid', gap: 18 }}>
           {body}
-        </div>
+        </Blk>
       </div>
     </div>
   );
