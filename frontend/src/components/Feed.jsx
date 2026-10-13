@@ -7,12 +7,14 @@ import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
+import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
+import { askText } from './Dialogs'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
-import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
+import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
+import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 import TrackPlayer from './TrackPlayer'
@@ -365,7 +367,7 @@ function bgIsDark(el) {
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
-function FloatSlot({ children }) {
+function FloatSlot({ children, bare = false }) {
   const cardWrapRef = useRef(null)
   const [ink, setInk] = useState(null)
   useLayoutEffect(() => {
@@ -379,7 +381,7 @@ function FloatSlot({ children }) {
   }, [])
   return (
     <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
-      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW, ...ink }}>
+      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', ...(bare ? null : { borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW }), ...ink }}>
         {children}
       </div>
     </div>
@@ -2085,7 +2087,7 @@ function replyBoxSpot(at, size) {
   return { left, top: Math.max(m, top) }
 }
 
-function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
+function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun = false }) {
   const [comments, setComments] = useState(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -2109,6 +2111,9 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc) }
   }, [onClose])
   const shown = (comments || [])
+  const FUN_TONES = ['dark3', 'light1', 'accent']
+  const funCard = i => { const t = FUN_TONES[i % 3]; const dark = inkOnHex(themeHex(`--theme-${t}`)) === '#fff'; return { background: `var(--theme-${t})`, ...(dark ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', borderRadius: 20, padding: '10px 14px', transform: `rotate(${[-1, 1.2, -1.4][i % 3]}deg)`, animation: 'lnvRin .5s cubic-bezier(.2,1.2,.3,1) backwards' } }
+  const funRoot = { background: 'var(--theme-sidebar)', ...(inkOnHex(themeHex('--theme-sidebar')) === '#fff' ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', border: 'none', borderRadius: 30, clipPath: 'polygon(38px 0, 100% 0, 100% 100%, 0 100%, 0 38px)', boxShadow: '0 20px 50px rgba(0,0,0,0.35)', animation: 'lnvPop .5s cubic-bezier(.2,1.2,.3,1)' }
   const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
   async function submit() {
     const content = text.trim()
@@ -2133,15 +2138,16 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   }
   return (
     <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
-      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)' }}>
+      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)', ...(fun ? funRoot : null) }}>
+      {fun && <style>{BLOCK_CSS}</style>}
       <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
         <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
         <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
       </div>
       <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '2px 8px', ...INNER_SCROLL_STYLE }}>
         {comments && !shown.length && <div style={{ margin: 'auto 0', textAlign: 'center', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>No replies yet.</div>}
-        {shown.map(c => (
-          <div key={c.id}>
+        {shown.map((c, ci) => (
+          <div key={c.id} className={fun ? 'lnv-rc' : undefined} style={fun ? funCard(ci) : undefined}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <b style={{ fontFamily: d.bodyFf, fontSize: 15, fontWeight: 700 }}><CommentAuthor name={c.username} /></b>
               <span style={noteMeta(d, 12.5)}>{stampShort(c.created_at)}</span>
@@ -2170,13 +2176,234 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount }) {
   )
 }
 
-function ShelfCard({ post, cardBg, d, onEdit }) {
+// ── Blocks card (?cards=blocks, 13 Oct 2026, gabriel) ─────────────────────────────────────────────────────────
+// Concept G of mockup26: no card behind the post, just blocks on the feed surface, each filled from the time-of-day palette.
+// Rounded blocks with one chamfered corner, a dock of round pills that overlaps the post block, a replies pop-out that springs
+// from the click, and the playlist wheel (add this release to one of your playlists). ?cards=notes goes back to the notes card.
+const BLOCKS_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'blocks') localStorage.setItem('lnv-cards', q)
+    const v = localStorage.getItem('lnv-cards')
+    return v === 'blocks' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
+  } catch { return true }
+})()
+const BLOCK_RAD = 30 // block corner radius
+const BLOCK_CUT = 38 // the one cut corner
+const BLOCK_CP = "'Chakra Petch', 'Barlow', sans-serif"
+const BLOCK_CSS = '.lnv-bk{transition:transform .35s cubic-bezier(.2,.9,.3,1.3),box-shadow .35s}.lnv-bk:hover{transform:translateY(-3px) rotate(-.2deg);box-shadow:0 14px 30px rgba(0,0,0,.18)}'
+  + `.lnv-bk{border-radius:${BLOCK_RAD}px}`
+  + `.lnv-cut-br{clip-path:polygon(0 0,100% 0,100% calc(100% - ${BLOCK_CUT}px),calc(100% - ${BLOCK_CUT}px) 100%,0 100%)}`
+  + `.lnv-cut-bl{clip-path:polygon(0 0,100% 0,100% 100%,${BLOCK_CUT}px 100%,0 calc(100% - ${BLOCK_CUT}px))}`
+  + `.lnv-cut-tr{clip-path:polygon(0 0,calc(100% - ${BLOCK_CUT}px) 0,100% ${BLOCK_CUT}px,100% 100%,0 100%)}`
+  + `.lnv-cut-tl{clip-path:polygon(${BLOCK_CUT}px 0,100% 0,100% 100%,0 100%,0 ${BLOCK_CUT}px)}`
+  + '.lnv-tr{transition:transform .25s cubic-bezier(.2,.9,.3,1.5),background .2s,padding .25s}.lnv-tr:hover{transform:translateX(6px)}.lnv-tr.on{transform:translateX(10px)}'
+  + '.lnv-tr .lnv-off{opacity:.3;transition:opacity .15s}.lnv-tr:hover .lnv-off{opacity:1}'
+  + '.lnv-eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px;width:14px}.lnv-eq i{flex:1;background:currentColor;animation:lnvEq .8s ease-in-out infinite alternate}.lnv-eq i:nth-child(2){animation-delay:.2s}.lnv-eq i:nth-child(3){animation-delay:.4s}@keyframes lnvEq{from{height:20%}to{height:100%}}'
+  + '.lnv-rip{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--theme-accent);transform:translate(-50%,-50%) scale(1);opacity:.55;animation:lnvRip .8s ease-out forwards;pointer-events:none;z-index:0}@keyframes lnvRip{to{transform:translate(-50%,-50%) scale(60);opacity:0}}'
+  + '.lnv-num span{display:inline-block;transition:transform .6s cubic-bezier(.2,.9,.3,1.4)}.lnv-num span:hover{transform:rotateY(180deg) scale(1.06)}'
+  + '.lnv-still:hover{transform:none!important;box-shadow:none!important}'
+  + '.lnv-pb{transition:transform .25s cubic-bezier(.2,.9,.3,1.6),background .2s}.lnv-pb:hover{transform:translateY(-3px) scale(1.06)}.lnv-pb:active{transform:scale(.94)}'
+  + '.lnv-pr{transition:background .2s}.lnv-pr:hover{background:color-mix(in srgb,currentColor 14%,transparent)}'
+  + '.lnv-bar i{display:block;height:100%;border-radius:99px;background:currentColor;width:0;animation:lnvGrow .9s .2s cubic-bezier(.2,.9,.3,1) forwards}@keyframes lnvGrow{to{width:var(--w)}}'
+  + '.lnv-wheel{transition:transform .5s cubic-bezier(.2,.9,.3,1.5)}.lnv-wheel:hover{transform:rotate(40deg) scale(1.1)}'
+  + '.lnv-rc{transition:transform .35s cubic-bezier(.2,.9,.3,1.5);animation:lnvRin .5s cubic-bezier(.2,1.2,.3,1) backwards}.lnv-rc:hover{transform:rotate(0) scale(1.03)!important}@keyframes lnvRin{from{transform:translateY(24px) scale(.8);opacity:0}}'
+  + '.lnv-pt{cursor:pointer;transform-box:fill-box;transform-origin:center;opacity:0;animation:lnvPin .55s cubic-bezier(.2,1.3,.3,1) forwards;animation-delay:calc(var(--i)*50ms)}@keyframes lnvPin{from{transform:scale(.2) rotate(-40deg);opacity:0}to{transform:none;opacity:1}}'
+  + '.lnv-pt .n{transition:transform .3s;transform-box:fill-box;transform-origin:center}.lnv-pt:hover .n{transform:scale(1.08)}.lnv-pt:hover .o{filter:brightness(1.18)}.lnv-pt.pulse .n{animation:lnvPulse .5s}@keyframes lnvPulse{40%{transform:scale(1.22)}}'
+  + '@keyframes lnvPop{from{transform:scale(.4) rotate(-8deg);opacity:0}}@keyframes lnvFade{from{opacity:0}}'
+  + '@media (prefers-reduced-motion: reduce){.lnv-bk,.lnv-tr,.lnv-pb,.lnv-cover,.lnv-rc,.lnv-pt,.lnv-num span,.lnv-wheel{transition:none!important;animation:none!important}.lnv-pt{opacity:1}.lnv-eq i{animation:none;height:60%}}'
+
+// The theme's colours as hex (read from :root), so a block can pick light or dark ink for whatever the palette puts under it.
+const themeHex = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+function useThemeTick() {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    let t = null
+    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => setN(x => x + 1), 450) }) // after the card colours have faded
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    return () => { mo.disconnect(); clearTimeout(t) }
+  }, [])
+  return n
+}
+// Colourways (gabriel, 13 Oct): the blocks do not keep one set of colours; each post takes the next "format" as you scroll, so the feed stays fresh.
+// Every entry is a CSS background for one block (a palette token, a mix of two, a gradient); [bg, base] where `base` is the plain colour the ink is judged against.
+const TK = k => `var(--theme-${k})`
+const MX = (a, pa, b) => `color-mix(in srgb, ${TK(a)} ${pa}%, ${TK(b)})`
+const RAMP = t => `color-mix(in srgb, ${TK('dark1')} ${Math.round((1 - Math.min(1, Math.max(0, t))) * 100)}%, ${TK('light2')})`
+const GRAD = (a, b, deg = 135) => [`linear-gradient(${deg}deg, ${a}, ${b})`, a]
+const tri = t => { const x = ((t % 1) + 1) % 1; return x < 0.5 ? x * 2 : (1 - x) * 2 }
+const BLOCK_WAYS = [
+  { name: 'settled', f: () => ({ hero: TK('light2'), tracks: TK('showcase'), plays: TK('accent'), details: TK('light1'), post: TK('dark3'), dock: TK('dark1') }) },
+  { name: 'inverse', f: () => ({ hero: TK('showcase'), tracks: TK('light2'), plays: TK('dark3'), details: TK('accent'), post: TK('light1'), dock: TK('accent') }) },
+  { name: 'gradient', f: () => ({ hero: GRAD(TK('light2'), TK('light1')), tracks: GRAD(TK('showcase'), TK('dark1'), 160), plays: GRAD(TK('accent'), TK('showcase')), details: GRAD(TK('light1'), TK('light2'), 200), post: GRAD(TK('dark3'), TK('light1'), 120), dock: TK('dark1') }) },
+  { name: 'ramp', f: i => { const t = tri(i / 8) * 0.3; return { hero: RAMP(0.92 - t), tracks: RAMP(0.1 + t), plays: TK('accent'), details: RAMP(0.7 - t / 2), post: RAMP(0.42), dock: TK('dark1') } } },
+  { name: 'split', f: () => ({ hero: TK('accent'), tracks: TK('dark1'), plays: TK('showcase'), details: TK('light2'), post: MX('accent', 40, 'light1'), dock: TK('light2') }) },
+  { name: 'tint', f: () => ({ hero: MX('accent', 10, 'light2'), tracks: MX('accent', 85, 'dark1'), plays: TK('accent'), details: MX('accent', 22, 'light2'), post: MX('accent', 45, 'light1'), dock: MX('accent', 60, 'dark1') }) },
+  { name: 'duo', f: () => ({ hero: TK('light1'), tracks: TK('accent'), plays: TK('light2'), details: TK('showcase'), post: TK('dark1'), dock: TK('showcase') }) },
+]
+// gabriel's hand-coloured spectrum (services/blockSpectrum.js, made in palette-tool.html): 8 looks per palette, taken in order as the feed
+// scrolls; when a palette has one it replaces the colourways above. A spectrum saved by the palette tool in this browser ("Apply to my feed",
+// localStorage 'lnv-post-spectrum') is laid over the shipped one, palette by palette, so new looks can be tried without a rebuild.
+// Shape: { mode: 'wrap' | 'pingpong', pals: { Evening: [{ hero, tracks, plays, details, post } x8] } }
+let handRaw = null, handVal = BLOCK_SPECTRUM
+const handSpectrum = () => {
+  try {
+    const raw = localStorage.getItem('lnv-post-spectrum')
+    if (raw !== handRaw) {
+      handRaw = raw
+      const local = raw ? JSON.parse(raw) : null
+      handVal = local?.pals ? { mode: local.mode || BLOCK_SPECTRUM.mode, pals: { ...BLOCK_SPECTRUM.pals, ...local.pals } } : BLOCK_SPECTRUM
+    }
+  } catch { handVal = BLOCK_SPECTRUM }
+  return handVal
+}
+const handLook = idx => {
+  const sp = handSpectrum(), looks = sp?.pals?.[getActivePaletteName()]
+  if (!looks?.length) return null
+  const n = looks.length, i = Math.max(0, idx || 0)
+  const k = sp.mode === 'pingpong' && n > 1 ? (() => { const m = i % (2 * (n - 1)); return m < n ? m : 2 * (n - 1) - m })() : i % n
+  const l = looks[k] || looks[0]
+  // a look names palette colours ('accent', 'light2'...) so it follows the palette; plain hex still works
+  const col = v => (/^#/.test(v) ? v : `var(--theme-${v})`)
+  return Object.fromEntries(['hero', 'tracks', 'plays', 'details', 'post'].map(key => [key, [col(l[key]), col(l[key])]]))
+}
+const blockWay = idx => { const hand = handLook(idx); if (hand) return hand; const w = BLOCK_WAYS[((idx || 0) % BLOCK_WAYS.length + BLOCK_WAYS.length) % BLOCK_WAYS.length]; const m = w.f(idx || 0); return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Array.isArray(v) ? v : [v, v]])) }
+
+// One block: filled with a colour (or gradient) from the colourway, with light or dark ink set from `base`, so every --lv-* inside follows.
+function Blk({ bg, cut, className = '', style, children, ...rest }) {
+  const tick = useThemeTick()
+  const probe = useRef(null)
+  const [dark, setDark] = useState(false)
+  const [fill, base] = bg
+  useLayoutEffect(() => { if (probe.current) setDark(bgIsDark(probe.current)) }, [tick, base])
+  return (
+    <section className={`lnv-bk${cut ? ` lnv-cut-${cut}` : ''} ${className}`} style={{ position: 'relative', overflow: 'hidden', background: fill, ...(dark ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', transition: 'background .8s', ...style }} {...rest}>
+      <i ref={probe} aria-hidden="true" style={{ position: 'absolute', width: 0, height: 0, background: base }} />
+      {children}
+    </section>
+  )
+}
+
+// A wedge of the playlist wheel, between radii r0 and r1 and angles a0..a1 (SVG path).
+function wedgePath(cx, cy, r0, r1, a0, a1) {
+  const P = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+  const [x0, y0] = P(r1, a0), [x1, y1] = P(r1, a1), [x2, y2] = P(r0, a1), [x3, y3] = P(r0, a0)
+  const L = a1 - a0 > Math.PI ? 1 : 0
+  const f = v => v.toFixed(1)
+  return `M${f(x0)} ${f(y0)}A${r1} ${r1} 0 ${L} 1 ${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}A${r0} ${r0} 0 ${L} 0 ${f(x3)} ${f(y3)}Z`
+}
+// Your playlists as petals: the dark outer petal is the room, the lighter inner one grows with the number of tracks in it, and it lights up
+// (accent) when this release is already in it. `mini` is the little wheel in Details (no names); `onPick(i)` is the big one's click.
+function PlaylistWheel({ lists, inIds, size, mini, onPick, pulse, withNew }) {
+  const items = withNew ? [...lists, { id: 'new', name: 'New playlist', track_count: 0, isNew: true }] : lists
+  const n = Math.max(items.length, 2)
+  const cx = size / 2, cy = size / 2, R = size / 2 - (mini ? 3 : 18), r0 = size * (mini ? 0.16 : 0.1), th = (2 * Math.PI) / n
+  const mx = Math.max(1, ...lists.map(p => p.track_count || 0)), sw = mini ? 2 : 12
+  const memberInk = '#fff', plainInk = inkOnHex(themeHex('--theme-light2'))
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}>
+      {items.map((p, i) => {
+        const a0 = -Math.PI / 2 - th / 2 + i * th + 0.04, a1 = a0 + th - 0.08, am = (a0 + a1) / 2, inn = inIds.has(p.id)
+        const fr = 0.4 + 0.6 * ((p.track_count || 0) / mx), ri = r0 + (R - r0) * fr
+        const outer = wedgePath(cx, cy, r0 + sw / 2, R - sw / 2, a0 + sw / 2 / R, a1 - sw / 2 / R)
+        const inner = wedgePath(cx, cy, r0 + sw / 2 + 2 + sw / 2, ri - sw / 2 - 4, a0 + (sw + 14) / 2 / ri, a1 - (sw + 14) / 2 / ri)
+        const lr = (r0 + ri) / 2 + 2, tx = cx + lr * Math.cos(am), ty = cy + lr * Math.sin(am)
+        const fillIn = inn ? 'var(--theme-accent)' : 'var(--theme-light2)'
+        const ink = inn ? memberInk : plainInk
+        if (mini) return <g key={p.id}><path d={outer} stroke="color-mix(in srgb, var(--theme-dark1) 55%, #000)" strokeWidth={sw} strokeLinejoin="round" fill="color-mix(in srgb, var(--theme-dark1) 55%, #000)" /><path d={inner} stroke={fillIn} strokeWidth={sw} strokeLinejoin="round" fill={fillIn} /></g>
+        return (
+          <g key={p.id} className={`lnv-pt${pulse === p.id ? ' pulse' : ''}`} style={{ '--i': i }} onClick={() => onPick(p)} role="button" aria-label={p.isNew ? 'New playlist' : `${inn ? 'Open' : 'Add to'} ${p.name}`}>
+            <path className="o" d={outer} stroke="color-mix(in srgb, var(--theme-dark1) 55%, #000)" strokeWidth={sw} strokeLinejoin="round" fill="color-mix(in srgb, var(--theme-dark1) 55%, #000)" />
+            <path className="n" d={inner} stroke={p.isNew ? 'none' : fillIn} strokeWidth={sw} strokeLinejoin="round" fill={p.isNew ? 'none' : fillIn} strokeDasharray={p.isNew ? '6 6' : undefined} />
+            {p.isNew
+              ? <text x={tx} y={ty + 8} textAnchor="middle" fontSize="28" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: '#fff', pointerEvents: 'none' }}>＋</text>
+              : <>
+                <text x={tx} y={ty - 4} textAnchor="middle" fontSize="22" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{inn ? '✓ ' : ''}{p.track_count || 0}</text>
+                <text x={tx} y={ty + 14} textAnchor="middle" fontSize="12.5" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{p.name.length > 14 ? `${p.name.slice(0, 13)}…` : p.name}</text>
+              </>}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+// The wheel as a pop-out: a scrim, the wheel springing open, and a caption pill. Tap a slice to add this release; a lit slice opens that playlist.
+function PlaylistWheelPop({ post, added, setAdded, onClose }) {
+  const { playlists } = usePlaylists()
+  const qc = useQueryClient()
+  const signedIn = isLoggedIn()
+  const lists = playlists.filter(p => p.role && p.release_count == null)
+  const inIds = new Set([...(post.playlists || []).map(p => p.id), ...added])
+  const [note, setNote] = useState('')
+  const [pulse, setPulse] = useState(null)
+  useEffect(() => {
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [onClose])
+  const tracks = playableTracks(post).filter(t => t.url && t.title)
+  async function pick(p) {
+    if (p.isNew) {
+      const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno, Sunday mornings', ok: 'Create', maxLength: 60 })
+      if (!name || !name.trim()) return
+      try { const created = await playlistsApi.create(name); await addTo(created) } catch (err) { setNote(err.message) }
+      return
+    }
+    if (inIds.has(p.id)) { onClose(); openPlaylistFeed({ id: p.id, name: p.name }); return }
+    await addTo(p)
+  }
+  async function addTo(p) {
+    if (!tracks.length) return setNote('Nothing playable to add yet.')
+    try {
+      const r = await playlistsApi.addTracks(p.id, tracks)
+      setAdded(prev => new Set([...prev, p.id])); setPulse(p.id); setTimeout(() => setPulse(null), 600)
+      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`)
+      qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['playlist', p.id] })
+    } catch (err) { setNote(err.message) }
+  }
+  const S = 520, w = Math.min(S, window.innerWidth - 32, window.innerHeight - 130)
+  return createPortal(
+    <div onMouseDown={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'color-mix(in srgb, var(--theme-dark1) 62%, transparent)', display: 'grid', placeItems: 'center', animation: 'lnvFade .25s' }}>
+      <style>{BLOCK_CSS}</style>
+      <div onMouseDown={e => e.stopPropagation()} style={{ width: w, textAlign: 'center', filter: 'drop-shadow(0 20px 30px rgba(0,0,0,0.35))' }}>
+        {!signedIn
+          ? <div style={{ ...INK_DARK_BG, color: '#fff', padding: 30, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 18, letterSpacing: '0.05em', textTransform: 'uppercase' }}><a href="/login" style={{ color: 'var(--theme-light2)' }}>Sign in</a> to make playlists</div>
+          : <PlaylistWheel lists={lists} inIds={inIds} size={S} onPick={pick} pulse={pulse} withNew />}
+        <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 10, background: 'var(--theme-light2)', color: inkOnHex(themeHex('--theme-light2')), padding: '8px 8px 8px 18px', borderRadius: 999, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.05em', textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.25)' }}>
+          <span>{note || (lists.length ? 'Tap a slice to add this release' : 'No playlists yet — make one')}</span>
+          <button onClick={onClose} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>✕</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+// The little wheel in Details: this release's playlists at a glance; click opens the big one.
+function PlaylistMiniWheel({ post, added, onOpen }) {
+  const { playlists } = usePlaylists()
+  const lists = playlists.filter(p => p.role && p.release_count == null)
+  const inIds = new Set([...(post.playlists || []).map(p => p.id), ...added])
+  if (!lists.length && !(post.playlists || []).length) return <button onClick={onOpen} className="lnv-wheel" title="Add to a playlist" style={{ width: 96, height: 96, borderRadius: '50%', border: '2px dashed currentColor', background: 'none', color: 'inherit', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 28, cursor: 'pointer', opacity: 0.7 }}>＋</button>
+  const shown = lists.length ? lists : (post.playlists || []).map(p => ({ ...p, track_count: p.track_count || 1 }))
+  return (
+    <button onClick={onOpen} className="lnv-wheel" title="Your playlists: open the wheel" aria-label="Open the playlist wheel" style={{ position: 'relative', width: 112, height: 112, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}>
+      <PlaylistWheel lists={shown} inIds={inIds} size={112} mini />
+      <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, color: 'var(--lv-pri)' }}>{inIds.size}</span>
+    </button>
+  )
+}
+
+function ShelfCard({ post, cardBg, d, onEdit, idx = 0 }) {
+  useThemeTick() // the blocks' hand-coloured spectrum is per palette: look again when the palette changes
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
   const [activeUrl, setActiveUrl] = useState(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
+  const [pieOpen, setPieOpen] = useState(false) // blocks card: the playlist wheel
+  const [addedPl, setAddedPl] = useState(() => new Set()) // playlists this release was added to just now
+  const [wash, setWash] = useState(null) // blocks card: the source colour flooding Plays from
   const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
   const notesReply = chatId === post.id
   const setNotesReply = (v, at) => setChatPost((typeof v === 'function' ? v(notesReply) : v) ? post.id : null, at)
@@ -2391,6 +2618,220 @@ function ShelfCard({ post, cardBg, d, onEdit }) {
           </button>
         </div>
         {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+      </div>
+    )
+  }
+
+  if (BLOCKS_CARDS) {
+    const runtime = noteRuntime(tracks)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const dotsOf = t => { const s = new Set((t.sources || []).map(x => x.platform)); const own = platformOf(t.stream_url || t.youtube_url); if (own) s.add(own); return [...s] }
+    const W = blockWay(idx) // this post's colourway
+    const cov = 230
+    const replySizeBlocks = Math.round(d.artSize * 0.75)
+    const lab = { fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase', margin: '0 0 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexShrink: 0 }
+    const labSmall = { fontFamily: BLOCK_CP, fontWeight: 600, fontSize: 10.5, letterSpacing: '0.06em', opacity: 0.7 }
+    const dtStyle = { fontFamily: d.monoFf, fontWeight: 600, fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }
+    const ddStyle = { margin: '2px 0 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 14 }
+    const pillBtn = { fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, padding: '6px 12px', borderRadius: 99, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'none', whiteSpace: 'nowrap' }
+    const colFill = { display: 'flex', flexDirection: 'column', minHeight: 0 } // a block whose body can scroll, only if it has to
+    const scrollBody = { flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }
+    const ripple = e => {
+      const blk = e.currentTarget.closest('section'); if (!blk) return
+      const r = blk.getBoundingClientRect(), el = document.createElement('i')
+      el.className = 'lnv-rip'; el.style.left = `${e.clientX - r.left}px`; el.style.top = `${e.clientY - r.top}px`
+      blk.prepend(el); setTimeout(() => el.remove(), 900)
+    }
+    const washInk = wash ? (inkOnHex(shelfColor(wash.p)) === '#fff' ? INK_DARK_BG : INK_LIGHT_BG) : null
+    const sourceClick = (e, p) => {
+      const r = e.currentTarget.closest('section').getBoundingClientRect()
+      setWash(w => (w && w.p === p ? null : { p, x: e.clientX - r.left, y: e.clientY - r.top }))
+      playFrom(p)
+    }
+    const latest = (post.latestComments || []).slice(-2)
+    const star = (t, h, mine) => (
+      <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} className={mine ? undefined : 'lnv-off'} aria-pressed={mine}
+        aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+        title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+        style={{ width: 26, height: 26, border: 'none', background: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 14, color: mine ? 'var(--theme-accent)' : 'inherit' }}>{mine || h.n ? '★' : '☆'}</button>
+    )
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-bg)', padding: `${NOTES_PAD_TOP}px 20px ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+        <style>{BLOCK_CSS}</style>
+        {/* the release: cover (the player takes its place), the header exactly as the card has had it, the post number in its circle */}
+        <Blk bg={W.hero} cut="br" style={{ flex: '0 0 auto', padding: '18px 24px 24px', display: 'grid', gridTemplateColumns: `${cov}px minmax(0, 1fr)`, gap: 24, alignItems: 'center' }}>
+          <div style={{ position: 'relative', width: cov, height: cov, borderRadius: 18, overflow: 'hidden', background: playingSrc ? '#000' : 'var(--theme-dark3)' }}>
+            {playingSrc ? (
+              <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+            ) : (
+              <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              </div>
+            )}
+          </div>
+          <div ref={hdrR} style={{ minWidth: 0, paddingRight: 56 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+              <span style={{ ...badge, background: 'var(--theme-accent)', color: '#fff', borderRadius: 99 }}>{kind}</span>
+              {locations.map(({ p, n }) => (
+                <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`} style={{ ...badge, ...mutedPill(p, 30), borderRadius: 99, cursor: 'pointer' }}>
+                  {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+                </button>
+              ))}
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, borderRadius: 99, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, borderRadius: 99, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            </div>
+            <div style={{ fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+            </div>
+            <div style={{ fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+            <div style={{ fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+              {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+              {label && (catNo || post.year) ? ' · ' : ''}
+              {[catNo, post.year].filter(Boolean).join(' · ')}
+            </div>
+            {post.genres?.length > 0 && (
+              <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12 }}>
+                {post.genres.map(g => (
+                  <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                    style={{ fontSize: d.pillSize, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: 99, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                ))}
+                <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: 99, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}>
+              <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.04em', padding: '8px 16px', borderRadius: 999, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer' }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
+            </div>
+          </div>
+          <span aria-label={`Post ${num}`} style={{ position: 'absolute', right: 26, bottom: 32, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 600, fontSize: num.length > 3 ? 13 : 16, background: 'var(--lv-pri)', color: W.hero[1] }}>{num}</span>
+        </Blk>
+
+        <div style={{ flex: '1 1 0', minHeight: 250, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
+          {/* tracks: fills its space; only the list scrolls, and only if it has to */}
+          <Blk bg={W.tracks} cut="bl" className="lnv-still" style={{ ...colFill, padding: '18px 22px 30px' }}>
+            <h4 style={lab}><span>Tracks</span><span style={labSmall}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span></h4>
+            <div data-inner-scroll="" style={scrollBody}>
+              <div style={{ display: 'grid', gap: 3 }}>
+                {tracks.map((t, i) => {
+                  const u = urlOf(t), on = !!activeUrl && u === activeUrl, h = hlOf(t), mine = !!me && h.by.includes(me), v = shelfTrack(t, comp)
+                  return (
+                    <div key={t.id || i}>
+                      <div className={`lnv-tr${on ? ' on' : ''}`} onClick={e => { if (u) { setActiveUrl(on ? null : u); ripple(e) } }} title={u ? undefined : 'No link for this track yet'}
+                        style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto auto 26px', gap: 8, alignItems: 'center', padding: on ? '9px 12px' : '6px 10px', borderRadius: 99, cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.55,
+                          background: on ? 'var(--theme-accent)' : mine ? 'color-mix(in srgb, var(--theme-accent) 35%, transparent)' : 'color-mix(in srgb, currentColor 8%, transparent)', color: on ? '#fff' : 'inherit' }}>
+                        <b style={{ fontFamily: d.monoFf, fontWeight: 600, fontSize: 10, opacity: 0.7 }}>{on ? <span className="lnv-eq"><i /><i /><i /></span> : (t.position || i + 1)}</b>
+                        <span style={{ fontFamily: BLOCK_CP, fontWeight: 500, fontSize: 13, lineHeight: 1.2, minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {v.title}
+                          {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ opacity: 0.8 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+                        </span>
+                        <em style={{ fontFamily: d.monoFf, fontSize: 11, fontStyle: 'normal', opacity: 0.7 }}>{t.duration || ''}</em>
+                        <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), outline: '1.5px solid color-mix(in srgb, currentColor 40%, transparent)' }} />)}</span>
+                        <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: 15, color: 'inherit' }} /> : null}</span>
+                        {star(t, h, mine)}
+                      </div>
+                      {on && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </Blk>
+          <div style={{ display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gap: 8, minHeight: 0 }}>
+            {/* plays from: a click on a source floods the block with that source's colour */}
+            <Blk bg={W.plays} cut="tr" style={{ padding: '18px 22px 20px' }}>
+              {wash && <div aria-hidden="true" key={wash.p} style={{ position: 'absolute', inset: 0, background: shelfColor(wash.p), animation: 'lnvWash .7s cubic-bezier(.3,.8,.2,1) forwards', '--wx': `${wash.x}px`, '--wy': `${wash.y}px` }} />}
+              <style>{'@keyframes lnvWash{from{clip-path:circle(0 at var(--wx) var(--wy))}to{clip-path:circle(160% at var(--wx) var(--wy))}}'}</style>
+              <div style={{ position: 'relative', ...(washInk || {}), color: 'var(--lv-pri)' }}>
+                <h4 style={lab}><span>Plays from</span><span style={labSmall}>{locations.length} source{locations.length === 1 ? '' : 's'}</span></h4>
+                {locations.map(({ p, n }) => {
+                  const on = nowP === p
+                  return (
+                    <button key={p} className="lnv-pr" onClick={e => sourceClick(e, p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
+                      style={{ width: 'calc(100% + 12px)', margin: '0 0 4px -6px', display: 'grid', gridTemplateColumns: '100px minmax(0, 1fr) 36px', gap: 10, alignItems: 'center', padding: '3px 6px', border: 'none', borderRadius: 99, cursor: 'pointer', textAlign: 'left', color: 'inherit', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, background: on ? 'color-mix(in srgb, currentColor 14%, transparent)' : 'none' }}>
+                      <span>{on ? '▶ ' : ''}{SOURCE_NAME[p] || p}</span>
+                      <span className="lnv-bar" style={{ height: 9, borderRadius: 99, background: 'color-mix(in srgb, currentColor 18%, transparent)', overflow: 'hidden', '--w': `${tracks.length ? Math.max(6, (n / tracks.length) * 100) : 100}%` }}><i /></span>
+                      <em style={{ fontFamily: d.monoFf, fontSize: 11, fontStyle: 'normal', textAlign: 'right', opacity: 0.85 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
+                    </button>
+                  )
+                })}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                  <a href={discogsHref} target="_blank" rel="noopener noreferrer" style={pillBtn}>Discogs ↗</a>
+                  <a href={buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`} target="_blank" rel="noopener noreferrer" style={pillBtn}>Buy ↗</a>
+                </div>
+              </div>
+            </Blk>
+            {/* details + the playlist wheel */}
+            <Blk bg={W.details} style={{ ...colFill, padding: '18px 22px 18px' }}>
+              <h4 style={lab}><span>Details</span><span style={labSmall}>{catNo}</span></h4>
+              <div data-inner-scroll="" style={scrollBody}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center' }}>
+                  <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
+                    {label && <div><dt style={dtStyle}>Label</dt><dd style={ddStyle}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
+                    {post.year && <div><dt style={dtStyle}>Year</dt><dd style={ddStyle}>{post.year}</dd></div>}
+                    <div><dt style={dtStyle}>Kept by</dt><dd style={ddStyle}><button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{keptBy.length}</button></dd></div>
+                    <div><dt style={dtStyle}>In playlists</dt><dd style={ddStyle}>{(post.playlists || []).length}</dd></div>
+                  </dl>
+                  <PlaylistMiniWheel post={post} added={addedPl} onOpen={() => setPieOpen(true)} />
+                </div>
+                {(post.playlists || []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 10 }}>
+                    {post.playlists.slice(0, 4).map(pl => <button key={pl.id} onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`${pl.name} · by ${pl.owner}`} style={{ ...pillBtn, fontWeight: 500, fontSize: 11.5 }}>♫ {pl.name}</button>)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                  {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
+                    on ? <span key={k} style={{ ...pillBtn, cursor: 'default', opacity: 0.8 }}>✓ {yes}</span>
+                      : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={pillBtn}>+ {add} ↗</a> : null
+                  ))}
+                  <FollowedTag post={post} />
+                </div>
+                {contributors.length > 0 && (
+                  <div style={{ marginTop: 10, fontFamily: d.bodyFf, fontSize: 13, lineHeight: 1.5 }}>
+                    <span style={dtStyle}>Artists </span>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ opacity: 0.6 }}> +{contributors.length - 9} more</span>}
+                  </div>
+                )}
+              </div>
+            </Blk>
+          </div>
+        </div>
+
+        {/* the post: its text scrolls inside the block if it is long; the foot (who, when, edit) stays put */}
+        <Blk bg={W.post} cut="tl" style={{ ...colFill, flex: '0 1 auto', minHeight: 120, maxHeight: '34%', padding: '16px 24px 18px' }}>
+          <h4 style={{ ...lab, marginBottom: 8 }}><span>The post</span><span style={labSmall}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></h4>
+          <div data-inner-scroll="" style={{ ...scrollBody, flex: '0 1 auto' }}>
+            {quoteText && <p style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 20, lineHeight: 1.22, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
+            {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+            {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+            {latest.length > 0 && (
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                {latest.map((c, i) => (
+                  <button key={c.id} onClick={e => setNotesReply(true, { x: e.clientX, y: e.clientY })} className="lnv-rc" title="Open the replies"
+                    style={{ textAlign: 'left', border: 'none', cursor: 'pointer', padding: '8px 14px', borderRadius: 18, fontFamily: d.bodyFf, fontSize: 13, lineHeight: 1.3, background: 'color-mix(in srgb, currentColor 12%, transparent)', color: 'inherit', transform: `rotate(${i ? 1 : -0.8}deg)` }}>
+                    <b style={{ fontFamily: BLOCK_CP, fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: 8 }}>{c.username}</b>{c.content}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, fontFamily: d.monoFf, fontSize: 12 }}>
+            {posterName && <UserChip name={posterName} d={d} />}
+            <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12, color: 'var(--lv-ter)' }} />
+            {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, { x: e.clientX, y: e.clientY }); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+            <button className="lnv-pb" onClick={e => setNotesReply(v => !v, { x: e.clientX, y: e.clientY })} aria-expanded={notesReply}
+              style={{ marginLeft: 'auto', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 13, letterSpacing: '0.04em', border: 'none', borderRadius: 999, padding: '10px 18px', background: 'var(--lv-pri)', color: W.post[1], cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              ↩ Reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 500, fontSize: 11 }}>{commentCount}</span>}
+            </button>
+            <span title={stampOf(post.created_at)} style={{ color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+            {canModify && <>
+              <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+              <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+            </>}
+          </div>
+        </Blk>
+
+        {notesReply && createPortal(<NoteReplies fun post={post} posterName={posterName} size={Math.max(replySizeBlocks, 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+        {pieOpen && <PlaylistWheelPop post={post} added={addedPl} setAdded={setAddedPl} onClose={() => setPieOpen(false)} />}
       </div>
     )
   }
@@ -5053,25 +5494,27 @@ export default function Feed() {
           // far right end of the row, under the bottom-right buttons.
           if (posts.length) nodes.push(composeAnchor)
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
+          let postIdx = -1 // posts only (no spotlights or live sets): the blocks card walks its colour spectrum by this
           withIntros(shelfItems.current, intros).forEach(item => {
             if (item.kind === 'intro') {
               nodes.push(<FloatSlot key={item.key}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
               return
             }
             idx++
+            if (item.kind !== 'spotlight' && !isLiveSetPost(item.post)) postIdx++
             const cardBg = getCardBg(idx, item)
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : SHELF_CARDS
-                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
+                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} idx={postIdx} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
                     d={item.mirror ? { ...designFor(idx, false), mediaSide: 'left', plateAlign: 'left' } : designFor(idx, detectType(item.post) === 'livemix')} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
-            nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
+            nodes.push(<FloatSlot key={item.key} bare={BLOCKS_CARDS && SHELF_CARDS && item.kind !== 'spotlight' && !isLiveSetPost(item.post)}>{card}</FloatSlot>)
           })
           // Empty feed: the row after the clock panel is only the profile/welcome card slot + the empty panel
           // (about 1,628px), shorter than a wide screen, so the scroll ran out with the clock still half in view.
