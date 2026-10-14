@@ -2641,7 +2641,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const activeIdx = activeUrl ? tracks.findIndex(t => urlOf(t) === activeUrl) : -1
     const ML = moduleLook(idx) // this post's place on the spectrum: one solid colour, plus two accent colours from the same palette
     const BASE = solid(ML.base), A1 = solid(ML.a1), A2 = solid(ML.a2), DARK = solid(ML.cover)
-    const srcBox = curP ? solid(shelfColor(curP)) : BASE
+    const srcBox = shownP ? solid(shelfColor(shownP)) : BASE // the Listen on box always wears the colour of the platform it would play from (or is playing from)
     const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
