@@ -2634,11 +2634,14 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const runtime = noteRuntime(tracks)
     const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
     const nowP = srcPref || platformOf(activeUrl || firstUrl)
-    const dotsOf = t => { const s = new Set((t.sources || []).map(x => x.platform)); const own = platformOf(t.stream_url || t.youtube_url); if (own) s.add(own); return [...s] }
     const playing = !!playingSrc
+    const curP = playing ? platformOf(activeUrl) : null // the platform that is playing right now: the Listen on box takes its colour
+    const shownP = curP || (locations.some(l => l.p === nowP) ? nowP : locations[0]?.p)
+    const shownN = locations.find(l => l.p === shownP)?.n
     const activeIdx = activeUrl ? tracks.findIndex(t => urlOf(t) === activeUrl) : -1
     const ML = moduleLook(idx) // this post's place on the spectrum: one solid colour, plus two accent colours from the same palette
     const BASE = solid(ML.base), A1 = solid(ML.a1), A2 = solid(ML.a2), DARK = solid(ML.cover)
+    const srcBox = curP ? solid(shelfColor(curP)) : BASE
     const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
@@ -2661,13 +2664,12 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) auto 22px 24px' : '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
             <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
               {v.title}
               {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
             </span>
-            <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), display: 'inline-block' }} />)}</span>
             {!ph && <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>}
             <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
             <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
@@ -2793,22 +2795,19 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
             </div>
           </Blk>
-          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: '14px 12px 10px 14px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
-            <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', fontSize: 9.5, opacity: 0.6, marginBottom: 6, paddingRight: 4 }}><span>listen on</span><span>{locations.length}</span></div>
-            <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
-              {locations.length === 0 && <div style={{ fontFamily: d.bodyFf, fontSize: 12.5, opacity: 0.6 }}>No links yet.</div>}
-              {locations.map(({ p, n }) => {
-                const on = nowP === p
-                return (
-                  <div key={p} className="mod-sr" onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
-                    style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr) auto', gap: 7, alignItems: 'center', padding: '5px 8px', margin: '0 -8px', borderRadius: 10, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12.5, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--blk-bg)' : undefined }}>
-                    <i style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p) }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(SOURCE_NAME[p] || p).split(' ')[0]}</span>
-                    <em style={{ ...mono, fontStyle: 'normal', fontSize: 9.5, opacity: 0.7 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
-                  </div>
-                )
-              })}
-            </div>
+          <Blk bg={srcBox} className="lnv-still" style={{ borderRadius: R, padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
+            <div style={{ ...mono, fontSize: 9.5, opacity: 0.7 }}>{curP ? 'playing on' : 'listen on'}</div>
+            {locations.length === 0 ? <div style={{ marginTop: 10, fontFamily: d.bodyFf, fontSize: 13, opacity: 0.65 }}>No links yet.</div> : <>
+              <button onClick={() => { const k = locations.findIndex(l => l.p === shownP); playFrom(locations[(k + 1) % locations.length].p) }} title={locations.length > 1 ? 'Tap to play from the next source' : `Play from ${SOURCE_NAME[shownP] || shownP}`}
+                style={{ marginTop: 10, padding: 0, border: 'none', background: 'none', color: 'inherit', textAlign: 'left', cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 24, lineHeight: 1, letterSpacing: '-0.03em', overflowWrap: 'anywhere' }}>{SOURCE_NAME[shownP] || shownP}</button>
+              <div style={{ ...mono, fontSize: 9.5, opacity: 0.7, marginTop: 5 }}>{shownN != null && tracks.length > 1 ? `${shownN} of ${tracks.length} tracks` : ''}</div>
+              <div style={{ marginTop: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {locations.map(({ p }) => (
+                  <button key={p} onClick={() => playFrom(p)} aria-label={`Play from ${SOURCE_NAME[p] || p}`} title={`Play from ${SOURCE_NAME[p] || p}`}
+                    style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid currentColor', background: p === shownP ? 'currentColor' : 'transparent', padding: 0, cursor: 'pointer', opacity: p === shownP ? 1 : 0.6 }} />
+                ))}
+              </div>
+            </>}
           </Blk>
         </div>
 
