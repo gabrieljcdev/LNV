@@ -2645,8 +2645,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
-    const nm = (artist || post.title || '').length
-    const wordSize = ph ? (nm <= 10 ? 38 : nm <= 16 ? 30 : nm <= 26 ? 25 : 21) : (nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24)
+    const wordSize = ph ? 28 : 36 // one size for every artist name (long ones run to two lines and are cut with an ellipsis)
     const numSz = ph ? (num.length <= 2 ? 44 : num.length === 3 ? 36 : num.length === 4 ? 30 : 24) : (num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28)
     const R = ph ? 30 : 40 // the corner curve (the strip's 40 on a desktop)
     const nPl = (post.playlists || []).length
@@ -2689,7 +2688,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
 
         {/* top left: the artist wordmark, with the release title under it */}
         <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'word', borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
-          <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+          <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, paddingBottom: 4, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
             {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
           </h2>
           <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
