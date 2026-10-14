@@ -62,8 +62,6 @@ export const MODULE_CSS = `
 .mod-hatch{position:relative;border:1.5px solid color-mix(in srgb,var(--lv-pri) 55%,transparent);border-radius:12px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lv-pri) 78%,transparent) 0 2px,transparent 2px 8px);overflow:hidden}
 .mod-hatch.on::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--lv-pri) 38%,transparent),transparent);animation:modSweep 1.6s ease-in-out infinite}
 @keyframes modSweep{from{transform:translateY(-100%)}to{transform:translateY(100%)}}
-.mod-cplay{position:absolute;left:16px;bottom:16px;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.92);color:#111;display:grid;place-items:center;font-size:18px;padding-left:3px;box-shadow:0 10px 22px -6px rgba(0,0,0,.5);transition:transform .25s cubic-bezier(.2,.9,.3,1.4)}
-.mod-cplay:hover{transform:scale(1.1)}
 .mod-tr{transition:background .2s,padding .25s}.mod-tr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent);padding-left:8px}
 .mod-sr{transition:background .2s}.mod-sr:hover{background:color-mix(in srgb,var(--lv-pri) 9%,transparent)}
 `

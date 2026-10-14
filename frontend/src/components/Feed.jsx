@@ -2698,14 +2698,13 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
         </Blk>
 
-        {/* top right: the post number, and a play / stop button (click the box to play or stop) */}
-        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
+        {/* the post number */}
+        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0 }}>
           <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: numOnly ? 0 : 96, lineHeight: 1.2 }}>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
             <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
             {!numOnly && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>}
           </div>
-          {!numOnly && <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>}
         </Blk>
         </div>
 
@@ -2741,9 +2740,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           {playingSrc ? (
             <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
           ) : (
-            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} title={firstUrl ? 'Play' : undefined} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
               {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-              {firstUrl && <span className="mod-cplay" aria-hidden="true">▶</span>}
             </div>
           )}
         </Blk>
