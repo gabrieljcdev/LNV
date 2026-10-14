@@ -58,11 +58,6 @@ export const solid = c => [c, c] // <Blk bg>: [fill, base]
 export const MODULE_CSS = `
 .lnv-mod .lnv-bk{border-radius:40px;box-shadow:0 16px 30px -18px rgba(0,0,0,.45),0 2px 6px -2px rgba(0,0,0,.18);outline:1px solid color-mix(in srgb,var(--lv-pri) 14%,transparent);outline-offset:-1px}
 .lnv-mod .lnv-bk:hover{transform:none!important;box-shadow:0 16px 30px -18px rgba(0,0,0,.45),0 2px 6px -2px rgba(0,0,0,.18)!important}
-.mod-metal{background:linear-gradient(180deg,#fbfcfb,#edf0ee);color:#1b1b1b;cursor:pointer}
-.mod-disc{position:absolute;right:-50px;top:50%;width:230px;height:230px;margin-top:-115px;border-radius:50%;background:conic-gradient(from 0deg,#f2f2f2,#9d9d9d 12%,#fafafa 25%,#8a8a8a 37%,#f2f2f2 50%,#a3a3a3 62%,#fafafa 75%,#8f8f8f 87%,#f2f2f2);animation:modSpin 6s linear infinite paused}
-.mod-disc::after{content:'';position:absolute;inset:0;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 5px,rgba(0,0,0,.04) 5px 6px)}
-.mod-metal.on .mod-disc,.mod-disc.spin{animation-play-state:running}
-@keyframes modSpin{to{transform:rotate(360deg)}}
 .mod-hatch{position:relative;border:1.5px solid color-mix(in srgb,var(--lv-pri) 55%,transparent);border-radius:12px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lv-pri) 78%,transparent) 0 2px,transparent 2px 8px);overflow:hidden}
 .mod-hatch.on::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--lv-pri) 38%,transparent),transparent);animation:modSweep 1.6s ease-in-out infinite}
 @keyframes modSweep{from{transform:translateY(-100%)}to{transform:translateY(100%)}}
