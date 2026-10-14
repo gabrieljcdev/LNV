@@ -2701,8 +2701,9 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     }
     return (
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
-        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(0, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: `${NOTES_PAD_TOP}px 0 ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box' /* under the search bar, above the compose button (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
+        <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(0, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
 
         {/* top left: the post number, then the artist wordmark with the release title under it */}
         <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '0 26px 0 0', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center' }}>
@@ -2835,6 +2836,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
             {tracks.map((t, i) => mrow(t, i))}
           </div>
         </Blk>
+        </div>
 
         {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
         {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
