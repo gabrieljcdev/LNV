@@ -2645,6 +2645,9 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
+    const nm = (artist || post.title || '').length
+    const longName = !ph && nm > 20 // a long name takes the room: the number box shrinks to just the number (gabriel, 14 Oct)
+    const numOnly = ph || longName
     const wordSize = ph ? 28 : 36 // one size for every artist name (long ones run to two lines and are cut with an ellipsis)
     const numSz = ph ? (num.length <= 2 ? 44 : num.length === 3 ? 36 : num.length === 4 ? 30 : 24) : (num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28)
     const R = ph ? 30 : 40 // the corner curve (the strip's 40 on a desktop)
@@ -2684,10 +2687,11 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
         style={ph ? { position: 'relative', width: '100%', padding: '0 0 16px', boxSizing: 'border-box' } : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' /* the full page height: the search and the compose button moved to the strip (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr) 108px', gridTemplateAreas: '"word disc" "cover cover" "det det" "src src" "post post" "stats stats" "trk trk"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }) }}>
+        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateAreas: '"top" "cover" "det" "src" "post" "stats" "trk"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"top top top" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }) }}>
 
-        {/* top left: the artist wordmark, with the release title under it */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'word', borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+        {/* the top row: the artist name takes what the post number does not need */}
+        <div style={{ gridArea: 'top', display: 'grid', gap: 8, minHeight: 0, gridTemplateColumns: numOnly ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr) max(240px, calc(100% - 546px))' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, paddingBottom: 4, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
             {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
           </h2>
@@ -2695,14 +2699,15 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* top right: the post number, and a play / stop button (click the box to play or stop) */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'disc', borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: ph ? '12px 14px' : '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
-          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: ph ? 0 : 96, lineHeight: 1.2 }}>
+        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
+          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: numOnly ? 0 : 96, lineHeight: 1.2 }}>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
             <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
-            {!ph && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>}
+            {!numOnly && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>}
           </div>
-          {!ph && <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>}
+          {!numOnly && <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>}
         </Blk>
+        </div>
 
         {/* left of the media: the details, with the add-to buttons */}
         <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: R, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
