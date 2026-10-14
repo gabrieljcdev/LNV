@@ -57,6 +57,7 @@ export const solid = c => [c, c] // <Blk bg>: [fill, base]
 
 export const MODULE_CSS = `
 .lnv-mod .lnv-bk{border-radius:40px;box-shadow:0 16px 30px -18px rgba(0,0,0,.45),0 2px 6px -2px rgba(0,0,0,.18);outline:1px solid color-mix(in srgb,var(--lv-pri) 14%,transparent);outline-offset:-1px}
+.lnv-modp .lnv-bk{border-radius:30px}
 .lnv-mod .lnv-bk:hover{transform:none!important;box-shadow:0 16px 30px -18px rgba(0,0,0,.45),0 2px 6px -2px rgba(0,0,0,.18)!important}
 .mod-hatch{position:relative;border:1.5px solid color-mix(in srgb,var(--lv-pri) 55%,transparent);border-radius:12px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lv-pri) 78%,transparent) 0 2px,transparent 2px 8px);overflow:hidden}
 .mod-hatch.on::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--lv-pri) 38%,transparent),transparent);animation:modSweep 1.6s ease-in-out infinite}

@@ -2629,7 +2629,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     )
   }
 
-  if (MODULE_CARDS && !phone) {
+  if (MODULE_CARDS) {
+    const ph = phone // on a phone the same boxes stack down the slide
     const runtime = noteRuntime(tracks)
     const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
     const nowP = srcPref || platformOf(activeUrl || firstUrl)
@@ -2642,8 +2643,9 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
     const nm = (artist || post.title || '').length
-    const wordSize = nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24
-    const numSz = num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28
+    const wordSize = ph ? (nm <= 10 ? 38 : nm <= 16 ? 30 : nm <= 26 ? 25 : 21) : (nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24)
+    const numSz = ph ? (num.length <= 2 ? 44 : num.length === 3 ? 36 : num.length === 4 ? 30 : 24) : (num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28)
+    const R = ph ? 30 : 40 // the corner curve (the strip's 40 on a desktop)
     const nPl = (post.playlists || []).length
     const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
     const at = e => ({ x: e.clientX, y: e.clientY })
@@ -2659,14 +2661,14 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) auto 22px 24px' : '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
             <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
               {v.title}
               {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
             </span>
             <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), display: 'inline-block' }} />)}</span>
-            <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>
+            {!ph && <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>}
             <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
             <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
               aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
@@ -2679,12 +2681,12 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     }
     return (
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
-        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' /* the full page height: the search and the compose button moved to the strip (14 Oct) */ }}>
+        style={ph ? { position: 'relative', width: '100%', padding: '0 0 16px', boxSizing: 'border-box' } : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' /* the full page height: the search and the compose button moved to the strip (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div className="lnv-mod" style={{ position: 'relative', width: '100%', height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
+        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr) 108px', gridTemplateAreas: '"word disc" "cover cover" "det det" "src src" "post post" "stats stats" "trk trk"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }) }}>
 
         {/* top left: the artist wordmark, with the release title under it */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 40, padding: '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'word', borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
             {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
           </h2>
@@ -2692,21 +2694,21 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* top right: the post number, and a play / stop button (click the box to play or stop) */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'disc', borderRadius: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
-          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: 96, lineHeight: 1.2 }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'disc', borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: ph ? '12px 14px' : '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
+          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: ph ? 0 : 96, lineHeight: 1.2 }}>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
             <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
-            <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>
+            {!ph && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>}
           </div>
-          <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>
+          {!ph && <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>}
         </Blk>
 
         {/* left of the media: the details, with the add-to buttons */}
-        <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: 40, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: R, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div className={`mod-hatch${playing ? ' on' : ''}`} style={{ flex: '0 0 46px' }}>
             <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--blk-bg)', zIndex: 2 }}>Details</span>
           </div>
-          <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', marginTop: 12, ...INNER_SCROLL_STYLE }}>
+          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', marginTop: 12, ...INNER_SCROLL_STYLE }}>
             <dl style={{ margin: 0, display: 'grid', gap: 10 }}>
               {label && <div><dt style={dt}>Label</dt><dd style={dd}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
               {(catNo || post.year) && <div><dt style={dt}>{catNo && post.year ? 'Cat. no. · Year' : catNo ? 'Cat. no.' : 'Year'}</dt><dd style={dd}>{[catNo, post.year].filter(Boolean).join(' · ')}</dd></div>}
@@ -2714,7 +2716,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               {contributors.length > 0 && <div><dt style={dt}>Artists</dt><dd style={{ ...dd, fontWeight: 400, fontSize: 12.5 }}>{contributors.slice(0, 8).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 8 && <span style={{ opacity: 0.6 }}> +{contributors.length - 8}</span>}</dd></div>}
             </dl>
           </div>
-          <div style={{ flex: 'none', display: 'grid', gap: 6, marginTop: 12 }}>
+          <div style={{ flex: 'none', display: 'grid', gridTemplateColumns: ph ? '1fr 1fr' : '1fr', gap: 6, marginTop: 12 }}>
             <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
             <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
             {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
@@ -2729,7 +2731,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* the cover; the player takes its place */}
-        <Blk bg={DARK} className="lnv-still" style={{ gridArea: 'cover', borderRadius: 40, padding: 0 }}>
+        <Blk bg={DARK} className="lnv-still" style={{ gridArea: 'cover', borderRadius: R, padding: 0, ...(ph ? { aspectRatio: '1 / 1' } : null) }}>
           {playingSrc ? (
             <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
           ) : (
@@ -2741,9 +2743,9 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* plays from */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: 40, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>listen on</span><span>{locations.length} source{locations.length === 1 ? '' : 's'}</span></div>
-          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+          <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
             {locations.map(({ p, n }) => {
               const on = nowP === p
               return (
@@ -2760,10 +2762,10 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* under the media: the post, and only the post */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'post', borderRadius: 40, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'post', borderRadius: R, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', opacity: 0.7 }}><span>the post</span><span>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></div>
-          <div style={{ flex: '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
-            {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
+          <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
+            {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: ph ? 12 : 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
               : <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
           </div>
           <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontFamily: d.monoFf, fontSize: 11 }}>
@@ -2779,8 +2781,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* kept by, playlists */}
-        <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, minHeight: 0 }}>
-          <Blk bg={A2} className="lnv-still" style={{ borderRadius: 40, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minHeight: 0 }}>
+          <Blk bg={A2} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
             <span style={{ ...mono, opacity: 0.6 }}>kept by</span>
             <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(keptBy.length).padStart(2, '0')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
@@ -2788,7 +2790,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
             </div>
           </Blk>
-          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: 40, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
             <span style={{ ...mono, opacity: 0.6 }}>playlists</span>
             <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(nPl).padStart(2, '0')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
@@ -2799,12 +2801,12 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </div>
 
         {/* the tracks */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: 40, padding: '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: R, padding: ph ? '14px 16px 6px' : '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
             <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
             <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
           </div>
-          <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
             {tracks.map((t, i) => mrow(t, i))}
           </div>
         </Blk>
