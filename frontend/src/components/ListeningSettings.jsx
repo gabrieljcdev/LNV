@@ -6,8 +6,15 @@ import { useListening, LISTEN_SERVICES, PREVIEW_ONLY } from '../lib/listening'
 // where a track has it (lib/listening.js pickUrl); the order they tick them is their priority.
 // Spotify is also learned from playback: if its player shows full-length tracks the panel says so
 // and it counts as ticked; if it only ever shows 30-second previews the panel says that too.
-export default function ListeningSettings() {
+export default function ListeningSettings({ rail = false }) {
   const [open, setOpen] = useState(false)
+  // In the Module look the button lives in the nav strip; it asks for the panel with an event.
+  useEffect(() => {
+    if (!rail) return undefined
+    const h = () => setOpen(v => !v)
+    window.addEventListener('lnv-listen-toggle', h)
+    return () => window.removeEventListener('lnv-listen-toggle', h)
+  }, [rail])
   const [listening, { toggle, clear }] = useListening()
   const box = useRef(null)
 
@@ -33,10 +40,10 @@ export default function ListeningSettings() {
   const mono = { fontFamily: 'VT323, monospace', letterSpacing: '0.06em' }
 
   return (
-    <div ref={box} style={{ position: 'absolute', bottom: 16, right: 60, zIndex: 100 }}>
+    <div ref={box} style={rail ? { position: 'fixed', left: 124, bottom: 16, zIndex: 300 } : { position: 'absolute', bottom: 16, right: 60, zIndex: 100 }}>
       {open && (
         <div role="dialog" aria-label="How do you listen?"
-          style={{ position: 'absolute', bottom: 46, right: 0, width: 320, padding: '16px 16px 12px', borderRadius: 16, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', boxShadow: '0 20px 50px rgba(0,0,0,0.35)', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif' }}>
+          style={{ position: 'absolute', bottom: rail ? 0 : 46, ...(rail ? { left: 0 } : { right: 0 }), width: 320, padding: '16px 16px 12px', borderRadius: 16, background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', boxShadow: '0 20px 50px rgba(0,0,0,0.35)', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif' }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>How do you listen?</div>
           <div style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--theme-text-sec)', margin: '4px 0 10px' }}>
             Tick what you pay for or are signed in to. We play from those first, where a track has them — the order you tick is the order we try.
@@ -61,9 +68,9 @@ export default function ListeningSettings() {
           </div>
         </div>
       )}
-      <button onClick={() => setOpen(v => !v)} aria-label="How do you listen?" aria-expanded={open}
-        style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', cursor: 'pointer', color: have.length ? 'var(--theme-accent)' : 'var(--theme-text-sec)', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♪</button>
-      <div style={{ fontSize: 8, textAlign: 'center', color: 'var(--theme-text-ter)', marginTop: 3, ...mono }}>{have.length ? have[0].toUpperCase().slice(0, 5) : 'LISTEN'}</div>
+      {!rail && <button onClick={() => setOpen(v => !v)} aria-label="How do you listen?" aria-expanded={open}
+        style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', cursor: 'pointer', color: have.length ? 'var(--theme-accent)' : 'var(--theme-text-sec)', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♪</button>}
+      {!rail && <div style={{ fontSize: 8, textAlign: 'center', color: 'var(--theme-text-ter)', marginTop: 3, ...mono }}>{have.length ? have[0].toUpperCase().slice(0, 5) : 'LISTEN'}</div>}
     </div>
   )
 }

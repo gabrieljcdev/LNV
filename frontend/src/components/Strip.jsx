@@ -7,6 +7,7 @@ import BrandScaleTool, { readBrandScale, applyBrandScale } from './BrandScaleToo
 import { getUser, logout, isAdmin } from '../lib/auth';
 import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
+import { MODULE_CARDS } from '../lib/moduleKit';
 
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
@@ -328,7 +329,7 @@ export default function Strip({ activeView }) {
           column, not something to size up the way the drawer pills did.
           Not verified live — worth checking the tab stack doesn't run past
           100vh on a shorter screen now that each tab is taller. */}
-      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
+      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, ...(MODULE_CARDS ? { bottom:0 } : null), width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
           const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);
@@ -385,6 +386,16 @@ export default function Strip({ activeView }) {
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}
+        {/* The Module look (14 Oct): the search, the feed switch, new post, listen and theme live here, so nothing sits over a post. Feed.jsx listens for 'lnv-tool'. */}
+        {MODULE_CARDS && (<div style={{ position:'absolute', left:0, right:0, bottom:14, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          {[['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>], ['feeds', 'Choose a feed', '≡'], ['compose', 'New post', '✎'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐']].map(([id, title, glyph]) => (
+            <button key={id} onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: id }))} title={title} aria-label={title}
+              style={{ color: id === 'compose' ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: id === 'compose' ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', flexShrink:0, transition:'background 0.2s, border-color 0.8s' }}
+              onMouseEnter={e => { if (id !== 'compose') e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (id !== 'compose') e.currentTarget.style.background='transparent'; }}
+            >{glyph}</button>
+          ))}
+        </div>)}
       </div>
     </div>
   );

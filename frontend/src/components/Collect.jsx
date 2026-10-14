@@ -383,7 +383,7 @@ export function WallCard({ username, compact = false, friends }) {
   const tone = t => (MOD ? solidBg({ showcase: ML.a1, accent: ML.a2, dark3: ML.cover }[t] || ML.base) : [`var(--theme-${t})`, `var(--theme-${t})`])
   const shell = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, color: pri, fontFamily: SANS, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '56px 0 72px' : 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
   const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
   if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
@@ -680,7 +680,7 @@ export function WallCard({ username, compact = false, friends }) {
       <style>{BLOCK_CSS}{MODULE_CSS}</style>
       {compact
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{identityBlock}{extrasBlock}{parts.map(x => x[1])}</div>
-        : <div className={MOD ? 'lnv-mod' : undefined} style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: MOD ? 7 : 8, height: '100%', minHeight: 640, ...(MOD ? modFrameFor(ML) : null) }}>
+        : <div className={MOD ? 'lnv-mod' : undefined} style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: MOD ? 8 : 8, height: '100%', minHeight: 640, ...(MOD ? modFrameFor(ML) : null) }}>
           <div style={{ display: 'grid', gridTemplateRows: extrasBlock ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', gap: 8, minHeight: 0 }}>{identityBlock}{extrasBlock}</div>
           <div style={{ display: 'grid', gridTemplateRows: parts.map(x => (x[0] === flexKey ? 'minmax(0, 1fr)' : 'auto')).join(' '), gap: 8, minWidth: 0, minHeight: 0 }}>{parts.map(x => x[1])}</div>
         </div>}
@@ -709,7 +709,7 @@ export function WelcomeCard({ compact = false, onAuth }) {
   const outline = { ...solid, background: 'transparent', color: pri, border: `1.5px solid ${pri}` }
   const root = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, fontFamily: SANS, color: pri, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '56px 0 72px' : '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
   const pad = compact ? '22px 20px 24px' : '26px 30px 30px'
   return (
     <div data-profile-card="welcome" style={root}>

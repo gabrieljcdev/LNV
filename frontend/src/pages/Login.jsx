@@ -231,20 +231,20 @@ export default function Login({ embedded = false, startTab, onClose } = {}) {
     const ink = { '--theme-text-pri': 'var(--lv-pri)', '--theme-text-sec': 'var(--lv-sec)', '--theme-text-ter': 'var(--lv-ter)', '--theme-border': 'color-mix(in srgb, var(--lv-pri) 22%, transparent)' };
     const mono = { fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' };
     return (
-      <div style={{ position: 'relative', flexShrink: 0, width: 800, height: '100%', padding: '56px 0 72px', boxSizing: 'border-box' }}>
+      <div style={{ position: 'relative', flexShrink: 0, width: 800, height: '100%', padding: '14px 0', boxSizing: 'border-box' }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div className="lnv-mod" style={{ ...modFrameFor(ML), height: '100%', display: 'grid', gap: 7, gridTemplateColumns: 'minmax(0, 1fr) 300px', gridTemplateRows: 'minmax(120px, 190px) minmax(0, 1fr)', gridTemplateAreas: '"brand brand" "form side"' }}>
+        <div className="lnv-mod" style={{ ...modFrameFor(ML), height: '100%', display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr) 300px', gridTemplateRows: 'minmax(120px, 190px) minmax(0, 1fr)', gridTemplateAreas: '"brand brand" "form side"' }}>
           {/* the Chewing the Ceiling box: blank until the brand is done (TODO, 14 Oct) */}
-          <Blk bg={solid(ML.base)} className="lnv-still" aria-hidden="true" style={{ gridArea: 'brand', borderRadius: 26 }} />
-          <Blk bg={solid(ML.base)} className="lnv-still" style={{ gridArea: 'form', borderRadius: 26, padding: '26px 30px 28px', overflowY: 'auto', scrollbarWidth: 'none', display: 'grid', gap: 18, alignContent: 'start', ...ink }}>
+          <Blk bg={solid(ML.base)} className="lnv-still" aria-hidden="true" style={{ gridArea: 'brand', borderRadius: 40 }} />
+          <Blk bg={solid(ML.base)} className="lnv-still" style={{ gridArea: 'form', borderRadius: 40, padding: '26px 30px 28px', overflowY: 'auto', scrollbarWidth: 'none', display: 'grid', gap: 18, alignContent: 'start', ...ink }}>
             {body}
           </Blk>
           <div style={{ gridArea: 'side', display: 'grid', gap: 7, gridTemplateRows: 'minmax(0, 1fr) auto', minHeight: 0 }}>
-            <Blk bg={solid(ML.a1)} className="lnv-still" style={{ borderRadius: 26, padding: 14, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0 }}>
+            <Blk bg={solid(ML.a1)} className="lnv-still" style={{ borderRadius: 40, padding: 14, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0 }}>
               <div className="mod-hatch" style={{ flex: '0 0 40px' }}><span style={{ ...mono, position: 'absolute', left: 10, top: 10, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--blk-bg)' }}>{side[0]}</span></div>
               {side[1]}{side[2]}
             </Blk>
-            <Blk bg={solid(ML.base)} className="lnv-still" style={{ borderRadius: 26, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => onClose?.()}>
+            <Blk bg={solid(ML.base)} className="lnv-still" style={{ borderRadius: 40, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => onClose?.()}>
               <span style={{ minWidth: 0 }}><b style={{ display: 'block', fontFamily: SANS, fontSize: 15, fontWeight: 600 }}>Keep browsing</b><span style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.65 }}>The feed needs no account</span></span>
               <span aria-hidden="true" style={{ marginLeft: 'auto', width: 34, height: 34, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', flex: 'none' }}>›</span>
             </Blk>
