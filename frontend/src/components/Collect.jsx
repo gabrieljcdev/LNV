@@ -409,7 +409,7 @@ export function WallCard({ username, compact = false, friends }) {
       <div style={{ display: 'flex', alignItems: compact ? 'center' : 'flex-start', flexDirection: compact ? 'row' : 'column', gap: 14 }}>
         <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 88, height: compact ? 64 : 88, borderRadius: '50%', background: pri, color: 'var(--blk-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 44, fontWeight: 900 }}>{p.username.charAt(0).toUpperCase()}</div>
         <div style={{ minWidth: 0 }}>
-          <h1 style={MOD ? { margin: 0, fontFamily: SANS, fontSize: 40, fontWeight: 600, lineHeight: 0.98, letterSpacing: '-0.045em', overflowWrap: 'anywhere' } : { margin: 0, fontFamily: BLOCK_CP, fontSize: compact ? 34 : 38, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', textTransform: 'uppercase', overflowWrap: 'anywhere' }}>{p.username}{MOD && <span style={{ color: 'var(--theme-accent)', filter: 'brightness(0.55) saturate(1.4)' }}>.</span>}</h1>
+          <h1 style={MOD ? { margin: 0, fontFamily: SANS, fontSize: 40, fontWeight: 600, lineHeight: 0.98, letterSpacing: '-0.045em', overflowWrap: 'anywhere' } : { margin: 0, fontFamily: BLOCK_CP, fontSize: compact ? 34 : 38, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', textTransform: 'uppercase', overflowWrap: 'anywhere' }}>{p.username}</h1>
           <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: ter, lineHeight: 1.6 }}>
             {!compact && since && <>Member since {since}<br /></>}
             {p.post_count} {p.post_count === 1 ? 'post' : 'posts'} · {p.follower_count} {p.follower_count === 1 ? 'follower' : 'followers'}
