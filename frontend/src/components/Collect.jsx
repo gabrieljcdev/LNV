@@ -6,6 +6,12 @@ import { DiscogsSetting } from './DiscogsConnect'
 import { askText } from './Dialogs'
 import { Blk } from './Blocks'
 import { BLOCK_CP, BLOCK_CSS } from '../lib/blocksKit'
+import { MODULE_CARDS, MODULE_CSS, M, modFrame } from '../lib/moduleKit'
+
+// The Module look (?cards=module): the tiles sit in a dark frame; off, it renders its children as they were.
+function ModFrame({ on, children, style }) {
+  return on ? <div className="lnv-mod" style={{ ...modFrame, ...style }}>{children}</div> : <>{children}</>
+}
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
@@ -372,10 +378,11 @@ export function WallCard({ username, compact = false, friends }) {
   const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
   const head = { margin: '0 0 9px', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: ter }
   const chip = { ...plain, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SANS, fontSize: compact ? 14 : 13, color: pri, padding: compact ? '8px 13px' : '6px 12px', borderRadius: 99, background: fill(12) }
-  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`]
+  const MOD = MODULE_CARDS && !compact
+  const tone = t => (MOD ? ({ showcase: M.HOT, dark3: M.DARK }[t] || M.TILE) : [`var(--theme-${t})`, `var(--theme-${t})`])
   const shell = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, color: pri, fontFamily: SANS, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '56px 0 72px' : 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
   const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
   if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
@@ -386,7 +393,7 @@ export function WallCard({ username, compact = false, friends }) {
   const max = Math.max(1, ...p.sound.map(x => x.count))
   const sectionTitle = (t, note) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-      <h2 style={{ margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t}</h2>
+      <h2 style={MOD ? { margin: 0, fontFamily: SANS, fontWeight: 600, fontSize: 20, letterSpacing: '-0.01em' } : { margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t}</h2>
       {note && <span style={{ fontFamily: MONO, fontSize: 10.5, color: ter }}>{note}</span>}
     </div>
   )
@@ -402,7 +409,7 @@ export function WallCard({ username, compact = false, friends }) {
       <div style={{ display: 'flex', alignItems: compact ? 'center' : 'flex-start', flexDirection: compact ? 'row' : 'column', gap: 14 }}>
         <div aria-hidden="true" style={{ flexShrink: 0, width: compact ? 64 : 88, height: compact ? 64 : 88, borderRadius: '50%', background: pri, color: 'var(--blk-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 32 : 44, fontWeight: 900 }}>{p.username.charAt(0).toUpperCase()}</div>
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontFamily: BLOCK_CP, fontSize: compact ? 34 : 38, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', textTransform: 'uppercase', overflowWrap: 'anywhere' }}>{p.username}</h1>
+          <h1 style={MOD ? { margin: 0, fontFamily: SANS, fontSize: 40, fontWeight: 600, lineHeight: 0.98, letterSpacing: '-0.045em', overflowWrap: 'anywhere' } : { margin: 0, fontFamily: BLOCK_CP, fontSize: compact ? 34 : 38, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', textTransform: 'uppercase', overflowWrap: 'anywhere' }}>{p.username}{MOD && <span style={{ color: 'var(--theme-accent)', filter: 'brightness(0.55) saturate(1.4)' }}>.</span>}</h1>
           <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: ter, lineHeight: 1.6 }}>
             {!compact && since && <>Member since {since}<br /></>}
             {p.post_count} {p.post_count === 1 ? 'post' : 'posts'} · {p.follower_count} {p.follower_count === 1 ? 'follower' : 'followers'}
@@ -629,7 +636,7 @@ export function WallCard({ username, compact = false, friends }) {
   )
 
   const pad = compact ? '20px 18px 22px' : '24px 28px 26px'
-  const cut = c => (compact ? undefined : c)
+  const cut = c => (compact || MOD ? undefined : c)
   const soundSection = (
     <section>
       {sectionTitle(owner ? 'Your sound' : 'Their sound', owner ? 'worked out from what you post' : 'from what they post')}
@@ -647,7 +654,7 @@ export function WallCard({ username, compact = false, friends }) {
     </section>
   )
   const favourites = labelsSection || artistsSection || channelsSection
-  const top = compact ? 0 : 60 // the first block of each column runs up to the top of the page; its content starts below the search bar
+  const top = compact || MOD ? 0 : 60 // the first block of each column runs up to the top of the page; its content starts below the search bar
   const identityBlock = <Blk bg={tone('showcase')} cut={cut('br')} style={{ padding: compact ? '22px 18px 26px' : `${top + 20}px 26px 32px`, height: compact ? undefined : '100%' }}>{identity}</Blk>
   const extrasBlock = ownerExtras && <Blk bg={tone('light1')} cut={cut('bl')} style={{ padding: compact ? '18px 18px 20px' : '22px 24px 24px' }}>{ownerExtras}</Blk>
   // [key, block, flexible]: one block of the right-hand column takes the leftover height and scrolls inside itself only if it has to
@@ -657,15 +664,15 @@ export function WallCard({ username, compact = false, friends }) {
     favourites && ['fav', <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}</Blk>],
     playlistsSection && ['pl', <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: compact ? pad : '24px 28px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact ? null : { flex: 1, overflowY: 'auto', paddingBottom: 24, scrollbarWidth: 'none' }) }}>{playlistsSection}</div></Blk>],
     ['fol', <Blk key="fol" bg={tone('light1')} style={{ padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact || flexKey !== 'fol' ? null : { flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }) }}>{followsSection}</div></Blk>],
-    commonSection && ['com', <Blk key="com" bg={(c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>],
+    commonSection && ['com', <Blk key="com" bg={MOD ? M.TILE : (c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>],
   ].filter(Boolean)
 
   return (
     <div {...cardTag} style={shell}>
-      <style>{BLOCK_CSS}</style>
+      <style>{BLOCK_CSS}{MODULE_CSS}</style>
       {compact
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{identityBlock}{extrasBlock}{parts.map(x => x[1])}</div>
-        : <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 8, height: '100%', minHeight: 640 }}>
+        : <div className={MOD ? 'lnv-mod' : undefined} style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: MOD ? 7 : 8, height: '100%', minHeight: 640, ...(MOD ? modFrame : null) }}>
           <div style={{ display: 'grid', gridTemplateRows: extrasBlock ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', gap: 8, minHeight: 0 }}>{identityBlock}{extrasBlock}</div>
           <div style={{ display: 'grid', gridTemplateRows: parts.map(x => (x[0] === flexKey ? 'minmax(0, 1fr)' : 'auto')).join(' '), gap: 8, minWidth: 0, minHeight: 0 }}>{parts.map(x => x[1])}</div>
         </div>}
@@ -682,8 +689,9 @@ export function WelcomeCard({ compact = false }) {
   const owner = useFrontPageOwner()
   const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)'
   const fill = n => `color-mix(in srgb, var(--theme-text-pri) ${n}%, transparent)`
-  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`]
-  const title = { margin: '0 0 14px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }
+  const MOD = MODULE_CARDS && !compact
+  const tone = t => (MOD ? ({ accent: M.HOT, dark3: M.DARK }[t] || M.TILE) : [`var(--theme-${t})`, `var(--theme-${t})`])
+  const title = MOD ? { margin: '0 0 14px', fontFamily: SANS, fontWeight: 600, fontSize: 21, letterSpacing: '-0.01em' } : { margin: '0 0 14px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase' }
   const list = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 11, fontSize: compact ? 15 : 14.5, lineHeight: 1.45, color: sec }
   const b = t => <b style={{ color: pri, fontWeight: 700 }}>{t}</b>
   const kbd = { fontFamily: MONO, fontSize: 12, border: `1px solid ${fill(35)}`, borderRadius: 4, padding: '0 5px', color: pri }
@@ -692,23 +700,25 @@ export function WelcomeCard({ compact = false }) {
   const outline = { ...solid, background: 'transparent', color: pri, border: `1.5px solid ${pri}` }
   const root = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, fontFamily: SANS, color: pri, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '56px 0 72px' : '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
   const pad = compact ? '22px 20px 24px' : '26px 30px 30px'
   return (
     <div data-profile-card="welcome" style={root}>
-      <style>{BLOCK_CSS}</style>
+      <style>{BLOCK_CSS}{MODULE_CSS}</style>
+      <ModFrame on={MOD} style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', scrollbarWidth: 'none' }}>
       {/* the way in: the biggest block, in the colour the feed's colours follow */}
-      <Blk bg={tone('showcase')} cut={compact ? undefined : 'br'} style={{ padding: compact ? '26px 20px 30px' : '34px 36px 40px', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'flex-start' : 'flex-end', gap: 14, flex: compact ? '0 0 auto' : '1 1 auto', minHeight: compact ? undefined : 300 }}>
-        <span style={{ fontFamily: BLOCK_CP, fontWeight: 600, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.7 }}>Welcome</span>
-        <h1 style={{ margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: compact ? 40 : 64, lineHeight: 0.95, letterSpacing: '-0.01em', textTransform: 'uppercase' }}>Chewing<br />the Ceiling</h1>
+      <Blk bg={MOD ? M.TILE : tone('showcase')} cut={compact || MOD ? undefined : 'br'} style={{ padding: compact ? '26px 20px 30px' : '34px 36px 40px', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'flex-start' : 'flex-end', gap: 14, flex: compact ? '0 0 auto' : '1 1 auto', minHeight: compact ? undefined : 300 }}>
+        {MOD && <span className="mod-disc spin" aria-hidden="true" style={{ right: -70, top: 150, marginTop: 0, width: 300, height: 300 }} />}
+        <span style={{ position: 'relative', fontFamily: MOD ? MONO : BLOCK_CP, fontWeight: 600, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.7 }}>Welcome</span>
+        <h1 style={MOD ? { position: 'relative', margin: 0, fontFamily: SANS, fontWeight: 600, fontSize: 84, lineHeight: 0.92, letterSpacing: '-0.05em' } : { margin: 0, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: compact ? 40 : 64, lineHeight: 0.95, letterSpacing: '-0.01em', textTransform: 'uppercase' }}>Chewing<br />the Ceiling{MOD && <span style={{ color: 'var(--theme-accent)', filter: 'brightness(0.55) saturate(1.4)' }}>.</span>}</h1>
         <p style={{ margin: 0, maxWidth: 470, fontSize: compact ? 17 : 18, lineHeight: 1.5, color: sec }}>A record shelf you scroll sideways. Discover other people, listen to their collections, and build the database together.</p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
           <a className="lnv-pb" href="/login?tab=create" style={solid}>Create an account</a>
           <a className="lnv-pb" href="/login" style={outline}>Log in</a>
         </div>
       </Blk>
-      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'minmax(0, 1fr)' : '1fr 1fr', gap: compact ? 6 : 8 }}>
-        <Blk bg={tone('light1')} cut={compact ? undefined : 'bl'} style={{ padding: pad }}>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'minmax(0, 1fr)' : '1fr 1fr', gap: compact ? 6 : MOD ? 7 : 8 }}>
+        <Blk bg={tone('light1')} cut={compact || MOD ? undefined : 'bl'} style={{ padding: pad }}>
           <h2 style={title}>How it works</h2>
           <ul style={list}>
             <Li>{compact ? b('Swipe') : b('Scroll sideways')} through the posts.</Li>
@@ -716,7 +726,7 @@ export function WelcomeCard({ compact = false }) {
             <Li>{b('Every post has a number')} — {compact ? 'search it to jump there.' : <>press <kbd style={kbd}>/</kbd> and type it to jump there.</>}</Li>
           </ul>
         </Blk>
-        <Blk bg={tone('accent')} cut={compact ? undefined : 'tr'} style={{ padding: pad }}>
+        <Blk bg={tone('accent')} cut={compact || MOD ? undefined : 'tr'} style={{ padding: pad }}>
           <h2 style={title}>With an account</h2>
           <ul style={list}>
             <Li>{b('Post')} a record from a link, with a line on why.</Li>
@@ -726,12 +736,13 @@ export function WelcomeCard({ compact = false }) {
         </Blk>
       </div>
       {/* the front page is someone's own wall (the first friend's): say so */}
-      <Blk bg={tone('dark3')} cut={compact ? undefined : 'tl'} style={{ padding: compact ? '18px 20px 20px' : '20px 30px 22px', display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'flex-start' : 'center', gap: 14, justifyContent: 'space-between' }}>
+      <Blk bg={MOD ? M.TILE : tone('dark3')} cut={compact || MOD ? undefined : 'tl'} style={{ padding: compact ? '18px 20px 20px' : '20px 30px 22px', display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'flex-start' : 'center', gap: 14, justifyContent: 'space-between' }}>
         <p style={{ margin: 0, fontSize: compact ? 15 : 15.5, lineHeight: 1.5, color: sec, maxWidth: 520 }}>
           You're looking at {owner ? <button onClick={() => openWall(owner)} style={{ ...plain, color: pri, fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3 }}>{owner}'s</button> : 'my'} feed — the records I've posted and kept. Make an account and you get a feed of your own.
         </p>
         <button className="lnv-pb" onClick={() => openD3?.('about')} style={{ ...plain, flexShrink: 0, border: `1.5px solid ${pri}`, borderRadius: 999, padding: '9px 18px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: pri }}>More in About →</button>
       </Blk>
+      </ModFrame>
     </div>
   )
 }

@@ -16,6 +16,7 @@ import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
+import { MODULE_CARDS, MODULE_CSS } from '../lib/moduleKit'
 import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -2166,29 +2167,6 @@ const BLOCKS_CARDS = (() => {
     return v === 'blocks' || v === 'module' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
   } catch { return true }
 })()
-// Module card (?cards=module, 14 Oct 2026, gabriel's pick of mockup36): a dark frame of tight matte tiles — artist wordmark, a turntable that spins
-// while something plays, a hot tile with the post number, the cover (the player takes its place), sources, a ◀ ▶ tile that steps through
-// Release / The post / Playlists / Replies, kept-by and playlist counts, and the track table. Desktop only: phones keep the blocks card.
-// ?cards=blocks goes back (remembered).
-const MODULE_CARDS = (() => {
-  try { return localStorage.getItem('lnv-cards') === 'module' } catch { return false }
-})()
-const MODULE_CSS = `
-.mod-metal{background:linear-gradient(180deg,#fbfcfb,#edf0ee);color:#1b1b1b;cursor:pointer}
-.mod-disc{position:absolute;right:-50px;top:50%;width:230px;height:230px;margin-top:-115px;border-radius:50%;background:conic-gradient(from 0deg,#f2f2f2,#9d9d9d 12%,#fafafa 25%,#8a8a8a 37%,#f2f2f2 50%,#a3a3a3 62%,#fafafa 75%,#8f8f8f 87%,#f2f2f2);animation:modSpin 6s linear infinite paused}
-.mod-disc::after{content:'';position:absolute;inset:0;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 5px,rgba(0,0,0,.04) 5px 6px)}
-.mod-metal.on .mod-disc{animation-play-state:running}
-@keyframes modSpin{to{transform:rotate(360deg)}}
-.mod-hatch{position:relative;border:1.5px solid color-mix(in srgb,var(--lv-pri) 55%,transparent);border-radius:12px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lv-pri) 78%,transparent) 0 2px,transparent 2px 8px);overflow:hidden}
-.mod-hatch.on::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--lv-pri) 38%,transparent),transparent);animation:modSweep 1.6s ease-in-out infinite}
-@keyframes modSweep{from{transform:translateY(-100%)}to{transform:translateY(100%)}}
-.mod-cplay{position:absolute;left:16px;bottom:16px;width:56px;height:56px;border-radius:50%;background:var(--theme-accent);color:#fff;display:grid;place-items:center;font-size:18px;padding-left:3px;box-shadow:0 10px 22px -6px rgba(0,0,0,.5);transition:transform .25s cubic-bezier(.2,.9,.3,1.4)}
-.mod-cplay:hover{transform:scale(1.1)}
-.mod-tr{transition:background .2s,padding .25s}.mod-tr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent);padding-left:8px}
-.mod-page{animation:modFade .35s both}@keyframes modFade{from{opacity:0;transform:translateX(10px)}}
-.mod-sr{transition:background .2s}.mod-sr:hover{background:color-mix(in srgb,var(--lv-pri) 9%,transparent)}
-.mod-arr{width:28px;height:28px;border-radius:50%;border:0;background:none;color:inherit;cursor:pointer;font-size:15px;opacity:.6;transition:.2s}.mod-arr:hover{opacity:1;background:color-mix(in srgb,var(--lv-pri) 10%,transparent)}
-`
 // Colourways (gabriel, 13 Oct): the blocks do not keep one set of colours; each post takes the next "format" as you scroll, so the feed stays fresh.
 // Every entry is a CSS background for one block (a palette token, a mix of two, a gradient); [bg, base] where `base` is the plain colour the ink is judged against.
 const TK = k => `var(--theme-${k})`

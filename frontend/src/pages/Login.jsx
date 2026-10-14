@@ -4,6 +4,7 @@ import { signIn, register, resendConfirmation, isLoggedIn, getUser, logout, forg
 import { applyPalette, getAutoIndex } from '../services/themeService';
 import { Blk } from '../components/Blocks';
 import { BLOCK_CP, BLOCK_CSS } from '../lib/blocksKit';
+import { MODULE_CARDS, MODULE_CSS, M, modFrame } from '../lib/moduleKit';
 
 // ── Sign in / Create account (2026-10-01) ─────────────────────────────────────
 // One card, two tabs. Creating an account sends a confirmation email; the
@@ -213,19 +214,21 @@ export default function Login() {
     </>;
   }
 
-  const tone = t => [`var(--theme-${t})`, `var(--theme-${t})`];
+  const MOD = MODULE_CARDS
+  const tone = t => (MOD ? M.TILE : [`var(--theme-${t})`, `var(--theme-${t})`]);
   return (
     <div style={{ minHeight: '100vh', background: 'var(--theme-bg)', color: 'var(--theme-text-pri)', display: 'grid', placeItems: 'center', padding: '32px 16px', boxSizing: 'border-box', transition: 'background 0.8s' }}>
-      <style>{BLOCK_CSS}</style>
-      <div style={{ width: '100%', maxWidth: 480, display: 'grid', gap: 8 }}>
+      <style>{BLOCK_CSS}{MODULE_CSS}</style>
+      <div className={MOD ? 'lnv-mod' : undefined} style={{ width: '100%', maxWidth: 480, display: 'grid', gap: MOD ? 7 : 8, ...(MOD ? modFrame : null) }}>
         {/* the sign-in page is the blocks look too: the name in the profile card's colour, the form in a block of its own */}
-        <Blk bg={tone('showcase')} cut="br" style={{ padding: '30px 30px 34px' }}>
-          <Link to="/" style={{ textDecoration: 'none', color: 'inherit', display: 'grid', gap: 14 }}>
-            <div style={{ fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 46, letterSpacing: '-0.01em', lineHeight: 0.95, textTransform: 'uppercase' }}>Chewing<br />the Ceiling</div>
+        <Blk bg={tone('showcase')} cut={MOD ? undefined : 'br'} style={{ padding: '30px 30px 34px' }}>
+          {MOD && <span className="mod-disc spin" aria-hidden="true" style={{ right: -80, top: 40, marginTop: 0, width: 260, height: 260 }} />}
+          <Link to="/" style={{ position: 'relative', textDecoration: 'none', color: 'inherit', display: 'grid', gap: 14 }}>
+            <div style={MOD ? { fontFamily: SANS, fontWeight: 600, fontSize: 58, letterSpacing: '-0.05em', lineHeight: 0.92 } : { fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 46, letterSpacing: '-0.01em', lineHeight: 0.95, textTransform: 'uppercase' }}>Chewing<br />the Ceiling{MOD && <span style={{ color: 'var(--theme-accent)', filter: 'brightness(0.55) saturate(1.4)' }}>.</span>}</div>
             <span className="lnv-pb" style={{ justifySelf: 'start', border: '1.5px solid currentColor', borderRadius: 999, padding: '8px 16px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase' }}>← back to the feed</span>
           </Link>
         </Blk>
-        <Blk bg={tone('light2')} cut="tl" style={{ padding: '30px 30px 34px', display: 'grid', gap: 18 }}>
+        <Blk bg={tone('light2')} cut={MOD ? undefined : 'tl'} style={{ padding: '30px 30px 34px', display: 'grid', gap: 18 }}>
           {body}
         </Blk>
       </div>
