@@ -2643,7 +2643,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--theme-light2)', borderColor: 'var(--lv-pri)' }
     const nm = (artist || post.title || '').length
     const wordSize = nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24
-    const numSz = num.length <= 2 ? 64 : num.length === 3 ? 48 : num.length === 4 ? 38 : 30
+    const numSz = num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28
     const nPl = (post.playlists || []).length
     const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--theme-light2)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
     const at = e => ({ x: e.clientX, y: e.clientY })
@@ -2681,28 +2681,24 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: `${NOTES_PAD_TOP}px 0 ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box' /* under the search bar, above the compose button (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(0, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
 
-        {/* top left: the post number, then the artist wordmark with the release title under it */}
-        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '0 26px 0 0', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center' }}>
-          <div aria-label={`Post ${num}`} style={{ alignSelf: 'stretch', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 20px 0 24px', marginRight: 22, borderRight: '1px solid color-mix(in srgb, var(--lv-pri) 18%, transparent)', minWidth: 96 }}>
-            <span style={{ ...mono, fontSize: 9.5, opacity: 0.6 }}>№ post</span>
-            <span style={{ fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 1, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{num}</span>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
-              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--theme-accent)' }}>.</span>
-            </h2>
-            <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
-          </div>
+        {/* top left: the artist wordmark, with the release title under it */}
+        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+          <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--theme-accent)' }}>.</span>
+          </h2>
+          <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
         </Blk>
 
         {/* the turntable: spins while something plays; click to play or stop */}
         <div className={`mod-metal${playing ? ' on' : ''}`} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }}
           style={{ gridArea: 'disc', position: 'relative', borderRadius: 26, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 0 22px', minWidth: 0 }} title={playing ? 'Stop' : 'Play'}>
           <span className="mod-disc" aria-hidden="true" />
-          <div style={{ ...mono, position: 'relative', zIndex: 2, lineHeight: 1.6 }}>
-            {playing ? <>Now{activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}<br />{SOURCE_NAME[platformOf(activeUrl)] || 'playing'}</> : <>{kind}<br />{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</>}
+          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: 96, lineHeight: 1.2 }}>
+            <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
+            <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
+            <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>
           </div>
           <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: '#151515', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>
         </div>
