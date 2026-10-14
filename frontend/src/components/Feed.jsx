@@ -2161,11 +2161,34 @@ function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun 
 const BLOCKS_CARDS = (() => {
   try {
     const q = new URLSearchParams(window.location.search).get('cards')
-    if (q === 'blocks') localStorage.setItem('lnv-cards', q)
+    if (q === 'blocks' || q === 'module') localStorage.setItem('lnv-cards', q)
     const v = localStorage.getItem('lnv-cards')
-    return v === 'blocks' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
+    return v === 'blocks' || v === 'module' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
   } catch { return true }
 })()
+// Module card (?cards=module, 14 Oct 2026, gabriel's pick of mockup36): a dark frame of tight matte tiles — artist wordmark, a turntable that spins
+// while something plays, a hot tile with the post number, the cover (the player takes its place), sources, a ◀ ▶ tile that steps through
+// Release / The post / Playlists / Replies, kept-by and playlist counts, and the track table. Desktop only: phones keep the blocks card.
+// ?cards=blocks goes back (remembered).
+const MODULE_CARDS = (() => {
+  try { return localStorage.getItem('lnv-cards') === 'module' } catch { return false }
+})()
+const MODULE_CSS = `
+.mod-metal{background:linear-gradient(180deg,#fbfcfb,#edf0ee);color:#1b1b1b;cursor:pointer}
+.mod-disc{position:absolute;right:-50px;top:50%;width:230px;height:230px;margin-top:-115px;border-radius:50%;background:conic-gradient(from 0deg,#f2f2f2,#9d9d9d 12%,#fafafa 25%,#8a8a8a 37%,#f2f2f2 50%,#a3a3a3 62%,#fafafa 75%,#8f8f8f 87%,#f2f2f2);animation:modSpin 6s linear infinite paused}
+.mod-disc::after{content:'';position:absolute;inset:0;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 5px,rgba(0,0,0,.04) 5px 6px)}
+.mod-metal.on .mod-disc{animation-play-state:running}
+@keyframes modSpin{to{transform:rotate(360deg)}}
+.mod-hatch{position:relative;border:1.5px solid color-mix(in srgb,var(--lv-pri) 55%,transparent);border-radius:12px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--lv-pri) 78%,transparent) 0 2px,transparent 2px 8px);overflow:hidden}
+.mod-hatch.on::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--lv-pri) 38%,transparent),transparent);animation:modSweep 1.6s ease-in-out infinite}
+@keyframes modSweep{from{transform:translateY(-100%)}to{transform:translateY(100%)}}
+.mod-cplay{position:absolute;left:16px;bottom:16px;width:56px;height:56px;border-radius:50%;background:var(--theme-accent);color:#fff;display:grid;place-items:center;font-size:18px;padding-left:3px;box-shadow:0 10px 22px -6px rgba(0,0,0,.5);transition:transform .25s cubic-bezier(.2,.9,.3,1.4)}
+.mod-cplay:hover{transform:scale(1.1)}
+.mod-tr{transition:background .2s,padding .25s}.mod-tr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent);padding-left:8px}
+.mod-page{animation:modFade .35s both}@keyframes modFade{from{opacity:0;transform:translateX(10px)}}
+.mod-sr{transition:background .2s}.mod-sr:hover{background:color-mix(in srgb,var(--lv-pri) 9%,transparent)}
+.mod-arr{width:28px;height:28px;border-radius:50%;border:0;background:none;color:inherit;cursor:pointer;font-size:15px;opacity:.6;transition:.2s}.mod-arr:hover{opacity:1;background:color-mix(in srgb,var(--lv-pri) 10%,transparent)}
+`
 // Colourways (gabriel, 13 Oct): the blocks do not keep one set of colours; each post takes the next "format" as you scroll, so the feed stays fresh.
 // Every entry is a CSS background for one block (a palette token, a mix of two, a gradient); [bg, base] where `base` is the plain colour the ink is judged against.
 const TK = k => `var(--theme-${k})`
@@ -2623,6 +2646,199 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           </button>
         </div>
         {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+      </div>
+    )
+  }
+
+  if (MODULE_CARDS && !phone) {
+    const runtime = noteRuntime(tracks)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const dotsOf = t => { const s = new Set((t.sources || []).map(x => x.platform)); const own = platformOf(t.stream_url || t.youtube_url); if (own) s.add(own); return [...s] }
+    const playing = !!playingSrc
+    const activeIdx = activeUrl ? tracks.findIndex(t => urlOf(t) === activeUrl) : -1
+    const TILE = ['linear-gradient(180deg, color-mix(in srgb, var(--theme-light2) 50%, #fff), var(--theme-light2) 58%)', 'var(--theme-light2)']
+    const HOT = ['var(--theme-accent)', 'var(--theme-accent)']
+    const DARK = ['var(--theme-dark3)', 'var(--theme-dark3)']
+    const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
+    const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
+    const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--theme-light2)', borderColor: 'var(--lv-pri)' }
+    const nm = (artist || post.title || '').length
+    const wordSize = nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24
+    const numSz = num.length <= 2 ? 64 : num.length === 3 ? 48 : num.length === 4 ? 38 : 30
+    const nPl = (post.playlists || []).length
+    const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--theme-light2)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
+    const at = e => ({ x: e.clientX, y: e.clientY })
+    const quote = quoteText || note
+    const dt = { ...mono, fontSize: 9.5, opacity: 0.7 }
+    const dd = { margin: '2px 0 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 14, lineHeight: 1.25, overflowWrap: 'anywhere' }
+    const mrow = (t, i) => {
+      const u = urlOf(t)
+      const active = !!activeUrl && u === activeUrl
+      const v = shelfTrack(t, comp)
+      const h = hlOf(t)
+      const mine = !!me && h.by.includes(me)
+      return (
+        <div key={i}>
+          <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: active ? 'var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
+            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
+              {v.title}
+              {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+            </span>
+            <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), display: 'inline-block' }} />)}</span>
+            <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>
+            <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+            <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
+              aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+              title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 15, color: mine ? 'var(--theme-accent)' : 'inherit', opacity: mine || h.n ? 1 : 0.4 }}>{mine || h.n ? '★' : '☆'}</button>
+          </div>
+          {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+        </div>
+      )
+    }
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(0, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
+        <style>{BLOCK_CSS}{MODULE_CSS}</style>
+
+        {/* top left: the post number, then the artist wordmark with the release title under it */}
+        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '0 26px 0 0', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center' }}>
+          <div aria-label={`Post ${num}`} style={{ alignSelf: 'stretch', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 20px 0 24px', marginRight: 22, borderRight: '1px solid color-mix(in srgb, var(--lv-pri) 18%, transparent)', minWidth: 96 }}>
+            <span style={{ ...mono, fontSize: 9.5, opacity: 0.6 }}>№ post</span>
+            <span style={{ fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 1, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{num}</span>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--theme-accent)' }}>.</span>
+            </h2>
+            <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
+          </div>
+        </Blk>
+
+        {/* the turntable: spins while something plays; click to play or stop */}
+        <div className={`mod-metal${playing ? ' on' : ''}`} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }}
+          style={{ gridArea: 'disc', position: 'relative', borderRadius: 26, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 0 22px', minWidth: 0 }} title={playing ? 'Stop' : 'Play'}>
+          <span className="mod-disc" aria-hidden="true" />
+          <div style={{ ...mono, position: 'relative', zIndex: 2, lineHeight: 1.6 }}>
+            {playing ? <>Now{activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}<br />{SOURCE_NAME[platformOf(activeUrl)] || 'playing'}</> : <>{kind}<br />{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</>}
+          </div>
+          <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: '#151515', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>
+        </div>
+
+        {/* left of the media: the details, with the add-to buttons */}
+        <Blk bg={HOT} className="lnv-still" style={{ gridArea: 'det', borderRadius: 26, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div className={`mod-hatch${playing ? ' on' : ''}`} style={{ flex: '0 0 46px' }}>
+            <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-accent)', zIndex: 2 }}>Details</span>
+          </div>
+          <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', marginTop: 12, ...INNER_SCROLL_STYLE }}>
+            <dl style={{ margin: 0, display: 'grid', gap: 10 }}>
+              {label && <div><dt style={dt}>Label</dt><dd style={dd}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
+              {(catNo || post.year) && <div><dt style={dt}>{catNo && post.year ? 'Cat. no. · Year' : catNo ? 'Cat. no.' : 'Year'}</dt><dd style={dd}>{[catNo, post.year].filter(Boolean).join(' · ')}</dd></div>}
+              {post.genres?.length > 0 && <div><dt style={dt}>Genres</dt><dd style={{ ...dd, fontWeight: 400, opacity: 0.9 }}>{post.genres.join(', ')}</dd></div>}
+              {contributors.length > 0 && <div><dt style={dt}>Artists</dt><dd style={{ ...dd, fontWeight: 400, fontSize: 12.5 }}>{contributors.slice(0, 8).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 8 && <span style={{ opacity: 0.6 }}> +{contributors.length - 8}</span>}</dd></div>}
+            </dl>
+          </div>
+          <div style={{ flex: 'none', display: 'grid', gap: 6, marginTop: 12 }}>
+            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chipFill, width: '100%' }} onStyle={{ background: 'var(--lv-pri)', color: 'var(--theme-accent)' }} />
+            <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
+            {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
+              on ? <span key={k} style={{ ...chip, cursor: 'default', opacity: 0.85 }}>✓ {yes}</span>
+                : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={chip}>＋ {add} ↗</a> : null
+            ))}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...chip, flex: 1, padding: '7px 6px' }}>Discogs ↗</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...chip, flex: 1, padding: '7px 6px' }}>Buy ↗</a>}
+            </div>
+          </div>
+        </Blk>
+
+        {/* the cover; the player takes its place */}
+        <Blk bg={DARK} className="lnv-still" style={{ gridArea: 'cover', borderRadius: 26, padding: 0 }}>
+          {playingSrc ? (
+            <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
+          ) : (
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+              {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              {firstUrl && <span className="mod-cplay" aria-hidden="true">▶</span>}
+            </div>
+          )}
+        </Blk>
+
+        {/* plays from */}
+        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'src', borderRadius: 26, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>listen on</span><span>{locations.length} source{locations.length === 1 ? '' : 's'}</span></div>
+          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+            {locations.map(({ p, n }) => {
+              const on = nowP === p
+              return (
+                <div key={p} className="mod-sr" onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                  style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--theme-light2)' : undefined }}>
+                  <i style={{ width: 10, height: 10, borderRadius: '50%', background: shelfColor(p) }} />
+                  <span>{SOURCE_NAME[p] || p}</span>
+                  <em style={{ ...mono, fontStyle: 'normal', fontSize: 11, opacity: 0.7 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
+                </div>
+              )
+            })}
+          </div>
+          {locations.length > 0 && <div style={{ marginTop: 8 }}><button onClick={() => playFrom(locations.some(l => l.p === nowP) ? nowP : locations[0].p)} style={chipFill}>▶ Play from {SOURCE_NAME[locations.some(l => l.p === nowP) ? nowP : locations[0].p] || ''}</button></div>}
+        </Blk>
+
+        {/* under the media: the post, and only the post */}
+        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'post', borderRadius: 26, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', opacity: 0.7 }}><span>the post</span><span>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></div>
+          <div style={{ flex: '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
+            {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
+              : <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+          </div>
+          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontFamily: d.monoFf, fontSize: 11 }}>
+            {posterName && <UserChip name={posterName} d={d} />}
+            <span style={{ color: 'var(--lv-ter)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={stampOf(post.created_at)}>{stampOf(post.created_at).split(' · ')[0]}</span>
+            {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, at(e)); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+            <button onClick={e => setNotesReply(v => !v, at(e))} aria-expanded={notesReply} style={{ ...chipFill, marginLeft: 'auto', padding: '6px 14px' }}>↩ Reply{commentCount > 0 ? ` · ${commentCount}` : ''}</button>
+            {canModify && <>
+              <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+              <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? '…' : 'delete'}</button>
+            </>}
+          </div>
+        </Blk>
+
+        {/* kept by, playlists */}
+        <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, minHeight: 0 }}>
+          <Blk bg={TILE} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+            <span style={{ ...mono, opacity: 0.6 }}>kept by</span>
+            <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(keptBy.length).padStart(2, '0')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ ...mono, opacity: 0.6 }}>people</span>
+              <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
+            </div>
+          </Blk>
+          <Blk bg={TILE} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+            <span style={{ ...mono, opacity: 0.6 }}>playlists</span>
+            <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(nPl).padStart(2, '0')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ ...mono, opacity: 0.6 }}>in</span>
+              <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" aria-label="Other people's playlists with this record" style={badge}>♫</button>
+            </div>
+          </Blk>
+        </div>
+
+        {/* the tracks */}
+        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: 26, padding: '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
+            <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
+            <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
+          </div>
+          <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+            {tracks.map((t, i) => mrow(t, i))}
+          </div>
+        </Blk>
+
+        {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+        {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
+        {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
       </div>
     )
   }
