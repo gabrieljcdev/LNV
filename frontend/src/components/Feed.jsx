@@ -2742,23 +2742,26 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           )}
         </Blk>
 
-        {/* plays from */}
+        {/* the big box beside the cover: the playlists this record is in (the sources moved to the small box, 14 Oct) */}
         <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>listen on</span><span>{locations.length} source{locations.length === 1 ? '' : 's'}</span></div>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>playlists</span><span>{nPl}</span></div>
           <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
-            {locations.map(({ p, n }) => {
-              const on = nowP === p
-              return (
-                <div key={p} className="mod-sr" onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
-                  style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--blk-bg)' : undefined }}>
-                  <i style={{ width: 10, height: 10, borderRadius: '50%', background: shelfColor(p) }} />
-                  <span>{SOURCE_NAME[p] || p}</span>
-                  <em style={{ ...mono, fontStyle: 'normal', fontSize: 11, opacity: 0.7 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
+            {nPl === 0 ? <div style={{ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.4, opacity: 0.65 }}>Not in anyone's playlists yet.</div>
+              : post.playlists.map(pl => (
+                <div key={pl.id} className="mod-sr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`${pl.name}${pl.owner ? ` · by ${pl.owner}` : ''}`}
+                  style={{ display: 'grid', gridTemplateColumns: '18px minmax(0, 1fr)', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15 }}>
+                  <span aria-hidden="true" style={{ opacity: 0.6 }}>♫</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+                    {pl.owner && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6, marginTop: 2 }}>by {pl.owner}</span>}
+                  </span>
                 </div>
-              )
-            })}
+              ))}
           </div>
-          {locations.length > 0 && <div style={{ marginTop: 8 }}><button onClick={() => playFrom(locations.some(l => l.p === nowP) ? nowP : locations[0].p)} style={chipFill}>▶ Play from {SOURCE_NAME[locations.some(l => l.p === nowP) ? nowP : locations[0].p] || ''}</button></div>}
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <AddToPlaylistButton post={post} label="＋ Add to playlist" style={chip} />
+            {nPl > 0 && <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" style={chipFill}>See all</button>}
+          </div>
         </Blk>
 
         {/* under the media: the post, and only the post */}
@@ -2790,12 +2793,21 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
             </div>
           </Blk>
-          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
-            <span style={{ ...mono, opacity: 0.6 }}>playlists</span>
-            <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(nPl).padStart(2, '0')}</div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
-              <span style={{ ...mono, opacity: 0.6 }}>in</span>
-              <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" aria-label="Other people's playlists with this record" style={badge}>♫</button>
+          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: '14px 12px 10px 14px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
+            <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', fontSize: 9.5, opacity: 0.6, marginBottom: 6, paddingRight: 4 }}><span>listen on</span><span>{locations.length}</span></div>
+            <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+              {locations.length === 0 && <div style={{ fontFamily: d.bodyFf, fontSize: 12.5, opacity: 0.6 }}>No links yet.</div>}
+              {locations.map(({ p, n }) => {
+                const on = nowP === p
+                return (
+                  <div key={p} className="mod-sr" onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                    style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr) auto', gap: 7, alignItems: 'center', padding: '5px 8px', margin: '0 -8px', borderRadius: 10, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12.5, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--blk-bg)' : undefined }}>
+                    <i style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p) }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(SOURCE_NAME[p] || p).split(' ')[0]}</span>
+                    <em style={{ ...mono, fontStyle: 'normal', fontSize: 9.5, opacity: 0.7 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
+                  </div>
+                )
+              })}
             </div>
           </Blk>
         </div>
