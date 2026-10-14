@@ -9,6 +9,7 @@ import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
 import { askText } from './Dialogs'
+import Login from '../pages/Login'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
@@ -16,7 +17,7 @@ import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
-import { MODULE_CARDS, MODULE_CSS } from '../lib/moduleKit'
+import { MODULE_CARDS, MODULE_CSS, moduleLook, solid } from '../lib/moduleKit'
 import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -2635,17 +2636,16 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const dotsOf = t => { const s = new Set((t.sources || []).map(x => x.platform)); const own = platformOf(t.stream_url || t.youtube_url); if (own) s.add(own); return [...s] }
     const playing = !!playingSrc
     const activeIdx = activeUrl ? tracks.findIndex(t => urlOf(t) === activeUrl) : -1
-    const TILE = ['linear-gradient(180deg, color-mix(in srgb, var(--theme-light2) 50%, #fff), var(--theme-light2) 58%)', 'var(--theme-light2)']
-    const HOT = ['var(--theme-accent)', 'var(--theme-accent)']
-    const DARK = ['var(--theme-dark3)', 'var(--theme-dark3)']
+    const ML = moduleLook(idx) // this post's place on the spectrum: one solid colour, plus two accent colours from the same palette
+    const BASE = solid(ML.base), A1 = solid(ML.a1), A2 = solid(ML.a2), DARK = solid(ML.cover)
     const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
     const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
-    const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--theme-light2)', borderColor: 'var(--lv-pri)' }
+    const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
     const nm = (artist || post.title || '').length
     const wordSize = nm <= 8 ? 60 : nm <= 12 ? 48 : nm <= 18 ? 38 : nm <= 28 ? 30 : 24
     const numSz = num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28
     const nPl = (post.playlists || []).length
-    const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--theme-light2)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
+    const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
     const at = e => ({ x: e.clientX, y: e.clientY })
     const quote = quoteText || note
     const dt = { ...mono, fontSize: 9.5, opacity: 0.7 }
@@ -2659,7 +2659,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: active ? 'var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) auto 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
             <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
               {v.title}
@@ -2681,32 +2681,30 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
         style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: `${NOTES_PAD_TOP}px 0 ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box' /* under the search bar, above the compose button (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--theme-dark1)', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', background: ML.frame, transition: 'background 0.8s', borderRadius: 40, padding: 7, boxSizing: 'border-box', overflow: 'hidden', display: 'grid', gap: 7, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"word word disc" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }}>
 
         {/* top left: the artist wordmark, with the release title under it */}
-        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'word', borderRadius: 26, padding: '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
-            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--theme-accent)' }}>.</span>
+            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
           </h2>
           <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
         </Blk>
 
-        {/* the turntable: spins while something plays; click to play or stop */}
-        <div className={`mod-metal${playing ? ' on' : ''}`} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }}
-          style={{ gridArea: 'disc', position: 'relative', borderRadius: 26, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 0 22px', minWidth: 0 }} title={playing ? 'Stop' : 'Play'}>
-          <span className="mod-disc" aria-hidden="true" />
+        {/* top right: the post number, and a play / stop button (click the box to play or stop) */}
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'disc', borderRadius: 26, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 0 22px', minWidth: 0, cursor: 'pointer' }} onClick={() => { if (playing) setActiveUrl(null); else if (firstUrl) setActiveUrl(firstUrl) }} title={playing ? 'Stop' : 'Play'}>
           <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: 96, lineHeight: 1.2 }}>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
             <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>
           </div>
-          <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: '#151515', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>
-        </div>
+          <span style={{ position: 'relative', zIndex: 2, width: 50, height: 50, borderRadius: '50%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 16, paddingLeft: playing ? 0 : 2 }}>{playing ? '❚❚' : '▶'}</span>
+        </Blk>
 
         {/* left of the media: the details, with the add-to buttons */}
-        <Blk bg={HOT} className="lnv-still" style={{ gridArea: 'det', borderRadius: 26, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: 26, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div className={`mod-hatch${playing ? ' on' : ''}`} style={{ flex: '0 0 46px' }}>
-            <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-accent)', zIndex: 2 }}>Details</span>
+            <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--blk-bg)', zIndex: 2 }}>Details</span>
           </div>
           <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', marginTop: 12, ...INNER_SCROLL_STYLE }}>
             <dl style={{ margin: 0, display: 'grid', gap: 10 }}>
@@ -2717,7 +2715,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
             </dl>
           </div>
           <div style={{ flex: 'none', display: 'grid', gap: 6, marginTop: 12 }}>
-            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--theme-accent)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
+            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
             <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
             {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
               on ? <span key={k} style={{ ...chip, cursor: 'default', opacity: 0.85 }}>✓ {yes}</span>
@@ -2743,14 +2741,14 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* plays from */}
-        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'src', borderRadius: 26, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: 26, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>listen on</span><span>{locations.length} source{locations.length === 1 ? '' : 's'}</span></div>
           <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
             {locations.map(({ p, n }) => {
               const on = nowP === p
               return (
                 <div key={p} className="mod-sr" onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
-                  style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--theme-light2)' : undefined }}>
+                  style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15, background: on ? 'var(--lv-pri)' : undefined, color: on ? 'var(--blk-bg)' : undefined }}>
                   <i style={{ width: 10, height: 10, borderRadius: '50%', background: shelfColor(p) }} />
                   <span>{SOURCE_NAME[p] || p}</span>
                   <em style={{ ...mono, fontStyle: 'normal', fontSize: 11, opacity: 0.7 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
@@ -2762,7 +2760,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* under the media: the post, and only the post */}
-        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'post', borderRadius: 26, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'post', borderRadius: 26, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', opacity: 0.7 }}><span>the post</span><span>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></div>
           <div style={{ flex: '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
             {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
@@ -2782,7 +2780,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
 
         {/* kept by, playlists */}
         <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, minHeight: 0 }}>
-          <Blk bg={TILE} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+          <Blk bg={A2} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
             <span style={{ ...mono, opacity: 0.6 }}>kept by</span>
             <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(keptBy.length).padStart(2, '0')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
@@ -2790,7 +2788,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
             </div>
           </Blk>
-          <Blk bg={TILE} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+          <Blk bg={BASE} className="lnv-still" style={{ borderRadius: 26, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
             <span style={{ ...mono, opacity: 0.6 }}>playlists</span>
             <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(nPl).padStart(2, '0')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
@@ -2801,7 +2799,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </div>
 
         {/* the tracks */}
-        <Blk bg={TILE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: 26, padding: '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: 26, padding: '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
             <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
             <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
@@ -5136,6 +5134,7 @@ export default function Feed() {
   // reviews and hits post themselves.
   function openComposeWithUrl(url) { setComposeInitialUrl(url); setComposeOpen(true) }
   const [search, setSearch]           = useState('')
+  const [authTab, setAuthTab]         = useState(null) // the Module look: the welcome card swaps for the account card (sign in / create) in its own slot
   const shelfItems                    = useRef([])
   const shelfState                    = useRef(null)
   const lastPostsSignature            = useRef(null)
@@ -5671,7 +5670,7 @@ export default function Feed() {
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
         {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
         {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
-        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="welcome"><WelcomeCard /></FloatSlot>}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="welcome">{MODULE_CARDS && authTab ? <Login embedded startTab={authTab} onClose={() => setAuthTab(null)} /> : <WelcomeCard onAuth={MODULE_CARDS ? setAuthTab : undefined} />}</FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.
