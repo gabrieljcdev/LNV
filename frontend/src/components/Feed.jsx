@@ -2742,7 +2742,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
             </dl>
           </div>
           <div style={{ flex: 'none', display: 'grid', gap: 6, marginTop: 12 }}>
-            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chipFill, width: '100%' }} onStyle={{ background: 'var(--lv-pri)', color: 'var(--theme-accent)' }} />
+            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--theme-accent)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
             <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
             {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
               on ? <span key={k} style={{ ...chip, cursor: 'default', opacity: 0.85 }}>✓ {yes}</span>
