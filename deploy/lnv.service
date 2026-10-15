@@ -1,0 +1,22 @@
+# /etc/systemd/system/lnv.service — keeps the backend running, starts it at boot, restarts it if it dies.
+[Unit]
+Description=LNV backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lnv
+WorkingDirectory=/opt/lnv/backend
+EnvironmentFile=/opt/lnv/backend/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+# The server closes the database cleanly on SIGTERM; give it time to.
+TimeoutStopSec=20
+# Basic hardening: the backend only needs its own folder and the data folder.
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/lnv/backend /var/lib/lnv
+
+[Install]
+WantedBy=multi-user.target

@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
+import BrandScaleTool, { readBrandScale, applyBrandScale } from './BrandScaleTool';
 import { getUser, logout, isAdmin } from '../lib/auth';
 import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
+import { MODULE_CARDS } from '../lib/moduleKit';
 
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
@@ -161,6 +163,12 @@ export default function Strip({ activeView }) {
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+
+  // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
+  // sliders (BrandScaleTool.jsx) win over these.
+  useEffect(() => {
+    if (railWordmarkRef.current) applyBrandScale(railWordmarkRef.current, readBrandScale() || { chewing: 72, ceiling: 20, left: 46, bottom: 10 }); // clear of the nav chips (they end at x=39), still inside the 108px rail (15 Oct)
+  }, [railWordmarkRef]);
   const feedMode = useFeedMode();
 
   async function handleLogout() {
@@ -178,6 +186,8 @@ export default function Strip({ activeView }) {
     } catch (err) { console.error('Random error:', err); }
   }
 
+  const brandTool = typeof location !== 'undefined' && new URLSearchParams(location.search).has('brandtool');
+
   return (
     <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
@@ -190,6 +200,7 @@ export default function Strip({ activeView }) {
         // covers' radius); was 14, too subtle at this height. Feed.jsx's
         // FLOAT_RADIUS (cards, intro) is set from STRIP_RADIUS so all match.
         borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS }}>
+        {brandTool && <BrandScaleTool brandRef={railWordmarkRef} />}
         {/* FADE text wordmark. FIXED position (round 23) — never moves as
             the rail collapses, only opacity animates (fadeTextOpacity,
             LayoutProvider). ROUND 24: gabriel wants this centered for the
@@ -206,22 +217,24 @@ export default function Strip({ activeView }) {
           id="lnv-brand"
           ref={railWordmarkRef}
           style={{
+            // CHEWING THE CEILING (chosen brand, 2026-10-12): CHEWING stands where
+            // FADE did (vertical, big); THE CEILING carries on from the end of the G on the
+            // same baseline, so the bottoms of every letter are flush.
             position: 'absolute',
             left: '28px',
             bottom: '40px',
-            writingMode: 'vertical-rl',
-            transform: 'rotate(180deg)',
             fontFamily: 'Barlow, sans-serif',
-            fontSize: '100px',
             fontWeight: 900,
             color: 'var(--pastel-blue-mid)',
-            letterSpacing: '-3px',
-            lineHeight: '36px',
             whiteSpace: 'nowrap',
             opacity: 0,
           }}
         >
-          FADE
+          {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
+            <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
+            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
+          </div>
         </div>
       </div>
       {/* Zone 2 — the old "secondary strip" color. Only its `left` is
@@ -316,7 +329,7 @@ export default function Strip({ activeView }) {
           column, not something to size up the way the drawer pills did.
           Not verified live — worth checking the tab stack doesn't run past
           100vh on a shorter screen now that each tab is taller. */}
-      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
+      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, ...(MODULE_CARDS ? { bottom:0 } : null), width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
           const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);
@@ -373,6 +386,16 @@ export default function Strip({ activeView }) {
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}
+        {/* The Module look (14 Oct): the search, the feed switch, new post, listen and theme live here, so nothing sits over a post. Feed.jsx listens for 'lnv-tool'. */}
+        {MODULE_CARDS && (<div style={{ position:'absolute', left:0, right:0, bottom:14, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          {[['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>], ['feeds', 'Choose a feed', '≡'], ['compose', 'New post', '✎'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐']].map(([id, title, glyph]) => (
+            <button key={id} onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: id }))} title={title} aria-label={title}
+              style={{ color: id === 'compose' ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: id === 'compose' ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', flexShrink:0, transition:'background 0.2s, border-color 0.8s' }}
+              onMouseEnter={e => { if (id !== 'compose') e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (id !== 'compose') e.currentTarget.style.background='transparent'; }}
+            >{glyph}</button>
+          ))}
+        </div>)}
       </div>
     </div>
   );

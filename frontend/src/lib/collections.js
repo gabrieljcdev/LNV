@@ -52,7 +52,8 @@ let mode = (() => {
     if (m.type === 'home') return homeMode()
     if (m.type === 'wall' && m.username && m.username === getUser()) return homeMode()
     if (m.type === 'wall' && m.username) return m
-    if (m.type === 'playlist' && (m.token || (m.id && isLoggedIn()))) return m
+    // A playlist feed is not restored on reload (13 Oct 2026): a one-card playlist feed left people with nothing to scroll and no
+    // obvious way back. Opening one from a link or the wheel still works; the site reopens on your home feed.
     return homeMode()
   } catch { return homeMode() }
 })()

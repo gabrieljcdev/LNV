@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import ComposeModal from './ComposeModal'
@@ -6,17 +7,27 @@ import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
 import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/auth'
-import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, playlistsApi, trackFrom, useIntroductions } from '../lib/collections'
+import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
+import { askText } from './Dialogs'
+import Login from '../pages/Login'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
-import { PALETTES, getAutoIndex, applyPalette } from '../services/themeService'
+import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
+import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
+import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
+import { MODULE_CARDS, MODULE_CSS, moduleLook, solid } from '../lib/moduleKit'
+import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
 import TrackPlayer from './TrackPlayer'
 import { toEmbedSrc } from '../lib/embeds'
+import { useDiscogsAccount, useDiscogsRecords } from '../lib/discogsAccount'
 import { SOURCE_SHORT, SOURCE_NAME, useSourcePref, urlForTrack, platformOf } from '../lib/sources'
+import { useListening, pickUrl } from '../lib/listening'
+import ListeningSettings from './ListeningSettings'
+import { DiscogsPrompt } from './DiscogsConnect'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
@@ -203,9 +214,13 @@ const SPOTLIGHT_MIN_POSTS = 3
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+const asUtc = d => new Date(typeof d === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(d) ? d.replace(' ', 'T') + 'Z' : d)
+// "Sat 10 Oct · 03:12" in the viewer's own time
+const stampOf = d => { const t = asUtc(d); return isNaN(t) ? '' : `${t.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(t.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) })} · ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` }
+const stampShort = d => { const t = asUtc(d); return isNaN(t) ? '' : `${t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(t.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) })} · ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` }
 function timeAgo(d) {
   if (!d) return ''
-  const s = (Date.now() - new Date(d)) / 1000
+  const s = (Date.now() - asUtc(d)) / 1000
   if (s < 60)    return 'just now'
   if (s < 3600)  return `${Math.floor(s / 60)}m`
   if (s < 86400) return `${Math.floor(s / 3600)}h`
@@ -294,6 +309,9 @@ const U = 100
 // between them, over the feed surface (FEED_SURFACE). Replaces full-height
 // cards joined by two-tone seams (FeedGap).
 const FLOAT_GAP = 28   // was 56; halved per gabriel 2026-09-26
+// Where the compose button locks (2026-10-08, gabriel): this far clear of the nav rail's right edge
+// (the feed starts STRIP_RADIUS under the rail), in the notch beside the rail's rounded corner.
+const COMPOSE_LOCK_GAP = 12
 // One corner radius for everything that floats: cards, the intro panel,
 // the nav strip (Strip.jsx), the compose card. 40 since 2026-09-30 (was
 // 14) — gabriel wanted the strip rounder, then all the edges uniform.
@@ -336,24 +354,10 @@ const FEED_SURFACE = 'var(--theme-bg)'
 // sat right at 3:1 on mid-tone spectrum cards. The --lv-* names are what
 // AlbumCard / LiveSetCard read; they used to be set once by useCardInk and
 // went stale when the palette changed (dark-on-dark after a switch).
-const INK_DARK_BG  = { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.72)', '--theme-border': 'rgba(255,255,255,0.18)' }
-const INK_LIGHT_BG = { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.66)', '--theme-border': 'rgba(0,0,0,0.12)' }
-for (const ink of [INK_DARK_BG, INK_LIGHT_BG]) {
-  ink['--lv-pri'] = ink['--theme-text-pri']; ink['--lv-sec'] = ink['--theme-text-sec']
-  ink['--lv-ter'] = ink['--theme-text-ter']; ink['--lv-line'] = ink['--theme-border']
-}
-function bgIsDark(el) {
-  const c = getComputedStyle(el).backgroundColor
-  const m = c.match(/\d+(\.\d+)?/g)
-  if (!m) return false
-  const k = /^color\(srgb/i.test(c) ? 255 : 1
-  const [r, g, b] = m.slice(0, 3).map(v => { v = (Number(v) * k) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18 // ≈ where white and black ink give equal contrast
-}
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
-function FloatSlot({ children }) {
+function FloatSlot({ children, bare = false }) {
   const cardWrapRef = useRef(null)
   const [ink, setInk] = useState(null)
   useLayoutEffect(() => {
@@ -367,7 +371,7 @@ function FloatSlot({ children }) {
   }, [])
   return (
     <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
-      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW, ...ink }}>
+      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', ...(bare ? null : { borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW }), ...ink }}>
         {children}
       </div>
     </div>
@@ -405,13 +409,38 @@ function PostTitle({ post, labelStyle }) {
   )
 }
 
+// A small confirmation that opens beside the cursor (instead of the browser's own box). Esc or a click elsewhere cancels.
+function ConfirmPop({ at, message, detail, confirmLabel = 'Delete', onConfirm, onCancel }) {
+  useEffect(() => {
+    const away = e => { if (!e.target.closest?.('[data-confirm-pop]')) onCancel() }
+    const esc = e => { if (e.key === 'Escape') onCancel() }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [onCancel])
+  const W = 250
+  const left = Math.min(Math.max(at.x - W / 2, 12), window.innerWidth - W - 12)
+  const above = at.y > window.innerHeight - 170 // near the bottom of the screen: open upwards
+  return createPortal(
+    <div data-confirm-pop="" role="alertdialog" aria-label={message}
+      style={{ position: 'fixed', zIndex: 10000, left, top: above ? at.y - 14 : at.y + 14, transform: above ? 'translateY(-100%)' : 'none', width: W, background: 'var(--theme-bg)', color: 'var(--theme-text-pri)', border: '1px solid var(--theme-border)', borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,0.38)', padding: '14px 16px 12px', fontFamily: 'Barlow, sans-serif' }}>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>{message}</div>
+      {detail && <div style={{ marginTop: 4, fontSize: 13, lineHeight: 1.35, color: 'var(--theme-text-sec)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{detail}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button autoFocus onClick={onConfirm} style={{ flex: 1, border: 'none', borderRadius: 99, background: 'var(--theme-accent)', color: '#fff', padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{confirmLabel}</button>
+        <button onClick={onCancel} style={{ flex: 1, border: '1px solid var(--theme-border)', borderRadius: 99, background: 'none', color: 'var(--theme-text-sec)', padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Cancel</button>
+      </div>
+    </div>, document.body)
+}
+
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 }) {
+function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11, drawer = false, ownerName = null }) {
   const [comments, setComments] = useState(null) // null = not yet loaded
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [priv, setPriv] = useState(false) // the next reply goes to the post's owner only
+  const [ask, setAsk] = useState(null) // the delete pop-up: where it opens and which comment
 
   useEffect(() => {
     let cancelled = false
@@ -423,6 +452,16 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
   }, [postId])
 
   const userId = getUserId()
+  const meName = getUser()
+  const canDelete = c => !!meName && (c.username === meName || ownerName === meName || isAdmin())
+  async function remove(c) {
+    try {
+      const res = await fetch(`${API}/posts/${postId}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      setComments(prev => (prev || []).filter(x => x.id !== c.id))
+      if (!c.private) onCountChange?.(Math.max(0, (comments || []).filter(x => !x.private && x.id !== c.id).length))
+    } catch { window.alert('Could not delete that comment — try again.') }
+  }
 
   async function submit() {
     const content = text.trim()
@@ -432,12 +471,12 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
       const res = await fetch(`${API}/posts/${postId}/comments`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, private: priv }),
       })
       if (!res.ok) throw new Error(`${res.status}`)
       const saved = await res.json()
       setComments(prev => [...(prev || []), saved])
-      onCountChange?.((comments?.length || 0) + 1)
+      if (!saved.private) onCountChange?.((comments || []).filter(c => !c.private).length + 1)
       setText('')
     } catch {
       setError('COULD NOT POST — TRY AGAIN')
@@ -462,7 +501,20 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
     <div style={{ padding: `${d?.cmPy ?? 8}px ${d?.cmPx ?? 16}px 12px`, borderTop: hasComments ? '0.5px solid var(--theme-border)' : 'none', flexShrink: 0 }}>
       {hasComments && (
         <div data-inner-scroll="" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: maxH, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
-          {comments.map(c => (
+          {comments.map(c => drawer ? (
+            <div key={c.id} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', padding: '10px 0', borderBottom: '1px solid var(--lv-line)', fontFamily: d?.bodyFf ?? 'Barlow, sans-serif' }}>
+              <span style={{ width: 36, height: 36, borderRadius: 11, border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 14px sans-serif', color: 'var(--lv-pri)', flexShrink: 0 }}>{c.username?.[0]?.toUpperCase()}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ display: 'block', fontSize: 15, color: 'var(--lv-pri)' }}><CommentAuthor name={c.username} /></b>
+                <span style={{ fontSize: 14, lineHeight: 1.4, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</span>
+              </span>
+              <span style={{ fontFamily: d?.monoFf ?? 'IBM Plex Mono, monospace', fontSize: 11.5, color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                {stampShort(c.created_at)}
+                {c.private ? <><br /><span style={{ color: 'var(--theme-accent)' }}>🔒 private</span></> : null}
+                {canDelete(c) ? <><br /><button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></> : null}
+              </span>
+            </div>
+          ) : (
             <div key={c.id} style={{ display: 'flex', gap: 6, fontSize: d?.cmSize ?? 12, fontFamily: d?.bodyFf ?? 'Barlow, sans-serif', lineHeight: 1.4 }}>
               <CommentAuthor name={c.username} />
               <span style={{ color: 'var(--theme-text-sec)' }}>{c.content}</span>
@@ -476,9 +528,13 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submit() }}
-            placeholder="reply…"
+            placeholder={priv ? `private to ${ownerName}…` : 'reply…'}
             style={{ flex: 1, minWidth: 0, borderRadius: 20, border: '1px solid var(--theme-border)', padding: '5px 12px', fontFamily: 'Barlow, sans-serif', fontSize: inputSize, background: 'var(--theme-dark3)', color: 'var(--theme-text-pri)', outline: 'none' }}
           />
+          {ownerName && meName && ownerName !== meName && (
+            <button onClick={() => setPriv(v => !v)} title={priv ? `Private: only you and ${ownerName} will see it` : `Make this reply private to ${ownerName}`} aria-pressed={priv}
+              style={{ borderRadius: 20, border: `1px solid ${priv ? 'var(--theme-accent)' : 'var(--theme-border)'}`, background: priv ? 'color-mix(in srgb, var(--theme-accent) 18%, transparent)' : 'none', padding: '4px 10px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>🔒</button>
+          )}
           <button onClick={submit} disabled={!text.trim() || submitting}
             style={{ borderRadius: 20, border: 'none', padding: '5px 14px', fontFamily: 'VT323, monospace', fontSize: 11, background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', opacity: (!text.trim() || submitting) ? 0.5 : 1, flexShrink: 0 }}
           >{submitting ? '···' : 'reply'}</button>
@@ -487,6 +543,7 @@ function CommentThread({ postId, onCountChange, d, maxH = 140, inputSize = 11 })
         <a href="/login" style={{ fontFamily: 'VT323, monospace', fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>
       )}
       {error && <div style={{ fontFamily: 'VT323, monospace', fontSize: 10, color: 'var(--theme-accent)', marginTop: 4 }}>{error}</div>}
+      {ask && <ConfirmPop at={ask} message="Delete this comment?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
     </div>
   )
 }
@@ -1113,7 +1170,9 @@ const NUMERAL_GAP = 4
 // sets at every screen size (gabriel, 2026-09-26).
 function liveCardWidth() {
   const T = DESIGN_BASE
-  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${2 * (T.padY + LIVE_VIDEO_INSET_Y) + 330}px))`
+  // The paired live card: the info box (~345px) + gap + footer pill (~72px) under the video, PAIRED_PAD_Y above and below.
+  const reserve = PAIRED_CARDS ? 2 * PAIRED_PAD_Y + 22 + 345 + 72 : 2 * (T.padY + LIVE_VIDEO_INSET_Y) + 330
+  const videoH = `min(${Math.round((LIVE_W - 2 * LIVE_PADX) * 9 / 16)}px, calc(100vh - ${reserve}px))`
   return `calc(${videoH} * 16 / 9 + ${2 * LIVE_PADX}px)`
 }
 
@@ -1121,6 +1180,8 @@ function liveCardWidth() {
 // like one ("Artist | Channel - Date", b2b, dj set, live at, session) —
 // several older sets were saved as "album".
 function isLiveSetPost(p) {
+  // A stored type wins; the title guess is only for untyped old posts.
+  if (p.post_type) return p.post_type === 'livemix'
   return detectType(p) === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 }
 
@@ -1163,6 +1224,121 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
   const MONO = "'IBM Plex Mono', monospace", SANS = "'Barlow', sans-serif"
   const pill = { display: 'inline-block', fontFamily: SANS, fontWeight: 600, fontSize: 10, lineHeight: 1, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: 3, textDecoration: 'none' }
   const discogsHref = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+
+  if (PAIRED_CARDS) {
+    const cap = { fontFamily: MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)' }
+    const chip = { display: 'inline-block', margin: 0, fontFamily: SANS, fontWeight: 500, fontSize: 13, padding: '4px 11px', borderRadius: 99, border: '1px solid var(--lv-sec)', background: 'none', color: 'var(--lv-pri)', cursor: 'pointer', textDecoration: 'none' }
+    const poster = post.user?.username || post.username
+    const quoteText = (post.post_title || '').trim() || (note && note.length <= 300 && !post.post_title ? note : '')
+    const showDesc = !!note && note !== quoteText
+    return (
+      <div ref={el => { registerPostRef?.(post.id, el); cardRef.current = el }}
+        style={{ position: 'relative', flexShrink: 0, width: cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px ${LIVE_PADX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
+        <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
+        {/* the video, as wide as it always was */}
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#000', flexShrink: 0, overflow: 'hidden', borderRadius: T.artRadius }}>
+          {playing && embedSrc ? (
+            <TrackPlayer key={embedSrc} src={embedSrc} title={post.title} autoplay />
+          ) : (
+            <>
+              {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" onError={() => vid && setThumb(`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              <span style={{ ...pill, position: 'absolute', left: 18, top: 18, background: 'var(--theme-showcase)', color: '#fff' }}>● live set</span>
+              {embedSrc && (
+                <button onClick={() => setPlaying(true)} aria-label="Play set"
+                  style={{ position: 'absolute', left: '50%', top: '50%', width: 92, height: 92, margin: '-46px 0 0 -46px', borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.92)', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                  <span style={{ width: 0, height: 0, borderLeft: '26px solid #111', borderTop: '16px solid transparent', borderBottom: '16px solid transparent', marginLeft: 7 }} />
+                </button>
+              )}
+              <span style={{ position: 'absolute', right: 14, top: 14, fontFamily: MONO, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', padding: '6px 9px', borderRadius: 99, background: 'var(--lv-pri)', color: cardBg }}>#{String(post.feedNumber ?? post.id).padStart(2, '0')}</span>
+            </>
+          )}
+        </div>
+
+        {/* under the video: ONE box (gabriel, 12 Oct) — the info on the left, the options on the right, the post along the bottom */}
+        <div style={{ flex: '0 0 auto', marginTop: 22, border: `1px solid ${CARD_LINE}`, borderRadius: 28, background: 'color-mix(in srgb, var(--lv-pri) 9%, transparent)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 28, padding: '20px 26px 14px' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+                <span style={{ ...pill, fontSize: 10 * 0.82, background: 'var(--theme-showcase)', color: '#fff' }}>live set</span>
+                {platform && <a href={streamUrl || undefined} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ ...pill, fontSize: 10 * 0.82, ...mutedPill(platform, 24) }}>{platform}</a>}
+                {discogsHref && <a href={discogsHref} target="_blank" rel="noopener noreferrer" style={{ ...pill, fontSize: 10 * 0.82, background: 'color-mix(in srgb, var(--lv-pri) 8%, transparent)', color: 'var(--lv-sec)' }}>◈ discogs</a>}
+              </div>
+              <div style={{ fontFamily: T.artistFf, fontWeight: T.artistWeight, fontSize: Math.min(T.artistSize, 38), lineHeight: T.artistLh, letterSpacing: `${T.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist ? <DrawerLink kind="live" name={artist} quiet>{artist}</DrawerLink> : artist}</div>
+              <div style={{ marginTop: 4, fontFamily: T.artistFf, fontStyle: 'italic', fontSize: Math.min(T.titleSize, 22), lineHeight: T.titleLh, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{subtitle}</div>
+              {post.channel && (
+                <div style={{ marginTop: 8, fontFamily: SANS, fontSize: 13, color: 'var(--lv-sec)' }}>
+                  <DrawerLink kind="live" name={post.channel}>{post.channel}</DrawerLink>{' '}
+                  <FavHeart kind="channel" name={post.channel} size={15} style={{ color: 'var(--lv-sec)' }} />
+                  {post.year ? <span style={{ fontFamily: MONO, fontSize: 11, marginLeft: 10, color: 'var(--lv-ter)' }}>{post.year}</span> : null}
+                </div>
+              )}
+              {post.genres?.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: T.pillGap, marginTop: 12 }}>
+                  {post.genres.slice(0, 5).map(g => (
+                    <button key={g} onClick={() => openD3?.('genres', { filter: g })} style={{ fontSize: T.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${T.pillPy}px ${T.pillPx}px`, borderRadius: T.pillRadius, fontFamily: T.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ ...cap, margin: '2px 0 10px' }}>Options</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <AddToPlaylistButton post={post} style={{ ...chip, fontSize: 13 }} />
+                <HeartButton post={post} style={{ ...chip, fontSize: 13 }} />
+                {streamUrl && <a href={streamUrl} target="_blank" rel="noopener noreferrer" style={{ ...chip, fontSize: 13 }}>↗ Open on {SOURCE_NAME[platform] || platform || 'the site'}</a>}
+                {streamUrl && <button onClick={() => { try { navigator.clipboard?.writeText(streamUrl) } catch { /* no clipboard */ } }} style={{ ...chip, fontSize: 13 }}>⎘ Copy link</button>}
+                <FollowedTag post={post} />
+              </div>
+            </div>
+          </div>
+          <div style={{ height: 1, margin: '0 26px', background: CARD_LINE }} />
+          <div style={{ padding: '12px 26px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, fontFamily: SANS, fontSize: 16 }}>
+              <b style={{ fontWeight: 600, letterSpacing: '-0.01em' }}>The post</b>
+              <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', gap: 28 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '2px 0 6px', fontFamily: SANS, fontWeight: 500, fontSize: 13 }}>
+                  <span>{poster}</span><span style={{ fontFamily: MONO, fontWeight: 600, fontSize: 11, color: 'var(--lv-ter)' }}>{stampOf(post.created_at)}</span>
+                </div>
+                {quoteText && <p style={{ margin: 0, fontFamily: SANS, fontStyle: 'italic', fontSize: 18, lineHeight: 1.3, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
+                {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: SANS, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+                {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: SANS, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <CardReplies fill={false} size={14} posterName={poster} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={T} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* one pill across the foot, above the compose button */}
+        <div style={{ flexShrink: 0, margin: '28px 0 0', height: 44, padding: '0 20px 0 5px', border: `1px solid ${CARD_LINE}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: MONO, fontSize: 12 }}>
+          {poster && <UserChip name={poster} d={T} />}
+          <MainNumber post={post} style={{ fontFamily: MONO, fontSize: T.stampSize, color: 'var(--lv-ter)' }} />
+          <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+          {canModify && <>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </>}
+        </div>
+        {commentsOpen && (
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 360, zIndex: 20, background: cardBg, borderLeft: '1px solid var(--lv-line)', boxShadow: '-18px 0 40px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', animation: 'lnvShelfIn 0.28s ease-out' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '26px 24px 6px 26px', flexShrink: 0 }}>
+              <h3 style={{ margin: 0, flex: 1, minWidth: 0, fontFamily: SANS, fontWeight: 900, fontSize: 26, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist || post.title}</h3>
+              <span style={{ fontFamily: MONO, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
+              <button onClick={() => setCommentsOpen(false)} aria-label="Close replies" style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--lv-line)', background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', color: 'var(--lv-sec)', cursor: 'pointer', fontSize: 16, flexShrink: 0, alignSelf: 'center' }}>×</button>
+            </div>
+            <div data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 24px 14px 26px', ...INNER_SCROLL_STYLE }}>
+              {note && <div style={{ fontFamily: SANS, fontStyle: 'italic', fontWeight: 300, fontSize: 18, lineHeight: 1.4, color: 'var(--lv-pri)', paddingLeft: 12, borderLeft: '3px solid var(--theme-accent)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', margin: '10px 0' }}>{note}</div>}
+              <CommentThread postId={post.id} onCountChange={setCommentCount} d={T} maxH={9999} inputSize={13} drawer ownerName={poster} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -1297,10 +1473,13 @@ function PreviewPrompt({ post, track, linkKey, activeUrl, indent = 30 }) {
 // The places a track can be played, as small chips on its row (2026-10-07):
 // click one to play it from there — and to make it your default where a track
 // has it. Only shown when there's a choice (two or more sources).
-function SourceChips({ track, activeUrl, pref, onPick, d }) {
-  const list = track.sources || []
-  if (list.length < 2) return null
+// `always` (the shelf stack card, 2026-10-08): show the chip even when there is only one place — so every
+// track says where it plays — falling back to the track's own link when no sources were stored.
+function SourceChips({ track, activeUrl, pref, onPick, d, always = false }) {
   const own = track.stream_url || track.youtube_url
+  let list = track.sources || []
+  if (always && list.length === 0 && platformOf(own)) list = [{ platform: platformOf(own), url: own, full: FULL_SOURCES.has(platformOf(own)) }]
+  if (list.length < (always ? 1 : 2)) return null
   const current = activeUrl ? platformOf(activeUrl) : (pref && list.some(s => s.platform === pref) ? pref : platformOf(own))
   return (
     <span style={{ display: 'inline-flex', gap: 3 }} onClick={e => e.stopPropagation()}>
@@ -1467,8 +1646,8 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <div style={{ gridColumn: 1, gridRow: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{post.post_type || 'album'}</span>
             {playingPlatform && <a href={playingHref || undefined} target="_blank" rel="noopener noreferrer" style={{ ...badge, background: PLATFORM_COLORS[playingPlatform] || '#444', color: playingPlatform === 'beatport' ? '#000' : '#fff' }}>{playingPlatform}</a>}
-            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
-            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: PAIRED_CARDS ? 'none' : '1px solid var(--lv-line)', background: PAIRED_CARDS ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined, color: 'var(--lv-sec)' }}>◈ discogs</a>
+            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: PAIRED_CARDS ? 'none' : '1px solid var(--lv-line)', background: PAIRED_CARDS ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined, color: 'var(--lv-sec)' }}>buy ↗</a>}
           </div>
         <div style={{ gridColumn: 1, gridRow: 2, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, textTransform: d.artistCase, marginTop: d.artistMt, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>{artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}</div>
@@ -1528,6 +1707,1866 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
       {commentsOpen && (
         <div style={{ marginTop: 8, flexShrink: 0 }}>
           <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Shelf stack card (2026-10-08, gabriel) ────────────────────────────────────
+// One card for albums, singles and compilations (live sets, spotlights and
+// introductions are unchanged). Designed in frontend/mockup4.html from record
+// shops' release listings (Boomkat, Hard Wax, Bleep, Bandcamp), at the old
+// cards' geometry: padY 90 / bandPadX 32, a 390px sleeve with the 40px art
+// radius. Top to bottom: sleeve on the left; on the right the pills (type,
+// every place it can be heard, Discogs, buy), artist, title, label line,
+// genres and — for compilations — the contributing artists; under it the
+// whole tracklist (track artists bold + linked, a chip per source), the post
+// title and description, then the byline. Replies open as a panel that slides
+// out of the card's right edge.
+// The old cards are still in the file: `?cards=old` in the address brings
+// them back (remembered until `?cards=new`). The commit before this card is
+// tagged `pre-shelf-stack`.
+const SHELF_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'old' || q === 'new') localStorage.setItem('lnv-cards', q)
+    return localStorage.getItem('lnv-cards') !== 'old'
+  } catch { return true }
+})()
+
+// Paired-boxes card (E, 12 Oct 2026) is the default feed card. `?cards=new` goes back to the shelf stack, `?cards=old` to the older cards, `?cards=paired` to this one again (all remembered).
+const PAIRED_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'paired' || q === 'new' || q === 'old') localStorage.setItem('lnv-cards', q)
+    const v = localStorage.getItem('lnv-cards')
+    return v !== 'new' && v !== 'old' // the default card since 12 Oct 2026; ?cards=new = shelf stack, ?cards=old = the older cards
+  } catch { return true }
+})()
+
+// "Artist - Title" as written on compilations (Bandcamp, YouTube): split it.
+const splitTrackName = title => {
+  const m = String(title || '').match(/^(.{2,70}?)\s[-–—]\s(.+)$/)
+  return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: String(title || '') }
+}
+// "Walk A Mile In My Shoes (Henrik Schwarz Remix)" -> ['Henrik Schwarz']. Generic mixes ("Original Mix",
+// "Long Instrumental Version") name nobody. (Same rule in backend/routes/posts.js /browse.)
+const GENERIC_MIX = /^(original|extended|radio|club|album|single|vocal|instrumental|dub|long|short|main|full|clean|dirty|edit|lp|ep|7"|12"|remix|re-?edit|version|vip|acapella|a cappella|live|demo|mono|stereo)\b/i
+function remixersOf(title) {
+  const out = []
+  for (const m of String(title || '').matchAll(/[(\[]([^()\[\]]{2,60}?)\s+(?:remix|rmx|rework|re-?edit|re-?work|mix|edit|dub|version)[)\]]/gi)) {
+    let name = m[1].replace(/\s+(?:vocal|dub|instrumental|club|radio|extended)$/i, '').trim()
+    name = name.replace(/['’]s$/i, '').trim() // "Babatunji's Dub Mix" -> Babatunji
+    // "Timmy's Original Shelter Mix" names a version of the track, not a person
+    if (name && !GENERIC_MIX.test(name) && !/\b(original|extended|radio|club|vocal|instrumental|dub|long|short|album|single|clean|dirty|acapella|a cappella|version|mix|remix|edit)\b/i.test(name) && /^[\p{L}\p{N}]/u.test(name)) out.push(name)
+  }
+  return [...new Set(out)]
+}
+// Artists shown on a spotlight / preview track row: the credited ones plus whoever the title says remixed it.
+const rowArtists = t => {
+  const have = (t.artists || []).filter(a => a?.name)
+  const extra = remixersOf(t.title).filter(n => !have.some(a => a.name.toLowerCase() === n.toLowerCase())).map(name => ({ name }))
+  return [...have, ...extra]
+}
+// A track for display: its own artist (post_tracks.artist) or the one its name carries, and the clean title.
+function shelfTrack(t, comp) {
+  let artist = (t.artist || '').trim(), title = t.title || ''
+  if (artist && title.toLowerCase().startsWith(artist.toLowerCase() + ' - ')) title = title.slice(artist.length + 3).trim()
+  else if (!artist && comp) { const sp = splitTrackName(title); artist = sp.artist; title = sp.title }
+  // "Coldcut feat. Robert Owens" is two artists, each with their own page.
+  const artists = artist ? artist.split(/\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i).map(s => s.trim()).filter(Boolean) : []
+  // The remixer is on the track too: "(Henrik Schwarz Remix)" puts Henrik Schwarz in the artists row.
+  const remixers = remixersOf(title).filter(n => !artists.some(a => a.toLowerCase() === n.toLowerCase()))
+  return { artists, remixers, title }
+}
+function isCompilation(post, tracks) {
+  if (isVariousArtist(artistName(post))) return true
+  if (tracks.length < 5) return false
+  const named = tracks.filter(t => (t.artist || '').trim() || splitTrackName(t.title).artist).length
+  return named / tracks.length >= 0.6
+}
+// Every place this release can be heard: the posted link's platform plus whatever each track has found.
+// A source pill in muted tones: the platform colour only as a tint (no border), the text in the card's ink.
+const mutedPill = (p, tint) => ({ background: `color-mix(in srgb, ${shelfColor(p)} ${tint}%, transparent)`, border: 'none', color: 'var(--lv-pri)' })
+const shelfColor = p => PLATFORM_COLORS[p === 'apple' ? 'applemusic' : p] || '#444'
+function shelfLocations(post, tracks) {
+  const m = new Map()
+  tracks.forEach(t => {
+    const set = new Set((t.sources || []).map(s => s.platform))
+    const own = platformOf(t.stream_url || t.youtube_url); if (own) set.add(own)
+    set.forEach(p => m.set(p, (m.get(p) || 0) + 1))
+  })
+  const posted = platformOf(post.stream_url)
+  if (posted && !m.has(posted)) m.set(posted, 0)
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p, n]) => ({ p, n }))
+}
+
+// A compilation's card is this much wider than the others (2026-10-08, gabriel): every track line
+// carries an artist, so two columns of 800px-card width got messy once the list was busy.
+const SHELF_COMP_EXTRA = 280
+// Space between the big post number and the line under it (it travels with the number).
+const NUM_LINE_GAP = 14
+// The shelf card's top and bottom padding (equal): enough at the top to clear the floating "my feed" + search bar, the same at the bottom for continuity (gabriel, 2026-10-10). The sleeve keeps its full size (390); the replies strip gives way first when the screen is short.
+const SHELF_PAD_Y = 64
+// The paired card's top and bottom padding (equal, gabriel 12 Oct): enough at the bottom for the footer pill to sit above the compose + button (48px, 16px up), the same at the top.
+const PAIRED_PAD_Y = 84
+
+// A person chip: their initial and name; opens their feed.
+function UserChip({ name, d }) {
+  return (
+    <button onClick={e => { e.stopPropagation(); openWall(name) }} title={`Open ${name}’s feed`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, border: '1px solid var(--lv-line)', background: 'none', borderRadius: 99, padding: '2px 10px 2px 3px', cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, color: 'var(--lv-pri)', whiteSpace: 'nowrap' }}>
+      <i style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--lv-sec)', color: 'var(--theme-bg)', font: '700 9px/18px sans-serif', fontStyle: 'normal', textAlign: 'center' }}>{name[0]?.toUpperCase()}</i>{name}
+    </button>
+  )
+}
+
+// "Playlists this has appeared on": public lists only, opened next to the click (Esc or a click elsewhere closes it).
+function PlaylistsPop({ lists, at, cardBg, d, onClose }) {
+  useEffect(() => {
+    const off = e => { if (!e.target.closest?.('[data-pl-pop]')) onClose() }
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', off); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', off); document.removeEventListener('keydown', esc) }
+  }, [onClose])
+  return (
+    <div data-pl-pop="" style={{ position: 'absolute', zIndex: 30, left: at.x, bottom: at.bottom, width: 300, background: cardBg, border: '1px solid var(--lv-line)', borderRadius: 16, boxShadow: '0 18px 44px rgba(0,0,0,0.35)', padding: '14px 16px 10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 6 }}><span>Playlists this has appeared on</span><span style={{ fontFamily: d.monoFf, fontWeight: 400, letterSpacing: '0.06em' }}>{lists.length}</span></div>
+      {lists.map(pl => (
+        <button key={pl.id} onClick={() => { openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name }); onClose() }}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% + 16px)', margin: '0 -8px', padding: '8px', background: 'none', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left', color: 'var(--lv-pri)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' }} onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</b>
+            <small style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>by {pl.owner} · {pl.track_count} track{pl.track_count === 1 ? '' : 's'}</small>
+          </span>
+          <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)' }}>open →</span>
+        </button>
+      ))}
+      <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--lv-line)', fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>Public lists only.</div>
+    </div>
+  )
+}
+
+// The newest replies under the post, and a one-line reply box (the full list is the side panel).
+function CardReplies({ post, count, onCount, onOpen, d, fill = true, size = d.titleSize, posterName = null }) {
+  const [latest, setLatest] = useState(post.latestComments || [])
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [priv, setPriv] = useState(false)
+  const [sentNote, setSentNote] = useState('')
+  const [ask, setAsk] = useState(null) // the delete pop-up: where it opens and which comment
+  const me = getUserId()
+  const meName = getUser()
+  const regionRef = useRef(null)
+  const listRef = useRef(null)
+  useLayoutEffect(() => {
+    const list = listRef.current, region = regionRef.current
+    if (!list || !region) return undefined
+    // Show as many replies as fit. If some don't, the reply text steps down in size (never below REPLY_MIN) until
+    // one more reply fits cleanly; "The post" and everything else keep their size, so the post stays the emphasis.
+    const REPLY_MIN = 12
+    const fit = () => {
+      const rows = [...list.children]
+      const apply = sz => rows.forEach(r => { r.style.display = 'grid'; r.style.fontSize = `${sz}px` }) // the rows are grids (see `line`)
+      const count = () => { const limit = list.getBoundingClientRect().bottom + 1; let n = 0; for (const r of rows) { if (r.getBoundingClientRect().bottom <= limit) n++; else break } return n }
+      apply(size)
+      const base = count()
+      let use = size, shown = base
+      if (base < rows.length) {
+        for (let sz = size - 1; sz >= REPLY_MIN; sz--) {
+          apply(sz)
+          const n = count()
+          if (n > base) { use = sz; shown = n; break }
+        }
+      }
+      apply(use)
+      rows.forEach((r, i) => { r.style.display = i < shown ? 'grid' : 'none' })
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(region)
+    return () => ro.disconnect()
+  }, [latest.length, size, fill])
+  async function remove(c) {
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      setLatest(prev => prev.filter(x => x.id !== c.id)); onCount(Math.max(0, count - 1))
+    } catch { window.alert('Could not delete that comment — try again.') }
+  }
+  const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
+  async function submit() {
+    const content = text.trim()
+    if (!content || busy || !me) return
+    setBusy(true)
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300), private: priv }) })
+      if (!res.ok) throw new Error(String(res.status))
+      const saved = await res.json()
+      setText('')
+      if (saved.private) { setSentNote(`Sent privately to ${posterName}`); setPriv(false); setTimeout(() => setSentNote(''), 5000) }
+      else { setLatest(prev => [...prev, saved].slice(-6)); onCount(count + 1) }
+    } catch { /* leave the text so it can be sent again */ } finally { setBusy(false) }
+  }
+  const line = { display: 'grid', gridTemplateColumns: '1.6em minmax(0, 1fr) auto', gap: '0.55em', alignItems: 'center', padding: '0.35em 0', borderTop: '1px solid var(--lv-line)', fontFamily: d.artistFf, fontWeight: 400, fontSize: size, lineHeight: 1.2, color: 'var(--lv-sec)' }
+  // Under the post: the newest reply first, the older ones below it, and the reply box under the lot. It flows down from the post and grows with each reply; once the room is used up the box sits at the foot and the oldest replies drop off (the drawer has the full list).
+  return (
+    <div ref={regionRef} style={{ flex: fill ? '1 1 0' : '0 0 auto', minHeight: 0, maxHeight: fill ? undefined : 190, display: 'flex', flexDirection: 'column', marginTop: 16, paddingBottom: 14 }}>
+      <div ref={listRef} style={{ flex: '0 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {[...latest].reverse().map(c => (
+          <div key={c.id} style={line}>
+            <span style={{ width: '1.6em', height: '1.6em', borderRadius: '0.5em', border: '1px solid var(--lv-line)', display: 'grid', placeItems: 'center', font: '700 0.65em sans-serif', color: 'var(--lv-pri)', flexShrink: 0 }}>{c.username?.[0]?.toUpperCase()}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}><span style={{ color: 'var(--lv-pri)', marginRight: 10 }}>{c.username}</span>{c.content}</span>
+            <span style={{ fontFamily: d.monoFf, fontSize: '0.55em', color: 'var(--lv-ter)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+              {stampShort(c.created_at)}
+              {canDelete(c) && <><br /><button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} title="Delete this comment" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>delete</button></>}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, paddingTop: 10, borderTop: latest.length ? '1px solid var(--lv-line)' : 'none', flexShrink: 0 }}>
+        {me ? <>
+          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} placeholder={sentNote || (priv ? `Private to ${posterName}…` : 'Reply…')}
+            style={{ flex: 1, minWidth: 0, background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', border: '1px solid var(--lv-line)', borderRadius: 99, padding: '7px 16px', fontFamily: d.bodyFf, fontSize: size, color: 'var(--lv-pri)', outline: 'none' }} />
+          {posterName && meName && posterName !== meName && (
+            <button onClick={() => setPriv(v => !v)} aria-pressed={priv} title={priv ? `Private: only you and ${posterName} will see it. Click for a public reply.` : `Make this reply private to ${posterName}`}
+              style={{ borderRadius: 99, border: `1px solid ${priv ? 'var(--theme-accent)' : 'var(--lv-line)'}`, background: priv ? 'color-mix(in srgb, var(--theme-accent) 18%, transparent)' : 'none', padding: '0 14px', cursor: 'pointer', fontSize: Math.max(14, Math.round(size * 0.7)), flexShrink: 0 }}>🔒</button>
+          )}
+          <button onClick={submit} disabled={!text.trim() || busy} style={{ border: 'none', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--theme-bg)', padding: '0 24px', display: 'flex', alignItems: 'center', fontFamily: d.bodyFf, fontWeight: 700, fontSize: Math.max(12, Math.round(size * 0.6)), letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>{busy ? '···' : 'Reply'}</button>
+        </> : <a href="/login" style={{ flex: 1, alignSelf: 'center', fontFamily: d.monoFf, fontSize: 11, color: 'var(--theme-accent)', textDecoration: 'none' }}>log in to reply →</a>}
+        {count > 0 && <button onClick={onOpen} style={{ alignSelf: 'center', background: 'none', border: 'none', padding: 0, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--theme-accent)' }}>View all {count} →</button>}
+      </div>
+      {ask && <ConfirmPop at={ask} message="Delete this comment?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
+    </div>
+  )
+}
+
+// One of the paired boxes: the open one is a tinted box that hugs its content (and scrolls if the column is short); the other is an outlined pill. Hover (or tap) the pill and it swaps with the open one.
+// How a box opens: slow and weighted (gabriel, 12 Oct) — a short pause after the cursor arrives, then the two boxes of
+// a pair trade places over PAIR_MS with a heavy ease (slow off the mark, settles gently). Bodies stay mounted so they can
+// animate; a closed one has zero height.
+const PAIR_MS = 750
+const PAIR_EASE = 'cubic-bezier(0.65, 0, 0.25, 1)'
+const PAIR_HOVER_DELAY = 160
+const CARD_LINE = 'color-mix(in srgb, var(--lv-pri) 16%, transparent)' // the boxes' outlines: barely there
+function PairBox({ name, sub, open, onOpen, children, d, bodyRef }) {
+  const timer = useRef(null)
+  const arm = () => { if (!open && !timer.current) timer.current = setTimeout(() => { timer.current = null; onOpen() }, PAIR_HOVER_DELAY) }
+  const disarm = () => { clearTimeout(timer.current); timer.current = null }
+  useEffect(() => disarm, [])
+  const ease = `${PAIR_MS}ms ${PAIR_EASE}`
+  return (
+    <div onMouseEnter={arm} onMouseLeave={disarm} onClick={() => { disarm(); if (!open) onOpen() }}
+      style={{ border: `1px solid ${CARD_LINE}`, borderRadius: 24, flex: open ? '0 1 auto' : '0 0 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: open ? 'color-mix(in srgb, var(--lv-pri) 9%, transparent)' : 'transparent', cursor: open ? 'default' : 'pointer', transition: `background ${ease}` }}>
+      <div style={{ display: 'flex', gap: 10, padding: '0 18px', height: open ? 38 : 44, flexShrink: 0, alignItems: 'center', fontFamily: d.bodyFf, color: 'var(--lv-pri)', transition: `height ${ease}` }}>
+        <b style={{ fontWeight: 600, fontSize: 16, letterSpacing: '-0.01em' }}>{name}</b>
+        <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--lv-sec)' }}>{sub}</span>
+      </div>
+      <div aria-hidden={!open} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', flex: open ? '0 1 auto' : '0 0 auto', minHeight: 0, opacity: open ? 1 : 0, transitionProperty: 'grid-template-rows, opacity', transitionDuration: `${PAIR_MS}ms, ${PAIR_MS * 0.6}ms`, transitionTimingFunction: PAIR_EASE }}>
+        <div ref={bodyRef} data-inner-scroll={open ? '' : undefined} style={{ minHeight: 0, overflowY: open ? 'auto' : 'hidden', overflowX: 'hidden', padding: '0 18px', ...INNER_SCROLL_STYLE }}>
+          <div style={{ paddingBottom: 12 }}>{children}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Notes card (default; ?cards=notes, 12 Oct 2026, gabriel) ──────────────────────────────────────────────────
+// The default card since 12 Oct 2026 (`?cards=paired` goes back to the paired boxes). Built from the "Post card directions" canvas (FullPost board). The same header box as the paired card, then
+// two columns: the cover, Plays from and Details on the left; Tracks (highlights on top, the full list under the
+// big side letters) and the post on the right. Replies open in a small square pop-out over the card.
+// Type everywhere matches the drawers: spaced capitals for labels, Barlow 700 17px for names, Plex Mono for numbers.
+const NOTES_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'notes' || q === 'paired' || q === 'new' || q === 'old') localStorage.setItem('lnv-cards', q)
+    const v = localStorage.getItem('lnv-cards')
+    return v !== 'paired' && v !== 'new' && v !== 'old' // the default card since 12 Oct 2026; ?cards=paired = the paired boxes, ?cards=new / ?cards=old = the older cards
+  } catch { return true }
+})()
+const NOTE_TINT = 'color-mix(in srgb, var(--lv-pri) 5%, transparent)'
+const NOTE_HAIR = 'color-mix(in srgb, var(--lv-pri) 10%, transparent)'
+const NOTE_HAIR2 = 'color-mix(in srgb, var(--lv-pri) 26%, transparent)'
+const NOTE_BOX = { borderRadius: 30, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }
+const NOTES_GAP = 8 // the one gap between every box on the notes card, across and down
+const NOTES_PAD_TOP = 56 // below the search bar (its box ends at 48px) ...
+const NOTES_PAD_BOTTOM = 72 // ... and above the New post button (it starts 64px up from the bottom)
+const NOTE_FOLD_MS = 380
+const NOTE_FOLD_EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)'
+const noteLabel = (d, size = 10) => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: size, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-sec)' })
+const noteName = d => ({ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.2, fontWeight: 700 })
+const noteMeta = (d, size = 11) => ({ fontFamily: d.monoFf, fontSize: size, fontVariantNumeric: 'tabular-nums', color: 'var(--lv-ter)' })
+// The pills of the nav strip (Strip.jsx tabs, BrowseGrid's drawer pills), lying down.
+const notePill = d => ({ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11.5, letterSpacing: '0.06em', lineHeight: 1, textTransform: 'lowercase', whiteSpace: 'nowrap', textDecoration: 'none', padding: '9px 15px', borderRadius: 999, border: '1px solid var(--theme-border)', color: 'var(--lv-ter)', background: 'transparent', cursor: 'pointer' })
+const NOTE_CSS = '.lnv-np{transition:background .15s,border-color .15s,color .15s}.lnv-np:hover{background:var(--theme-dark3)!important;color:var(--lv-pri)!important}'
+  + '.lnv-sp{transition:filter .15s}.lnv-sp:hover{filter:brightness(1.15)}'
+  + '.lnv-nr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent)}'
+  + '.lnv-nr .lnv-off{opacity:.35;transition:opacity .15s}.lnv-nr:hover .lnv-off{opacity:1}'
+  + '@media (prefers-reduced-motion: reduce){.lnv-fold{transition:none!important}}'
+// The short dash before every name.
+function NoteDash() {
+  return <span aria-hidden="true" style={{ display: 'inline-block', width: 4.5, height: 2, borderRadius: 1, background: 'var(--lv-ter)', transform: 'translateY(-5px)' }} />
+}
+// Sides from the positions as Discogs gives them: "A1", "B2", "C" -> A, B, C; "AA" (double A-side) -> AA; "1-1", "CD2-3", "2.4" -> disc 1, 2.
+// Anything else ("1", "2", no position) is one group with no letter.
+function noteSides(tracks) {
+  const key = t => {
+    const p = String(t.position || '').trim()
+    let m = p.match(/^([A-Za-z]{1,2})\d*[a-z]?$/)
+    if (m) return m[1].toUpperCase()
+    m = p.match(/^[A-Za-z]*(\d+)[-.]\d+$/)
+    return m ? m[1] : ''
+  }
+  const groups = []
+  tracks.forEach((t, i) => {
+    const k = key(t)
+    const last = groups[groups.length - 1]
+    if (last && last.key === k) last.items.push({ t, i })
+    else groups.push({ key: k, items: [{ t, i }] })
+  })
+  return groups.length > 1 || (groups[0] && groups[0].key) ? groups : [{ key: '', items: tracks.map((t, i) => ({ t, i })) }]
+}
+// "50:06" from the tracks' durations (m:ss or h:mm:ss); '' if any is missing.
+function noteRuntime(tracks) {
+  let s = 0
+  for (const t of tracks) {
+    const parts = String(t.duration || '').split(':').map(Number)
+    if (!t.duration || parts.some(isNaN)) return ''
+    s += parts.reduce((a, v) => a * 60 + v, 0)
+  }
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
+}
+// One fold: open = its content's height, closed = nothing; both ways animate.
+function NoteFold({ open, children, shift = -14 }) {
+  return (
+    <div className="lnv-fold" aria-hidden={!open} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: `grid-template-rows ${NOTE_FOLD_MS}ms ${NOTE_FOLD_EASE}, opacity ${NOTE_FOLD_MS * 0.8}ms ease` }}>
+      <div style={{ overflow: 'hidden', minHeight: 0 }}>
+        <div className="lnv-fold" style={{ transform: `translateY(${open ? 0 : shift}px)`, transition: `transform ${NOTE_FOLD_MS}ms ${NOTE_FOLD_EASE}` }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+// Which post's replies pop-out is open (one at a time). It follows you along the feed: ShelfCard closes it after three posts.
+let chatPostId = null
+const chatSubs = new Set()
+let chatAt = null // where the reply button was clicked: the pop-out opens there
+const setChatPost = (id, at) => { if (at) chatAt = at; if (chatPostId !== id) { chatPostId = id; chatSubs.forEach(f => f()) } }
+const useChatPost = () => useSyncExternalStore(f => { chatSubs.add(f); return () => { chatSubs.delete(f) } }, () => chatPostId)
+const CHAT_POSTS_KEPT = 3 // how many posts the pop-out stays with you for
+// The replies pop-out: a quiet square (three quarters of the cover), the replies, and a reply bar. Drag it by its top.
+// Where the replies pop-out opens (2026-10-13): over the click that opened it, centred on the cursor and just above it (the reply
+// button sits low on the card), kept inside the window. No click point (e.g. opened by keyboard): the old bottom-right corner.
+function replyBoxSpot(at, size) {
+  if (!at) return { right: 32, bottom: 96 }
+  const m = 8, w = window.innerWidth, h = window.innerHeight
+  const left = Math.min(Math.max(at.x - size / 2, m), Math.max(m, w - size - m))
+  let top = at.y - size - 12
+  if (top < m) top = Math.min(at.y + 12, Math.max(m, h - size - m))
+  return { left, top: Math.max(m, top) }
+}
+
+function NoteReplies({ post, posterName, size, d, cardBg, onClose, onCount, fun = false, sheet = false }) {
+  const [comments, setComments] = useState(null)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [priv, setPriv] = useState(false)
+  const [ask, setAsk] = useState(null)
+  const [off, setOff] = useState({ x: 0, y: 0 })
+  const drag = useRef(null)
+  const listRef = useRef(null)
+  const me = getUserId(), meName = getUser()
+  useEffect(() => {
+    let dead = false
+    fetch(`${API}/posts/${post.id}/comments`).then(r => r.ok ? r.json() : []).then(x => { if (!dead) setComments(Array.isArray(x) ? x : []) }).catch(() => { if (!dead) setComments([]) })
+    return () => { dead = true }
+  }, [post.id])
+  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight }, [comments])
+  useEffect(() => {
+    const move = e => { if (drag.current) setOff({ x: e.clientX - drag.current.x, y: e.clientY - drag.current.y }) }
+    const up = () => { drag.current = null }
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); window.addEventListener('keydown', esc)
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc) }
+  }, [onClose])
+  const shown = (comments || [])
+  const funCard = () => ({ background: 'color-mix(in srgb, currentColor 10%, transparent)', borderRadius: 20, padding: '10px 14px', flexShrink: 0 })
+  const funRoot = { background: 'var(--theme-sidebar)', ...(inkOnHex(themeHex('--theme-sidebar')) === '#fff' ? INK_DARK_BG : INK_LIGHT_BG), color: 'var(--lv-pri)', border: 'none', borderRadius: 30, clipPath: 'polygon(38px 0, 100% 0, 100% 100%, 0 100%, 0 38px)', boxShadow: '0 20px 50px rgba(0,0,0,0.35)', animation: 'lnvPop .5s cubic-bezier(.2,1.2,.3,1)' }
+  const canDelete = c => !!meName && (c.username === meName || posterName === meName || isAdmin())
+  async function submit() {
+    const content = text.trim()
+    if (!content || busy || !me) return
+    setBusy(true)
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ content: content.slice(0, 300), private: priv }) })
+      if (!res.ok) throw new Error(String(res.status))
+      const saved = await res.json()
+      setComments(prev => [...(prev || []), saved]); setText(''); setPriv(false)
+      if (!saved.private) onCount(shown.filter(c => !c.private).length + 1)
+    } catch { window.alert('Could not post that reply — try again.') } finally { setBusy(false) }
+  }
+  async function remove(c) {
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/comments/${c.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(String(res.status))
+      const rest = shown.filter(x => x.id !== c.id)
+      setComments(rest)
+      if (!c.private) onCount(rest.filter(x => !x.private).length)
+    } catch { window.alert('Could not delete that reply — try again.') }
+  }
+  return (
+    <div role="dialog" aria-label={`Replies to ${posterName || 'this post'}`} onClick={e => e.stopPropagation()}
+      style={{ position: 'fixed', ...replyBoxSpot(chatAt, size), zIndex: 60, width: size, height: size, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: '14px 14px 12px', borderRadius: Math.round(size * d.artRadius / d.artSize), background: cardBg, border: `1px solid ${NOTE_HAIR2}`, boxShadow: '0 12px 32px rgba(0,0,0,0.35)', transform: `translate(${off.x}px, ${off.y}px)`, color: 'var(--lv-pri)', ...(fun ? funRoot : null), ...(sheet ? { left: 0, right: 0, bottom: 0, top: 'auto', width: 'auto', height: '72vh', borderRadius: '30px 30px 0 0', transform: 'none' } : null) }}>
+      {fun && <style>{BLOCK_CSS}</style>}
+      <div onMouseDown={e => { drag.current = { x: e.clientX - off.x, y: e.clientY - off.y } }} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px 8px', cursor: 'grab', userSelect: 'none' }}>
+        <span style={noteLabel(d, 11)}>Replies</span><span style={noteLabel(d, 11)}>{shown.filter(c => !c.private).length}</span>
+        <button onClick={onClose} aria-label="Close replies" style={{ marginLeft: 'auto', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--lv-sec)', fontSize: 16, cursor: 'pointer' }}>×</button>
+      </div>
+      <div ref={listRef} data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: fun ? 'hidden' : 'auto', display: 'flex', flexDirection: 'column', justifyContent: fun ? 'flex-end' : undefined, gap: fun ? 8 : 12, padding: '2px 8px', ...(fun ? null : INNER_SCROLL_STYLE) }}>
+        {comments && !shown.length && <div style={{ margin: 'auto 0', textAlign: 'center', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>No replies yet.</div>}
+        {shown.map(c => (
+          <div key={c.id} className={fun ? 'lnv-rc' : undefined} style={fun ? funCard() : undefined}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <b style={{ fontFamily: d.bodyFf, fontSize: 15, fontWeight: 700 }}><CommentAuthor name={c.username} /></b>
+              <span style={noteMeta(d, 12.5)}>{stampShort(c.created_at)}</span>
+              {c.private && <span style={{ ...noteMeta(d, 12.5), color: 'var(--theme-accent)' }}>private</span>}
+              {canDelete(c) && <button onClick={e => setAsk({ x: e.clientX, y: e.clientY, c })} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...noteMeta(d, 12.5) }}>delete</button>}
+            </div>
+            <div style={{ marginTop: 2, fontFamily: d.bodyFf, fontSize: 15, lineHeight: 1.35, color: 'var(--lv-sec)', overflowWrap: 'anywhere' }}>{c.content}</div>
+          </div>
+        ))}
+      </div>
+      {me ? (
+        <div style={{ flexShrink: 0, marginTop: 8, height: 44, display: 'flex', alignItems: 'center', gap: 4, padding: '0 5px 0 16px', borderRadius: 99, background: NOTE_TINT, border: `1px solid ${NOTE_HAIR}` }}>
+          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} maxLength={300} aria-label="Reply"
+            placeholder={priv ? `Private to ${posterName}…` : 'Reply…'}
+            style={{ flex: 1, minWidth: 0, height: '100%', border: 'none', background: 'transparent', color: 'var(--lv-pri)', fontFamily: d.bodyFf, fontSize: 15, outline: 'none' }} />
+          {posterName && meName && posterName !== meName && (
+            <button onClick={() => setPriv(v => !v)} aria-pressed={priv} title={priv ? `Private: only you and ${posterName} will see it` : `Make this reply private to ${posterName}`}
+              style={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', border: 'none', background: priv ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : 'none', cursor: 'pointer', fontSize: 13 }}>🔒</button>
+          )}
+          <button onClick={submit} disabled={!text.trim() || busy} aria-label="Send reply"
+            style={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: cardBg, fontSize: 14, cursor: 'pointer', opacity: !text.trim() || busy ? 0.5 : 1 }}>↑</button>
+        </div>
+      ) : <a href="/login" style={{ flexShrink: 0, marginTop: 8, ...noteLabel(d, 11), color: 'var(--theme-accent)', textDecoration: 'none', padding: '0 8px' }}>Log in to reply →</a>}
+      {ask && <ConfirmPop at={ask} message="Delete this reply?" detail={ask.c.content} onCancel={() => setAsk(null)} onConfirm={() => { const c = ask.c; setAsk(null); remove(c) }} />}
+    </div>
+  )
+}
+
+// ── Blocks card (?cards=blocks, 13 Oct 2026, gabriel) ─────────────────────────────────────────────────────────
+// Concept G of mockup26: no card behind the post, just blocks on the feed surface, each filled from the time-of-day palette.
+// Rounded blocks with one chamfered corner, a dock of round pills that overlaps the post block, a replies pop-out that springs
+// from the click, and the playlist wheel (add this release to one of your playlists). ?cards=notes goes back to the notes card.
+const BLOCKS_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'blocks' || q === 'module') localStorage.setItem('lnv-cards', q)
+    const v = localStorage.getItem('lnv-cards')
+    return v === 'blocks' || v === 'module' || v === null // the default while it is being tried; ?cards=notes / paired / new / old go back (remembered)
+  } catch { return true }
+})()
+// Colourways (gabriel, 13 Oct): the blocks do not keep one set of colours; each post takes the next "format" as you scroll, so the feed stays fresh.
+// Every entry is a CSS background for one block (a palette token, a mix of two, a gradient); [bg, base] where `base` is the plain colour the ink is judged against.
+const TK = k => `var(--theme-${k})`
+const MX = (a, pa, b) => `color-mix(in srgb, ${TK(a)} ${pa}%, ${TK(b)})`
+const RAMP = t => `color-mix(in srgb, ${TK('dark1')} ${Math.round((1 - Math.min(1, Math.max(0, t))) * 100)}%, ${TK('light2')})`
+const GRAD = (a, b, deg = 135) => [`linear-gradient(${deg}deg, ${a}, ${b})`, a]
+const tri = t => { const x = ((t % 1) + 1) % 1; return x < 0.5 ? x * 2 : (1 - x) * 2 }
+const BLOCK_WAYS = [
+  { name: 'settled', f: () => ({ hero: TK('light2'), tracks: TK('showcase'), plays: TK('accent'), details: TK('light1'), post: TK('dark3'), dock: TK('dark1') }) },
+  { name: 'inverse', f: () => ({ hero: TK('showcase'), tracks: TK('light2'), plays: TK('dark3'), details: TK('accent'), post: TK('light1'), dock: TK('accent') }) },
+  { name: 'gradient', f: () => ({ hero: GRAD(TK('light2'), TK('light1')), tracks: GRAD(TK('showcase'), TK('dark1'), 160), plays: GRAD(TK('accent'), TK('showcase')), details: GRAD(TK('light1'), TK('light2'), 200), post: GRAD(TK('dark3'), TK('light1'), 120), dock: TK('dark1') }) },
+  { name: 'ramp', f: i => { const t = tri(i / 8) * 0.3; return { hero: RAMP(0.92 - t), tracks: RAMP(0.1 + t), plays: TK('accent'), details: RAMP(0.7 - t / 2), post: RAMP(0.42), dock: TK('dark1') } } },
+  { name: 'split', f: () => ({ hero: TK('accent'), tracks: TK('dark1'), plays: TK('showcase'), details: TK('light2'), post: MX('accent', 40, 'light1'), dock: TK('light2') }) },
+  { name: 'tint', f: () => ({ hero: MX('accent', 10, 'light2'), tracks: MX('accent', 85, 'dark1'), plays: TK('accent'), details: MX('accent', 22, 'light2'), post: MX('accent', 45, 'light1'), dock: MX('accent', 60, 'dark1') }) },
+  { name: 'duo', f: () => ({ hero: TK('light1'), tracks: TK('accent'), plays: TK('light2'), details: TK('showcase'), post: TK('dark1'), dock: TK('showcase') }) },
+]
+// gabriel's hand-coloured spectrum (services/blockSpectrum.js, made in palette-tool.html): 8 looks per palette, taken in order as the feed
+// scrolls; when a palette has one it replaces the colourways above. A spectrum saved by the palette tool in this browser ("Apply to my feed",
+// localStorage 'lnv-post-spectrum') is laid over the shipped one, palette by palette, so new looks can be tried without a rebuild.
+// Shape: { mode: 'wrap' | 'pingpong', pals: { Evening: [{ hero, tracks, plays, details, post } x8] } }
+let handRaw = null, handVal = BLOCK_SPECTRUM
+const handSpectrum = () => {
+  try {
+    const raw = localStorage.getItem('lnv-post-spectrum')
+    if (raw !== handRaw) {
+      handRaw = raw
+      const local = raw ? JSON.parse(raw) : null
+      handVal = local?.pals ? { mode: local.mode || BLOCK_SPECTRUM.mode, order: local.order || BLOCK_SPECTRUM.order, pals: { ...BLOCK_SPECTRUM.pals, ...local.pals } } : BLOCK_SPECTRUM
+    }
+  } catch { handVal = BLOCK_SPECTRUM }
+  return handVal
+}
+// How the 8 looks are arranged along the feed (gabriel, 13 Oct): by tone, light to dark, following the colour of the profile card (the
+// showcase-coloured card the feed opens with). Each look gets a tone (the area-weighted lightness of its five blocks); the looks are sorted
+// by it and the feed starts at the end nearest the profile card (a dark card -> darkest look first, getting lighter; a light card -> lightest
+// first, getting darker) and walks there and back (ping-pong) so there is never a jump. `order: 'hand'` keeps them exactly as set in the tool.
+const hexLum = h => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
+  if (!m) return 0
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+  const n = parseInt(m[1], 16)
+  return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255)
+}
+const LOOK_WEIGHT = { hero: 0.3, tracks: 0.25, plays: 0.15, details: 0.15, post: 0.15 }
+let toneKey = '', toneOrder = null
+function toneSorted(looks) {
+  const tokens = ['bg', 'sidebar', 'dark1', 'dark2', 'dark3', 'light1', 'light2', 'showcase', 'accent'].map(k => themeHex(`--theme-${k}`))
+  const key = getActivePaletteName() + '|' + tokens.join(',') + '|' + JSON.stringify(looks)
+  if (key === toneKey && toneOrder) return toneOrder
+  const hex = v => (/^#/.test(v) ? v : themeHex(`--theme-${v}`))
+  const tone = l => Object.entries(LOOK_WEIGHT).reduce((s, [k, w]) => s + w * hexLum(hex(l[k])), 0)
+  const sorted = [...looks].sort((a, b) => tone(a) - tone(b)) // darkest first
+  if (hexLum(themeHex('--theme-showcase')) >= 0.35) sorted.reverse() // a light profile card: start light and go dark
+  toneKey = key; toneOrder = sorted
+  return sorted
+}
+const handLook = idx => {
+  const sp = handSpectrum(), raw = sp?.pals?.[getActivePaletteName()]
+  if (!raw?.length) return null
+  const byTone = (sp.order || 'tone') === 'tone'
+  const looks = byTone ? toneSorted(raw) : raw
+  const n = looks.length, i = Math.max(0, idx || 0)
+  const k = (byTone || sp.mode === 'pingpong') && n > 1 ? (() => { const m = i % (2 * (n - 1)); return m < n ? m : 2 * (n - 1) - m })() : i % n
+  const l = looks[k] || looks[0]
+  // a look names palette colours ('accent', 'light2'...) so it follows the palette; plain hex still works
+  const col = v => (/^#/.test(v) ? v : `var(--theme-${v})`)
+  return Object.fromEntries(['hero', 'tracks', 'plays', 'details', 'post'].map(key => [key, [col(l[key]), col(l[key])]]))
+}
+const blockWay = idx => { const hand = handLook(idx); if (hand) return hand; const w = BLOCK_WAYS[((idx || 0) % BLOCK_WAYS.length + BLOCK_WAYS.length) % BLOCK_WAYS.length]; const m = w.f(idx || 0); return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Array.isArray(v) ? v : [v, v]])) }
+
+
+// A wedge of the playlist wheel, between radii r0 and r1 and angles a0..a1 (SVG path).
+function wedgePath(cx, cy, r0, r1, a0, a1) {
+  const P = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+  const [x0, y0] = P(r1, a0), [x1, y1] = P(r1, a1), [x2, y2] = P(r0, a1), [x3, y3] = P(r0, a0)
+  const L = a1 - a0 > Math.PI ? 1 : 0
+  const f = v => v.toFixed(1)
+  return `M${f(x0)} ${f(y0)}A${r1} ${r1} 0 ${L} 1 ${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}A${r0} ${r0} 0 ${L} 0 ${f(x3)} ${f(y3)}Z`
+}
+// Playlists as petals: the dark outer petal is the room, the lighter inner one grows with the number of tracks in it, and it lights up
+// (accent) when it holds the thing being added. `mini` is the little wheel in Details (no names); `onPick(p)` is the big one's click.
+// `p.sub` is an extra small line under a petal's name (the owner, on the wheel of other people's playlists).
+function PlaylistWheel({ lists, inIds, size, mini, onPick, pulse, withNew }) {
+  const items = withNew ? [...lists, { id: 'new', name: 'New playlist', track_count: 0, isNew: true }] : lists
+  const n = Math.max(items.length, 2)
+  const cx = size / 2, cy = size / 2, R = size / 2 - (mini ? 3 : 18), r0 = size * (mini ? 0.16 : 0.1), th = (2 * Math.PI) / n
+  const mx = Math.max(1, ...lists.map(p => p.track_count || 0)), sw = mini ? 2 : 12
+  const memberInk = '#fff', plainInk = inkOnHex(themeHex('--theme-light2'))
+  const room = 'color-mix(in srgb, var(--theme-dark1) 55%, #000)'
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}>
+      {items.map((p, i) => {
+        const a0 = -Math.PI / 2 - th / 2 + i * th + 0.04, a1 = a0 + th - 0.08, am = (a0 + a1) / 2, inn = inIds.has(p.id)
+        const fr = 0.4 + 0.6 * ((p.track_count || 0) / mx), ri = r0 + (R - r0) * fr
+        const outer = wedgePath(cx, cy, r0 + sw / 2, R - sw / 2, a0 + sw / 2 / R, a1 - sw / 2 / R)
+        const inner = wedgePath(cx, cy, r0 + sw / 2 + 2 + sw / 2, ri - sw / 2 - 4, a0 + (sw + 14) / 2 / ri, a1 - (sw + 14) / 2 / ri)
+        const lr = (r0 + ri) / 2 + 2, tx = cx + lr * Math.cos(am), ty = cy + lr * Math.sin(am)
+        const fillIn = inn ? 'var(--theme-accent)' : 'var(--theme-light2)'
+        const ink = inn ? memberInk : plainInk
+        if (mini) return <g key={p.id}><path d={outer} stroke={room} strokeWidth={sw} strokeLinejoin="round" fill={room} /><path d={inner} stroke={fillIn} strokeWidth={sw} strokeLinejoin="round" fill={fillIn} /></g>
+        const nm = String(p.name || '')
+        return (
+          <g key={p.id} className={`lnv-pt${pulse === p.id ? ' pulse' : ''}`} style={{ '--i': i }} onClick={() => onPick(p)} role="button" aria-label={p.isNew ? 'New playlist' : p.sub ? `Open ${nm}` : `${inn ? 'Added to' : 'Add to'} ${nm}`}>
+            <path className="o" d={outer} stroke={room} strokeWidth={sw} strokeLinejoin="round" fill={room} />
+            <path className="n" d={inner} stroke={p.isNew ? 'none' : fillIn} strokeWidth={sw} strokeLinejoin="round" fill={p.isNew ? 'none' : fillIn} strokeDasharray={p.isNew ? '6 6' : undefined} />
+            {p.isNew
+              ? <text x={tx} y={ty + 8} textAnchor="middle" fontSize="28" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: '#fff', pointerEvents: 'none' }}>＋</text>
+              : <>
+                <text x={tx} y={ty - (p.sub ? 10 : 4)} textAnchor="middle" fontSize="22" fontWeight="700" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{inn ? '✓ ' : ''}{p.track_count || 0}</text>
+                <text x={tx} y={ty + (p.sub ? 7 : 14)} textAnchor="middle" fontSize="12.5" style={{ fontFamily: BLOCK_CP, fill: ink, pointerEvents: 'none' }}>{nm.length > 14 ? `${nm.slice(0, 13)}…` : nm}</text>
+                {p.sub && <text x={tx} y={ty + 21} textAnchor="middle" fontSize="10.5" style={{ fontFamily: BLOCK_CP, fill: ink, opacity: 0.75, pointerEvents: 'none' }}>{String(p.sub).length > 16 ? `${String(p.sub).slice(0, 15)}…` : p.sub}</text>}
+              </>}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+// Where the wheel opens: centred on the cursor (kept on screen), springing out from it. A click anywhere else closes it.
+function WheelShell({ at, onClose, children }) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  const w = Math.min(380, vw - 24, vh - 130), h = w + 64
+  const cx = at ? at.x : vw / 2, cy = at ? at.y : vh / 2 - 32
+  const left = Math.min(Math.max(12, cx - w / 2), Math.max(12, vw - w - 12)), top = Math.min(Math.max(12, cy - w / 2), Math.max(12, vh - h - 12))
+  return createPortal(
+    <div onMouseDown={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'color-mix(in srgb, var(--theme-dark1) 38%, transparent)', animation: 'lnvFade .2s' }}>
+      <style>{BLOCK_CSS}</style>
+      <div onMouseDown={e => e.stopPropagation()} style={{ position: 'absolute', left, top, width: w, textAlign: 'center', transformOrigin: `${cx - left}px ${cy - top}px`, animation: 'lnvPop .45s cubic-bezier(.2,1.2,.3,1)', filter: 'drop-shadow(0 18px 28px rgba(0,0,0,0.35))' }}>
+        {children}
+      </div>
+    </div>,
+    document.body
+  )
+}
+const WHEEL_PILL = { display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--theme-light2)', padding: '7px 8px 7px 16px', borderRadius: 999, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 11.5, letterSpacing: '0.05em', textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.25)' }
+function WheelCaption({ children, onClose, extra }) {
+  return (
+    <div style={{ marginTop: 8 }}>
+      {extra}
+      <div style={{ ...WHEEL_PILL, color: inkOnHex(themeHex('--theme-light2')) }}>
+        <span>{children}</span>
+        <button onClick={onClose} aria-label="Close" style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'var(--theme-accent)', color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕</button>
+      </div>
+    </div>
+  )
+}
+// What has been added in this session, so a slice stays lit: track url (or "p:<post>") -> playlist ids.
+const addedMemo = new Map()
+// The "+" on a track opens this at the cursor: your playlists as petals; tap one to add that track (or, with the switch, the whole release).
+function PlaylistWheelPop({ post, tracks: given, title, at, onClose }) {
+  const { playlists } = usePlaylists()
+  const qc = useQueryClient()
+  const signedIn = isLoggedIn()
+  const lists = playlists.filter(p => p.role && p.release_count == null)
+  const all = playableTracks(post).filter(t => t.url && t.title)
+  const mine = (given || []).filter(t => t.url && t.title)
+  const [scope, setScope] = useState(mine.length ? 'track' : 'all')
+  const tracks = scope === 'track' && mine.length ? mine : all
+  const key = scope === 'track' && mine.length ? `t:${mine[0].url}` : `p:${post.id}`
+  const [, bump] = useState(0)
+  const inIds = new Set(addedMemo.get(key) || [])
+  const [note, setNote] = useState('')
+  const [pulse, setPulse] = useState(null)
+  useEffect(() => {
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [onClose])
+  const what = scope === 'track' && mine.length ? `“${title || mine[0].title}”` : `all ${all.length} tracks`
+  async function pick(p) {
+    if (p.isNew) {
+      const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno, Sunday mornings', ok: 'Create', maxLength: 60 })
+      if (!name || !name.trim()) return
+      try { const created = await playlistsApi.create(name); await addTo(created) } catch (err) { setNote(err.message) }
+      return
+    }
+    if (inIds.has(p.id)) { setNote(`Already in ${p.name}`); return }
+    await addTo(p)
+  }
+  async function addTo(p) {
+    if (!tracks.length) return setNote('Nothing playable to add yet.')
+    try {
+      const r = await playlistsApi.addTracks(p.id, tracks)
+      addedMemo.set(key, new Set([...(addedMemo.get(key) || []), p.id])); bump(x => x + 1)
+      setPulse(p.id); setTimeout(() => setPulse(null), 600)
+      setNote(r.added ? `Added to ${p.name}` : `Already in ${p.name}`)
+      qc.invalidateQueries({ queryKey: ['playlists'] }); qc.invalidateQueries({ queryKey: ['playlist', p.id] })
+    } catch (err) { setNote(err.message) }
+  }
+  const scopePill = on => ({ border: '1.5px solid currentColor', background: on ? 'var(--theme-light2)' : 'transparent', color: on ? inkOnHex(themeHex('--theme-light2')) : '#fff', borderRadius: 999, padding: '4px 11px', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer' })
+  return (
+    <WheelShell at={at} onClose={onClose}>
+      {!signedIn
+        ? <div style={{ ...INK_DARK_BG, background: 'var(--theme-dark1)', borderRadius: 26, color: '#fff', padding: 26, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 16, letterSpacing: '0.05em', textTransform: 'uppercase' }}><a href="/login" style={{ color: 'var(--theme-light2)' }}>Sign in</a> to make playlists</div>
+        : <PlaylistWheel lists={lists} inIds={inIds} size={520} onPick={pick} pulse={pulse} withNew />}
+      <WheelCaption onClose={onClose}
+        extra={mine.length > 0 && all.length > 1 ? <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 6 }}><button onClick={() => { setScope('track'); setNote('') }} style={scopePill(scope === 'track')}>this track</button><button onClick={() => { setScope('all'); setNote('') }} style={scopePill(scope === 'all')}>all {all.length} tracks</button></div> : null}>
+        {note || (lists.length ? `Tap a slice to add ${what}` : 'No playlists yet: make one')}
+      </WheelCaption>
+    </WheelShell>
+  )
+}
+// Other people's playlists that carry a track of this record (public lists on a profile, as the post data gives them).
+const othersPlaylists = post => (post.playlists || []).filter(p => p.owner !== getUser())
+// The wheel in Details opens this at the cursor: those playlists as petals (count, name, who made it); tap one to open it as a feed.
+function OthersWheelPop({ post, at, onClose }) {
+  const lists = othersPlaylists(post).map(p => ({ id: p.id, name: p.name, track_count: p.track_count || 0, sub: `by ${p.owner}`, token: p.token }))
+  useEffect(() => {
+    const esc = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [onClose])
+  return (
+    <WheelShell at={at} onClose={onClose}>
+      {lists.length
+        ? <PlaylistWheel lists={lists} inIds={new Set()} size={520} onPick={p => { onClose(); openPlaylistFeed({ token: p.token, id: p.id, name: p.name }) }} />
+        : <div style={{ ...INK_DARK_BG, background: 'var(--theme-dark1)', borderRadius: 26, color: '#fff', padding: 26, fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, letterSpacing: '0.05em', textTransform: 'uppercase', lineHeight: 1.4 }}>Nobody else has put this record in a public playlist yet</div>}
+      <WheelCaption onClose={onClose}>{lists.length ? 'Playlists with this record · tap one to open' : 'Check back later'}</WheelCaption>
+    </WheelShell>
+  )
+}
+// The little wheel in Details: other people's playlists with this record at a glance; click opens the big one at the cursor.
+function PlaylistMiniWheel({ post, onOpen }) {
+  const lists = othersPlaylists(post).map(p => ({ ...p, track_count: p.track_count || 1 }))
+  if (!lists.length) return <button onClick={e => onOpen({ x: e.clientX, y: e.clientY })} className="lnv-wheel" title="Nobody else has put this record in a public playlist yet" aria-label="Other people's playlists with this record" style={{ width: 96, height: 96, borderRadius: '50%', border: '2px dashed currentColor', background: 'none', color: 'inherit', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 24, cursor: 'pointer', opacity: 0.7 }}>0</button>
+  return (
+    <button onClick={e => onOpen({ x: e.clientX, y: e.clientY })} className="lnv-wheel" title="Other people's playlists with this record" aria-label="Other people's playlists with this record" style={{ position: 'relative', width: 112, height: 112, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}>
+      <PlaylistWheel lists={lists} inIds={new Set(lists.map(p => p.id))} size={112} mini />
+      <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 15, color: 'var(--lv-pri)' }}>{lists.length}</span>
+    </button>
+  )
+}
+
+function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
+  useThemeTick() // the blocks' hand-coloured spectrum is per palette: look again when the palette changes
+  const { registerPostRef, openD3 } = useLayout() || {}
+  const { canModify, deleting, deletePost } = usePostActions(post)
+  const [activeUrl, setActiveUrl] = useState(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
+  const [plPop, setPlPop] = useState(null)
+  const [wheel, setWheel] = useState(null) // blocks card: the playlist wheels ({ kind: 'add', at, tracks, title } from a track's +, { kind: 'others', at } from the wheel in Details)
+  const [wash, setWash] = useState(null) // blocks card: the source colour flooding Plays from
+  const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
+  const notesReply = chatId === post.id
+  const setNotesReply = (v, at) => setChatPost((typeof v === 'function' ? v(notesReply) : v) ? post.id : null, at)
+  const [pairL, setPairL] = useState('p') // which of Plays from / The post is open
+  const [pairR, setPairR] = useState('auto') // 'auto': Tracks and Details both open if the column has room (Details folds when the tracklist is long); 't' / 'd': the person swapped them by hand
+  const [autoD, setAutoD] = useState(true)
+  const colR = useRef(null), hdrR = useRef(null), trkBody = useRef(null), detBody = useRef(null), detH = useRef(260)
+  const tracksOpen = pairR !== 'd'
+  const detailsOpen = pairR === 'd' || (pairR === 'auto' && autoD)
+  // Is this record on the listener's own Discogs lists? (the imported collection / wantlist; read-only)
+  const { data: dAcct } = useDiscogsAccount()
+  const { data: dRecs } = useDiscogsRecords()
+  const dMine = post.discogs_id ? (dRecs?.records || []).find(r => String(r.discogs_id) === String(post.discogs_id)) : null
+  const inColl = !!dMine?.lists.includes('collection'), inWant = !!dMine?.lists.includes('wantlist') // which of Tracks / Details is open
+  const cardEl = useRef(null)
+  // The replies pop-out follows you along the feed, back or forward, and closes once you are CHAT_POSTS_KEPT posts away from the one it was opened on.
+  useEffect(() => {
+    if (!notesReply) return
+    const start = cardEl.current ? cardEl.current.getBoundingClientRect().left : 0 // where the post sat when it was opened
+    const check = () => {
+      const el = cardEl.current
+      if (!el) return
+      const away = Math.abs(el.getBoundingClientRect().left - start) / ((el.offsetWidth || 800) + 28) // posts away, a post being its card plus the gap
+      if (away >= CHAT_POSTS_KEPT + 0.5) setChatPost(null)
+    }
+    document.addEventListener('scroll', check, true)
+    return () => document.removeEventListener('scroll', check, true)
+  }, [notesReply])
+  useEffect(() => () => { if (chatPostId === post.id) setChatPost(null) }, [post.id])
+  const feedMode = useFeedMode()
+  const qcPriv = useQueryClient()
+
+  const tracks = post.tracks || []
+  const [srcPref, setSrcPref] = useSourcePref()
+  // The listener's own services first (lib/listening.js), then a source they picked by hand.
+  const [listening] = useListening()
+  const urlOf = t => pickUrl(t, listening, srcPref)
+  const artist = artistName(post)
+  const label = labelName(post)
+  const catNo = post.labels?.[0]?.catalogue_number || post.labels?.[0]?.catno || ''
+  const note = cleanNote(post.notes || post.body)
+  // A short post (no title, one line of up to 300 characters) reads as a quote, not as a description.
+  const isShortPost = !!note && !post.post_title && note.length <= 300
+  // Old and new posts alike: the post title (or a short note) reads as the quote, and a description sits under it.
+  const quoteText = (post.post_title || '').trim() || (isShortPost ? note : '')
+  const showDesc = !!note && !isShortPost
+  const cover = coverSrc(post)
+  const comp = isCompilation(post, tracks)
+  const single = tracks.length <= 2 && !/album|lp|ep/i.test(post.post_type || '')
+  const kind = comp ? 'compilation' : (single ? 'single' : (post.post_type || 'album'))
+  const locations = shelfLocations(post, tracks)
+  const contributors = comp ? [...new Set(tracks.flatMap(t => { const v = shelfTrack(t, true); return [...v.artists, ...v.remixers] }))] : []
+  const descRef = useRef(null)
+  const descFit = useScrollFit(descRef, [post.notes, post.body])
+  const listRef = useRef(null)
+  const listFit = useScrollFit(listRef, [tracks.length])
+  // Genres show on two rows at most; what doesn't fit collapses into a "+N" pill.
+  const genreBox = useRef(null)
+  useEffect(() => {
+    const el = genreBox.current
+    if (!el) return undefined
+    const fit = () => {
+      const pills = [...el.querySelectorAll('[data-g]')]
+      const more = el.querySelector('[data-more]')
+      pills.forEach(p => { p.style.display = '' })
+      more.style.display = 'none'
+      const rows = list => new Set(list.map(p => p.offsetTop)).size
+      if (rows(pills) <= 2) return
+      more.style.display = ''
+      let hidden = 0
+      while (hidden < pills.length) {
+        hidden++
+        pills[pills.length - hidden].style.display = 'none'
+        more.textContent = `+${hidden}`
+        more.title = `${hidden} more genre${hidden === 1 ? '' : 's'}`
+        if (rows([...pills.filter(p => p.style.display !== 'none'), more]) <= 2) break
+      }
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [post.genres])
+  // The big post number's size follows the room left in the right-hand column.
+  const numBox = useRef(null)
+  const [numSize, setNumSize] = useState(d.numeralSize)
+  useEffect(() => {
+    const el = numBox.current
+    if (!el) return undefined
+    const digits = Math.max(2, String(post.feedNumber ?? post.id).length)
+    const fit = () => setNumSize(Math.max(0, Math.min(d.numeralSize, Math.floor((el.clientHeight - NUM_LINE_GAP - 1 - 4) / d.numeralLh), Math.floor(el.clientWidth / (0.62 * digits)))))
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [d.numeralSize, d.numeralLh, post.feedNumber, post.id])
+
+  // Paired card: Details stays open beside Tracks only while both fit under the header; a long tracklist folds it.
+  useEffect(() => {
+    if (!PAIRED_CARDS) return undefined
+    const col = colR.current
+    if (!col) return undefined
+    const check = () => {
+      if (detBody.current) detH.current = detBody.current.scrollHeight + 50
+      const trk = (trkBody.current ? trkBody.current.scrollHeight : tracks.length * 38) + 50
+      const need = 12 + trk + detH.current + 3 * 9
+      setAutoD(need <= col.clientHeight)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(col)
+    return () => ro.disconnect()
+  }, [tracks.length, pairR, post.playlists, post.alsoPostedBy]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Playback — the same rules as AlbumCard: a track's own player, else the post's own Bandcamp player, else the URL's embed.
+  const firstUrl = tracks.map(urlOf).find(Boolean) || post.stream_url || null
+  const activeTrack = activeUrl ? tracks.find(t => urlOf(t) === activeUrl) : null
+  const ownLink = activeTrack && activeUrl === (activeTrack.stream_url || activeTrack.youtube_url)
+  const playingSrc = !activeUrl ? null
+    : trackEmbedSrc(ownLink ? activeTrack : { stream_url: activeUrl }, toEmbedSrc)
+      || (activeUrl === post.stream_url && /bandcamp\.com\/EmbeddedPlayer/.test(post.embed_url || '') ? post.embed_url : toEmbedSrc(activeUrl))
+  function playNext() {
+    const urls = tracks.map(urlOf)
+    const i = urls.indexOf(activeUrl)
+    const next = i >= 0 ? urls.slice(i + 1).find(Boolean) : null
+    if (next) setActiveUrl(next)
+  }
+  // A pill plays the release from that place and makes it the listener's choice.
+  function playFrom(p) {
+    const t = tracks.find(x => (x.sources || []).some(s => s.platform === p) || platformOf(x.stream_url || x.youtube_url) === p)
+    const u = t ? ((t.sources || []).find(s => s.platform === p)?.url || t.stream_url || t.youtube_url) : null
+    if (u) { setSrcPref(p); setActiveUrl(u) }
+  }
+
+  const discogsExact = post.discogs_url || (post.discogs_id ? `https://www.discogs.com/release/${post.discogs_id}` : null)
+  const discogsHref = discogsExact || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'all' })}`
+  const buyHref = post.discogs_id ? `https://www.discogs.com/sell/release/${post.discogs_id}` : (platformOfUrl(post.stream_url) === 'bandcamp' ? post.stream_url : null)
+  const PILL = 0.82 // the pills run a tenth smaller than the old cards' badges, to sit with the title (gabriel, 2026-10-08; 0.8 was too small)
+  const badge = { display: 'inline-block', fontFamily: d.labelFf, fontWeight: d.badgeWeight, fontSize: d.badgeSize * PILL, lineHeight: 1, letterSpacing: `${d.badgeLs}em`, textTransform: 'uppercase', padding: `${d.badgePy * PILL}px ${d.badgePx * PILL}px`, borderRadius: d.badgeRadius, textDecoration: 'none', whiteSpace: 'nowrap' }
+  const linkKeyList = linkKeys(tracks)
+  const num = String(post.feedNumber ?? post.id).padStart(2, '0')
+  const stageH = `min(${d.artSize}px, calc(100vh - ${2 * (SHELF_PAD_Y + FLOAT_INSET_Y) + 300}px))`
+  const COL_GAP = 28
+  const artistLink = n => <DrawerLink key={n} kind="artists" name={n} quiet style={{ fontWeight: 700, color: 'var(--lv-pri)' }}>{n}</DrawerLink>
+
+  // Highlights (2026-10-10): a signed-in person stars a track; the poster's own stars are the post's picks.
+  const me = getUser()
+  const [hl, setHl] = useState({})
+  const hlOf = t => hl[t.id] || { by: t.highlightedBy || [], n: t.highlightCount || 0 }
+  const posterName = post.user?.username || post.username
+  async function toggleHighlight(t) {
+    if (!me || !t.id) return
+    const before = hlOf(t), was = before.by.includes(me)
+    const next = was ? { by: before.by.filter(n => n !== me), n: Math.max(0, before.n - 1) } : { by: [...before.by, me], n: before.n + 1 }
+    setHl(prev => ({ ...prev, [t.id]: next })) // answer at once
+    try {
+      const res = await fetch(`${API}/posts/${post.id}/tracks/${t.id}/highlight`, { method: was ? 'DELETE' : 'PUT', headers: authHeaders() })
+      if (!res.ok) throw new Error(res.status === 404 ? 'The site needs updating before highlights can be saved.' : 'Could not save that highlight — try again.')
+      const s = await res.json()
+      setHl(prev => ({ ...prev, [t.id]: { by: s.highlightedBy, n: s.highlightCount } }))
+    } catch (err) {
+      setHl(prev => ({ ...prev, [t.id]: before }))
+      window.alert(err.message || 'Could not save that highlight — try again.')
+    }
+  }
+  const highlighted = tracks.filter(t => hlOf(t).n > 0).length
+  // Text sizes: the track names, and the comments + reply box (the record title's size). Change these two lines to resize them.
+  const trackText = 13
+  const textSize = 20
+  // Highlight colours: yours, and the wall owner's (or, off a wall, the poster's).
+  const MINE_HL = 'var(--theme-accent)', OWNER_HL = 'var(--theme-showcase)'
+  const ownerName = feedMode.type === 'wall' ? feedMode.username : posterName
+  // Private replies waiting for the post's owner (only asked for on your own posts).
+  const { data: privData } = useQuery({
+    queryKey: ['private-count', post.id],
+    queryFn: async () => { const r = await fetch(`${API}/posts/${post.id}/comments/private-count`, { headers: authHeaders() }); return r.ok ? r.json() : { private: 0 } },
+    enabled: !!me && posterName === me,
+    staleTime: 30_000,
+  })
+  const privateWaiting = privData?.private || 0
+
+  const row = (t, i) => {
+    const u = urlOf(t)
+    const active = !!activeUrl && u === activeUrl
+    const v = shelfTrack(t, comp)
+    const h = hlOf(t)
+    const mine = !!me && h.by.includes(me)
+    const byOwner = !!ownerName && ownerName !== me && h.by.includes(ownerName)
+    const mix = (c, n) => `color-mix(in srgb, ${c} ${n}%, transparent)`
+    const grad = c => `linear-gradient(90deg, ${mix(c, 30)}, ${mix(c, 6)})`
+    const tint = byOwner && mine ? `linear-gradient(90deg, ${mix(OWNER_HL, 30)}, ${mix(MINE_HL, 30)})` : byOwner ? grad(OWNER_HL) : mine ? grad(MINE_HL) : mix('var(--lv-pri)', 7)
+    const pick = byOwner // kept for the star colour below
+    return (
+      <div key={i}>
+        <div onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+          style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', margin: '0 0 5px', padding: `${Math.max(4, d.trackRowpad - 2)}px 11px`, borderRadius: 12, border: `1px solid ${byOwner ? mix(OWNER_HL, 55) : mine ? mix(MINE_HL, 55) : 'transparent'}`, cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : tint }}>
+          <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
+          <span style={{ fontFamily: d.bodyFf, fontSize: trackText, lineHeight: 1.2, color: 'var(--lv-pri)', fontWeight: PAIRED_CARDS ? 400 : 600, minWidth: 0, overflowWrap: 'anywhere' }}>
+            {v.title}
+            {(v.artists.length > 0 || v.remixers.length > 0) && <span><span style={{ margin: '0 7px', color: 'var(--lv-ter)', fontWeight: 400 }}>–</span>{[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+          </span>
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            {PAIRED_CARDS && t.duration && <span style={{ fontFamily: d.monoFf, fontSize: 10.5, color: 'var(--lv-ter)' }}>{t.duration}</span>}
+            {!PAIRED_CARDS && <SourceChips always track={t} activeUrl={activeUrl} pref={platformOf(urlOf(t))} d={d} onPick={s => { setSrcPref(s.platform); setActiveUrl(s.url) }} />}
+            {u && <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: d.trackSize, color: 'var(--lv-ter)' }} />}
+          </span>
+          <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontFamily: d.monoFf, fontSize: 11.5, color: 'var(--lv-ter)' }}>
+            {h.n > 0 && <span style={{ display: 'inline-flex' }}>{h.by.slice(0, 3).map((n, k) => <i key={n} style={{ width: 16, height: 16, borderRadius: '50%', marginLeft: k ? -5 : 0, border: `2px solid ${cardBg}`, background: 'var(--lv-sec)', color: cardBg, font: '700 8px/12px sans-serif', fontStyle: 'normal', textAlign: 'center' }}>{n[0]?.toUpperCase()}</i>)}</span>}
+            {h.n > 0 && <span>{h.n}</span>}
+            <span style={{ fontSize: 15, lineHeight: 1, color: mine ? MINE_HL : pick ? OWNER_HL : 'var(--lv-ter)' }}>{mine || h.n ? '★' : '☆'}</span>
+          </button>
+        </div>
+        {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+      </div>
+    )
+  }
+
+  if (MODULE_CARDS) {
+    const ph = phone // on a phone the same boxes stack down the slide
+    const runtime = noteRuntime(tracks)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const playing = !!playingSrc
+    const curP = playing ? platformOf(activeUrl) : null // the platform that is playing right now: the Listen on box takes its colour
+    const shownP = curP || (locations.some(l => l.p === nowP) ? nowP : locations[0]?.p)
+    const shownN = locations.find(l => l.p === shownP)?.n
+    const activeIdx = activeUrl ? tracks.findIndex(t => urlOf(t) === activeUrl) : -1
+    const ML = moduleLook(idx) // this post's place on the spectrum: one solid colour, plus two accent colours from the same palette
+    const BASE = solid(ML.base), A1 = solid(ML.a1), A2 = solid(ML.a2), DARK = solid(ML.cover)
+    const srcBox = shownP ? solid(shelfColor(shownP)) : BASE // the Listen on box always wears the colour of the platform it would play from (or is playing from)
+    const mono = { fontFamily: d.monoFf, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: 10.5 }
+    const chip = { fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '7px 13px', borderRadius: 99, border: '1px solid color-mix(in srgb, var(--lv-pri) 42%, transparent)', background: 'none', color: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', textAlign: 'center' }
+    const chipFill = { ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }
+    const nm = (artist || post.title || '').length
+    const longName = !ph && nm > 20 // a long name takes the room: the number box shrinks to just the number (gabriel, 14 Oct)
+    const numOnly = ph || longName
+    const wordSize = ph ? 28 : 36 // one size for every artist name (long ones run to two lines and are cut with an ellipsis)
+    const numSz = ph ? (num.length <= 2 ? 44 : num.length === 3 ? 36 : num.length === 4 ? 30 : 24) : (num.length <= 2 ? 58 : num.length === 3 ? 46 : num.length === 4 ? 36 : 28)
+    const R = ph ? 30 : 40 // the corner curve (the strip's 40 on a desktop)
+    const nPl = (post.playlists || []).length
+    const badge = { width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'var(--lv-pri)', color: 'var(--blk-bg)', display: 'grid', placeItems: 'center', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: d.monoFf }
+    const at = e => ({ x: e.clientX, y: e.clientY })
+    const quote = quoteText || note
+    const dt = { ...mono, fontSize: 9.5, opacity: 0.7 }
+    const dd = { margin: '2px 0 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 14, lineHeight: 1.25, overflowWrap: 'anywhere' }
+    const mrow = (t, i) => {
+      const u = urlOf(t)
+      const active = !!activeUrl && u === activeUrl
+      const v = shelfTrack(t, comp)
+      const h = hlOf(t)
+      const mine = !!me && h.by.includes(me)
+      return (
+        <div key={i}>
+          <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
+            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
+              {v.title}
+              {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+            </span>
+            {!ph && <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>}
+            <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+            <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
+              aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+              title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 15, color: mine ? 'var(--theme-accent)' : 'inherit', opacity: mine || h.n ? 1 : 0.4 }}>{mine || h.n ? '★' : '☆'}</button>
+          </div>
+          {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+        </div>
+      )
+    }
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
+        style={ph ? { position: 'relative', width: '100%', padding: '0 0 16px', boxSizing: 'border-box' } : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' /* the full page height: the search and the compose button moved to the strip (14 Oct) */ }}>
+        <style>{BLOCK_CSS}{MODULE_CSS}</style>
+        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateAreas: '"top" "cover" "det" "src" "post" "stats" "trk"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"top top top" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }) }}>
+
+        {/* the top row: the artist name takes what the post number does not need */}
+        <div style={{ gridArea: 'top', display: 'grid', gap: 8, minHeight: 0, gridTemplateColumns: numOnly ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr) max(240px, calc(100% - 546px))' }}>
+        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+          <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, paddingBottom: 4, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
+          </h2>
+          <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
+        </Blk>
+
+        {/* the post number */}
+        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0 }}>
+          <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: numOnly ? 0 : 96, lineHeight: 1.2 }}>
+            <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
+            <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
+            {!numOnly && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 128 }}>{playing ? `Now${activeIdx >= 0 ? ` · ${tracks[activeIdx].position || activeIdx + 1}` : ''}` : `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>}
+          </div>
+        </Blk>
+        </div>
+
+        {/* left of the media: the details, with the add-to buttons */}
+        <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: R, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div className={`mod-hatch${playing ? ' on' : ''}`} style={{ flex: '0 0 46px' }}>
+            <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--blk-bg)', zIndex: 2 }}>Details</span>
+          </div>
+          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', marginTop: 12, ...INNER_SCROLL_STYLE }}>
+            <dl style={{ margin: 0, display: 'grid', gap: 10 }}>
+              {label && <div><dt style={dt}>Label</dt><dd style={dd}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
+              {(catNo || post.year) && <div><dt style={dt}>{catNo && post.year ? 'Cat. no. · Year' : catNo ? 'Cat. no.' : 'Year'}</dt><dd style={dd}>{[catNo, post.year].filter(Boolean).join(' · ')}</dd></div>}
+              {post.genres?.length > 0 && <div><dt style={dt}>Genres</dt><dd style={{ ...dd, fontWeight: 400, opacity: 0.9 }}>{post.genres.join(', ')}</dd></div>}
+              {contributors.length > 0 && <div><dt style={dt}>Artists</dt><dd style={{ ...dd, fontWeight: 400, fontSize: 12.5 }}>{contributors.slice(0, 8).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 8 && <span style={{ opacity: 0.6 }}> +{contributors.length - 8}</span>}</dd></div>}
+            </dl>
+          </div>
+          <div style={{ flex: 'none', display: 'grid', gridTemplateColumns: ph ? '1fr 1fr' : '1fr', gap: 6, marginTop: 12 }}>
+            <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
+            <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
+            {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
+              on ? <span key={k} style={{ ...chip, cursor: 'default', opacity: 0.85 }}>✓ {yes}</span>
+                : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={chip}>＋ {add} ↗</a> : null
+            ))}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...chip, flex: 1, padding: '7px 6px' }}>Discogs ↗</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...chip, flex: 1, padding: '7px 6px' }}>Buy ↗</a>}
+            </div>
+          </div>
+        </Blk>
+
+        {/* the cover; the player takes its place */}
+        <Blk bg={DARK} className="lnv-still" style={{ gridArea: 'cover', borderRadius: R, padding: 0, ...(ph ? { aspectRatio: '1 / 1' } : null) }}>
+          {playingSrc ? (
+            <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
+          ) : (
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} title={firstUrl ? 'Play' : undefined} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+              {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+            </div>
+          )}
+        </Blk>
+
+        {/* the big box beside the cover: the playlists this record is in (the sources moved to the small box, 14 Oct) */}
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>playlists</span><span>{nPl}</span></div>
+          <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
+            {nPl === 0 ? <div style={{ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.4, opacity: 0.65 }}>Not in anyone's playlists yet.</div>
+              : post.playlists.map(pl => (
+                <div key={pl.id} className="mod-sr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`${pl.name}${pl.owner ? ` · by ${pl.owner}` : ''}`}
+                  style={{ display: 'grid', gridTemplateColumns: '18px minmax(0, 1fr)', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15 }}>
+                  <span aria-hidden="true" style={{ opacity: 0.6 }}>♫</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+                    {pl.owner && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6, marginTop: 2 }}>by {pl.owner}</span>}
+                  </span>
+                </div>
+              ))}
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <AddToPlaylistButton post={post} label="＋ Add to playlist" style={chip} />
+            {nPl > 0 && <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" style={chipFill}>See all</button>}
+          </div>
+        </Blk>
+
+        {/* under the media: the post, and only the post */}
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'post', borderRadius: R, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', opacity: 0.7 }}><span>the post</span><span>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></div>
+          <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
+            {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: ph ? 12 : 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
+              : <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+          </div>
+          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontFamily: d.monoFf, fontSize: 11 }}>
+            {posterName && <UserChip name={posterName} d={d} />}
+            <span style={{ color: 'var(--lv-ter)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={stampOf(post.created_at)}>{stampOf(post.created_at).split(' · ')[0]}</span>
+            {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, at(e)); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+            <button onClick={e => setNotesReply(v => !v, at(e))} aria-expanded={notesReply} style={{ ...chipFill, marginLeft: 'auto', padding: '6px 14px' }}>↩ Reply{commentCount > 0 ? ` · ${commentCount}` : ''}</button>
+            {canModify && <>
+              <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+              <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? '…' : 'delete'}</button>
+            </>}
+          </div>
+        </Blk>
+
+        {/* kept by, playlists */}
+        <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minHeight: 0 }}>
+          <Blk bg={A2} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
+            <span style={{ ...mono, opacity: 0.6 }}>kept by</span>
+            <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(keptBy.length).padStart(2, '0')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ ...mono, opacity: 0.6 }}>people</span>
+              <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" aria-label="See who kept this" style={badge}>›</button>
+            </div>
+          </Blk>
+          <Blk bg={srcBox} className="lnv-still" style={{ borderRadius: R, padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
+            <div style={{ ...mono, fontSize: 9.5, opacity: 0.7 }}>{curP ? 'playing on' : 'listen on'}</div>
+            {locations.length === 0 ? <div style={{ marginTop: 10, fontFamily: d.bodyFf, fontSize: 13, opacity: 0.65 }}>No links yet.</div> : <>
+              <button onClick={() => { const k = locations.findIndex(l => l.p === shownP); playFrom(locations[(k + 1) % locations.length].p) }} title={locations.length > 1 ? 'Tap to play from the next source' : `Play from ${SOURCE_NAME[shownP] || shownP}`}
+                style={{ marginTop: 10, padding: 0, border: 'none', background: 'none', color: 'inherit', textAlign: 'left', cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 24, lineHeight: 1, letterSpacing: '-0.03em', overflowWrap: 'anywhere' }}>{SOURCE_NAME[shownP] || shownP}</button>
+              <div style={{ ...mono, fontSize: 9.5, opacity: 0.7, marginTop: 5 }}>{shownN != null && tracks.length > 1 ? `${shownN} of ${tracks.length} tracks` : ''}</div>
+              <div style={{ marginTop: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {locations.map(({ p }) => (
+                  <button key={p} onClick={() => playFrom(p)} aria-label={`Play from ${SOURCE_NAME[p] || p}`} title={`Play from ${SOURCE_NAME[p] || p}`}
+                    style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid currentColor', background: p === shownP ? 'currentColor' : 'transparent', padding: 0, cursor: 'pointer', opacity: p === shownP ? 1 : 0.6 }} />
+                ))}
+              </div>
+            </>}
+          </Blk>
+        </div>
+
+        {/* the tracks */}
+        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: R, padding: ph ? '14px 16px 6px' : '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
+            <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
+            <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
+          </div>
+          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
+            {tracks.map((t, i) => mrow(t, i))}
+          </div>
+        </Blk>
+        </div>
+
+        {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+        {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
+        {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
+      </div>
+    )
+  }
+
+  if (BLOCKS_CARDS) {
+    const ph = phone // the phone feed: one column, the slide scrolls instead of the blocks
+    const runtime = noteRuntime(tracks)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const dotsOf = t => { const s = new Set((t.sources || []).map(x => x.platform)); const own = platformOf(t.stream_url || t.youtube_url); if (own) s.add(own); return [...s] }
+    const W = blockWay(idx) // this post's colourway
+    const cov = 230
+    const replySizeBlocks = Math.round(d.artSize * 0.75)
+    const lab = { fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 21, letterSpacing: '0.05em', textTransform: 'uppercase', margin: '0 0 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexShrink: 0 }
+    const labSmall = { fontFamily: BLOCK_CP, fontWeight: 600, fontSize: 10.5, letterSpacing: '0.06em', opacity: 0.7 }
+    const dtStyle = { fontFamily: d.monoFf, fontWeight: 600, fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }
+    const ddStyle = { margin: '2px 0 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 14 }
+    const pillBtn = { fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, padding: '6px 12px', borderRadius: 99, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'none', whiteSpace: 'nowrap' }
+    const colFill = ph ? {} : { display: 'flex', flexDirection: 'column', minHeight: 0 } // a block whose body can scroll, only if it has to
+    const scrollBody = ph ? {} : { flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }
+    const ripple = e => {
+      const blk = e.currentTarget.closest('section'); if (!blk) return
+      const r = blk.getBoundingClientRect(), el = document.createElement('i')
+      el.className = 'lnv-rip'; el.style.left = `${e.clientX - r.left}px`; el.style.top = `${e.clientY - r.top}px`
+      blk.prepend(el); setTimeout(() => el.remove(), 900)
+    }
+    const washInk = wash ? (inkOnHex(shelfColor(wash.p)) === '#fff' ? INK_DARK_BG : INK_LIGHT_BG) : null
+    const sourceClick = (e, p) => {
+      const r = e.currentTarget.closest('section').getBoundingClientRect()
+      setWash(w => (w && w.p === p ? null : { p, x: e.clientX - r.left, y: e.clientY - r.top }))
+      playFrom(p)
+    }
+    const clamp = n => (ph ? {} : { display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) // the post box never scrolls: a long post is cut with an ellipsis (hover for all of it)
+    const star = (t, h, mine) => (
+      <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} className={mine ? undefined : 'lnv-off'} aria-pressed={mine}
+        aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+        title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+        style={{ width: 26, height: 26, border: 'none', background: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 14, color: mine ? 'var(--theme-accent)' : 'inherit' }}>{mine || h.n ? '★' : '☆'}</button>
+    )
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
+        style={ph
+          ? { position: 'relative', width: '100%', background: 'var(--theme-bg)', padding: '0 0 24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }
+          : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: 'var(--theme-bg)', padding: `${NOTES_PAD_TOP}px 20px ${NOTES_PAD_BOTTOM}px`, boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 8, transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+        <style>{BLOCK_CSS}</style>
+        {/* the release: cover (the player takes its place), the header exactly as the card has had it, the post number in its circle */}
+        <Blk bg={W.hero} cut="br" style={{ flex: '0 0 auto', padding: ph ? '14px 14px 22px' : '18px 24px 24px', display: 'grid', gridTemplateColumns: ph ? 'minmax(0, 1fr)' : `${cov}px minmax(0, 1fr)`, gap: ph ? 16 : 24, alignItems: 'center' }}>
+          <div style={{ position: 'relative', width: ph ? '100%' : cov, height: ph ? undefined : cov, aspectRatio: ph ? '1' : undefined, borderRadius: 18, overflow: 'hidden', background: playingSrc ? '#000' : 'var(--theme-dark3)' }}>
+            {playingSrc ? (
+              <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+            ) : (
+              <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              </div>
+            )}
+          </div>
+          <div ref={hdrR} style={{ minWidth: 0, paddingRight: ph ? 0 : 56 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+              <span style={{ ...badge, background: 'var(--theme-accent)', color: '#fff', borderRadius: 99 }}>{kind}</span>
+              {locations.map(({ p, n }) => (
+                <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`} style={{ ...badge, ...mutedPill(p, 30), borderRadius: 99, cursor: 'pointer' }}>
+                  {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+                </button>
+              ))}
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, borderRadius: 99, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, borderRadius: 99, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            </div>
+            <div style={{ fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+            </div>
+            <div style={{ fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+            <div style={{ fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+              {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+              {label && (catNo || post.year) ? ' · ' : ''}
+              {[catNo, post.year].filter(Boolean).join(' · ')}
+            </div>
+            {post.genres?.length > 0 && (
+              <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12 }}>
+                {post.genres.map(g => (
+                  <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                    style={{ fontSize: d.pillSize, background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: 99, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                ))}
+                <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: 99, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}>
+              <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 12, letterSpacing: '0.04em', padding: '8px 16px', borderRadius: 999, border: '1.5px solid currentColor', background: 'none', color: 'inherit', cursor: 'pointer' }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
+            </div>
+          </div>
+          <span aria-label={`Post ${num}`} style={{ position: 'absolute', right: ph ? 20 : 26, bottom: ph ? 24 : 32, width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 600, fontSize: num.length > 3 ? 13 : 16, background: 'var(--lv-pri)', color: W.hero[1] }}>{num}</span>
+        </Blk>
+
+        <div style={ph ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 } : { flex: '1 1 0', minHeight: 180, display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 8 }}>
+          {/* tracks: fills its space; only the list scrolls, and only if it has to */}
+          <Blk bg={W.tracks} cut="bl" className="lnv-still" style={{ ...colFill, padding: '18px 22px 30px' }}>
+            <h4 style={lab}><span>Tracks</span><span style={labSmall}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span></h4>
+            <div data-inner-scroll="" style={scrollBody}>
+              <div style={{ display: 'grid', gap: 3 }}>
+                {tracks.map((t, i) => {
+                  const u = urlOf(t), on = !!activeUrl && u === activeUrl, h = hlOf(t), mine = !!me && h.by.includes(me), v = shelfTrack(t, comp)
+                  return (
+                    <div key={t.id || i}>
+                      <div className={`lnv-tr${on ? ' on' : ''}`} onClick={e => { if (u) { setActiveUrl(on ? null : u); ripple(e) } }} title={u ? undefined : 'No link for this track yet'}
+                        style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto auto 26px', gap: 8, alignItems: 'center', padding: on ? '9px 12px' : '6px 10px', borderRadius: 99, cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.55,
+                          background: on ? 'var(--theme-accent)' : mine ? 'color-mix(in srgb, var(--theme-accent) 35%, transparent)' : 'color-mix(in srgb, currentColor 8%, transparent)', color: on ? '#fff' : 'inherit' }}>
+                        <b style={{ fontFamily: d.monoFf, fontWeight: 600, fontSize: 10, opacity: 0.7 }}>{on ? <span className="lnv-eq"><i /><i /><i /></span> : (t.position || i + 1)}</b>
+                        <span style={{ fontFamily: BLOCK_CP, fontWeight: 500, fontSize: 13, lineHeight: 1.2, minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {v.title}
+                          {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ opacity: 0.8 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+                        </span>
+                        <em style={{ fontFamily: d.monoFf, fontSize: 11, fontStyle: 'normal', opacity: 0.7 }}>{t.duration || ''}</em>
+                        <span style={{ display: 'inline-flex', gap: 3 }}>{dotsOf(t).map(p => <i key={p} title={SOURCE_NAME[p] || p} style={{ width: 8, height: 8, borderRadius: '50%', background: shelfColor(p), outline: '1.5px solid color-mix(in srgb, currentColor 40%, transparent)' }} />)}</span>
+                        <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: { x: e.clientX, y: e.clientY }, tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', fontFamily: d.monoFf, fontSize: 15, lineHeight: 1 }}>+</button> : null}</span>
+                        {star(t, h, mine)}
+                      </div>
+                      {on && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </Blk>
+          <div style={ph ? { display: 'grid', gap: 8 } : { display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gap: 8, minHeight: 0 }}>
+            {/* plays from: a click on a source floods the block with that source's colour */}
+            <Blk bg={W.plays} cut="tr" style={{ padding: '18px 22px 20px' }}>
+              {wash && <div aria-hidden="true" key={wash.p} style={{ position: 'absolute', inset: 0, background: shelfColor(wash.p), animation: 'lnvWash .7s cubic-bezier(.3,.8,.2,1) forwards', '--wx': `${wash.x}px`, '--wy': `${wash.y}px` }} />}
+              <style>{'@keyframes lnvWash{from{clip-path:circle(0 at var(--wx) var(--wy))}to{clip-path:circle(160% at var(--wx) var(--wy))}}'}</style>
+              <div style={{ position: 'relative', ...(washInk || {}), color: 'var(--lv-pri)' }}>
+                <h4 style={lab}><span>Plays from</span><span style={labSmall}>{locations.length} source{locations.length === 1 ? '' : 's'}</span></h4>
+                {locations.map(({ p, n }) => {
+                  const on = nowP === p
+                  return (
+                    <button key={p} className="lnv-pr" onClick={e => sourceClick(e, p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
+                      style={{ width: 'calc(100% + 12px)', margin: '0 0 4px -6px', display: 'grid', gridTemplateColumns: '100px minmax(0, 1fr) 36px', gap: 10, alignItems: 'center', padding: '3px 6px', border: 'none', borderRadius: 99, cursor: 'pointer', textAlign: 'left', color: 'inherit', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, background: on ? 'color-mix(in srgb, currentColor 14%, transparent)' : 'none' }}>
+                      <span>{on ? '▶ ' : ''}{SOURCE_NAME[p] || p}</span>
+                      <span className="lnv-bar" style={{ height: 9, borderRadius: 99, background: 'color-mix(in srgb, currentColor 18%, transparent)', overflow: 'hidden', '--w': `${tracks.length ? Math.max(6, (n / tracks.length) * 100) : 100}%` }}><i /></span>
+                      <em style={{ fontFamily: d.monoFf, fontSize: 11, fontStyle: 'normal', textAlign: 'right', opacity: 0.85 }}>{tracks.length > 1 ? `${n}/${tracks.length}` : ''}</em>
+                    </button>
+                  )
+                })}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                  <a href={discogsHref} target="_blank" rel="noopener noreferrer" style={pillBtn}>Discogs ↗</a>
+                  <a href={buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`} target="_blank" rel="noopener noreferrer" style={pillBtn}>Buy ↗</a>
+                </div>
+              </div>
+            </Blk>
+            {/* details + the playlist wheel */}
+            <Blk bg={W.details} style={{ ...colFill, padding: '18px 22px 18px' }}>
+              <h4 style={lab}><span>Details</span><span style={labSmall}>{catNo}</span></h4>
+              <div data-inner-scroll="" style={scrollBody}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center' }}>
+                  <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
+                    {label && <div><dt style={dtStyle}>Label</dt><dd style={ddStyle}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
+                    {post.year && <div><dt style={dtStyle}>Year</dt><dd style={ddStyle}>{post.year}</dd></div>}
+                    <div><dt style={dtStyle}>Kept by</dt><dd style={ddStyle}><button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{keptBy.length}</button></dd></div>
+                    <div><dt style={dtStyle}>In playlists</dt><dd style={ddStyle}>{(post.playlists || []).length}</dd></div>
+                  </dl>
+                  <PlaylistMiniWheel post={post} onOpen={at => setWheel({ kind: 'others', at })} />
+                </div>
+                {(post.playlists || []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 10 }}>
+                    {post.playlists.slice(0, 4).map(pl => <button key={pl.id} onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`${pl.name} · by ${pl.owner}`} style={{ ...pillBtn, fontWeight: 500, fontSize: 11.5 }}>♫ {pl.name}</button>)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                  {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
+                    on ? <span key={k} style={{ ...pillBtn, cursor: 'default', opacity: 0.8 }}>✓ {yes}</span>
+                      : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={pillBtn}>+ {add} ↗</a> : null
+                  ))}
+                  <FollowedTag post={post} />
+                </div>
+                {contributors.length > 0 && (
+                  <div style={{ marginTop: 10, fontFamily: d.bodyFf, fontSize: 13, lineHeight: 1.5 }}>
+                    <span style={dtStyle}>Artists </span>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ opacity: 0.6 }}> +{contributors.length - 9} more</span>}
+                  </div>
+                )}
+              </div>
+            </Blk>
+          </div>
+        </div>
+
+        {/* the post: no scrolling, no reply strip: the text, then who / reply / when */}
+        <Blk bg={W.post} cut="tl" style={ph ? { padding: '16px 18px 18px' } : { ...colFill, flex: '0 1 auto', padding: '16px 24px 18px' }}>
+          <h4 style={{ ...lab, marginBottom: 8 }}><span>The post</span><span style={labSmall}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></h4>
+          <div style={{ minHeight: 0, overflow: 'hidden' }}>
+            {quoteText && <p title={quoteText} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 20, lineHeight: 1.22, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...clamp(3) }}>{quoteText}</p>}
+            {showDesc && <p title={note} style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...clamp(3) }}>{note}</p>}
+            {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+          </div>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, rowGap: 8, flexWrap: ph ? 'wrap' : 'nowrap', marginTop: 10, fontFamily: d.monoFf, fontSize: 12 }}>
+            {posterName && <UserChip name={posterName} d={d} />}
+            <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12, color: 'var(--lv-ter)' }} />
+            {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, { x: e.clientX, y: e.clientY }); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+            <button className="lnv-pb" onClick={e => setNotesReply(v => !v, { x: e.clientX, y: e.clientY })} aria-expanded={notesReply}
+              style={{ marginLeft: 'auto', fontFamily: BLOCK_CP, fontWeight: 700, fontSize: 13, letterSpacing: '0.04em', border: 'none', borderRadius: 999, padding: '10px 18px', background: 'var(--lv-pri)', color: W.post[1], cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              ↩ Reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 500, fontSize: 11 }}>{commentCount}</span>}
+            </button>
+            <span title={stampOf(post.created_at)} style={{ color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+            {canModify && <>
+              <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+              <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+            </>}
+          </div>
+        </Blk>
+
+        {notesReply && createPortal(<NoteReplies fun sheet={ph} post={post} posterName={posterName} size={Math.max(replySizeBlocks, 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+        {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
+        {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
+      </div>
+    )
+  }
+
+  if (NOTES_CARDS) {
+    const L = noteLabel(d), NM = noteName(d), MT = noteMeta(d), NP = notePill(d)
+    const TN = { ...NM, fontSize: 12 }, TM = { ...MT, fontSize: 10 } // the tracklist's own, smaller type
+    const runtime = noteRuntime(tracks)
+    const sides = noteSides(tracks)
+    const picked = t => { const h = hlOf(t); return (!!me && h.by.includes(me)) || (!!ownerName && h.by.includes(ownerName)) }
+    const nPicked = tracks.filter(picked).length
+    const playIdx = i => { const u = urlOf(tracks[i]); if (u) setActiveUrl(activeUrl === u ? null : u) }
+    const nowP = srcPref || platformOf(activeUrl || firstUrl)
+    const keptBy = [posterName, ...(post.alsoPostedBy || [])].filter(Boolean)
+    const replySize = Math.round(d.artSize * 0.75)
+    const discogsPill = (key, on, add, yes) => on
+      ? <span key={key} style={{ ...NP, cursor: 'default', borderColor: 'var(--lv-sec)', color: 'var(--lv-pri)' }}>✓ {yes}</span>
+      : discogsExact ? <a key={key} className="lnv-np" href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={NP}>{add} ↗</a> : null
+    const star = (t, h, mine, big) => (
+      <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} className={mine ? undefined : 'lnv-off'} aria-pressed={mine}
+        aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+        title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+        style={{ width: big ? 30 : 28, height: big ? 30 : 28, border: 'none', background: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 14, color: mine ? 'var(--theme-accent)' : 'var(--lv-pri)' }}>{mine ? '★' : '☆'}</button>
+    )
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${NOTES_PAD_TOP}px 0 ${NOTES_PAD_BOTTOM}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
+        <style>{NOTE_CSS}</style>
+        <div ref={hdrR} style={{ position: 'relative', flexShrink: 0, margin: `0 ${d.bandPadX}px ${NOTES_GAP}px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+            </div>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+            <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+              {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+              {label && (catNo || post.year) ? ' · ' : ''}
+              {[catNo, post.year].filter(Boolean).join(' · ')}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12, flexShrink: 0 }}>
+              <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
+              {locations.map(({ p, n }) => (
+                <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                  style={{ ...badge, ...(PAIRED_CARDS ? mutedPill(p, 24) : { border: 'none', background: shelfColor(p), color: p === 'beatport' ? '#000' : '#fff' }), cursor: 'pointer' }}>
+                  {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+                </button>
+              ))}
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            </div>
+            <span style={{ position: 'absolute', right: 16, bottom: 14, width: 46, height: 46, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: d.monoFf, fontWeight: 500, fontSize: 13, background: cardBg, color: 'var(--lv-pri)' }}>{num}</span>
+            {post.genres?.length > 0 && (
+              <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+                {post.genres.map(g => (
+                  <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                    style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                ))}
+                <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+              </div>
+            )}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: NOTES_GAP, padding: `0 ${d.bandPadX}px` }}>
+          {/* left: the cover, Plays from, Details */}
+          <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: NOTES_GAP }}>
+            <div style={{ position: 'relative', width: d.artSize, height: `min(${d.artSize}px, calc(100vh - ${NOTES_PAD_TOP + NOTES_PAD_BOTTOM + 2 * FLOAT_INSET_Y + 300}px))`, flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+              {playingSrc ? (
+                <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+              ) : (
+                <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                  {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                </div>
+              )}
+            </div>
+            {locations.length > 0 && (
+              <div style={{ ...NOTE_BOX, flexShrink: 0, display: 'flex', flexWrap: 'nowrap', gap: 3, padding: 8, overflow: 'hidden' }}>
+                {locations.map(({ p, n }) => {
+                  const on = nowP === p, c = shelfColor(p)
+                  return (
+                    <button key={p} className="lnv-sp" onClick={() => playFrom(p)} aria-pressed={on} title={`Play from ${SOURCE_NAME[p] || p}`}
+                      style={{ ...NP, fontSize: 8, padding: '6px 8px', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', background: on ? c : `color-mix(in srgb, ${c} 24%, transparent)`, borderColor: on ? c : `color-mix(in srgb, ${c} 45%, transparent)`, color: on ? inkOnHex(c) : 'var(--lv-pri)' }}>
+                      {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 7, letterSpacing: 0, opacity: 0.8, marginLeft: 4 }}>{n}/{tracks.length}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <div data-inner-scroll="" style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, overflowY: 'auto', padding: '8px 6px 6px', ...INNER_SCROLL_STYLE }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '0 10px 4px' }}>
+                <span style={L}>Playlists</span><span style={L}>{(post.playlists || []).length}</span>
+              </div>
+              {(post.playlists || []).map(pl => (
+                <button key={pl.id} className="lnv-nr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`Open ${pl.name}`}
+                  style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '3px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                  <NoteDash /><span style={NM}>{pl.name}</span><span style={MT}>{pl.owner}</span>
+                </button>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 0' }}>
+                <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
+                <AddToPlaylistButton post={post} label="+ add" align="left" style={{ ...NP, cursor: 'pointer' }} />
+              </div>
+              <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
+              </div>
+              <button className="lnv-nr" onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this"
+                style={{ width: '100%', display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'baseline', gap: '0 6px', padding: '3px 10px', border: 'none', borderRadius: 10, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                <NoteDash /><span style={{ ...NM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keptBy.slice(0, 3).join(', ')}</span><span style={MT}>{keptBy.length > 3 ? `+${keptBy.length - 3}` : ''}</span>
+              </button>
+              {contributors.length > 0 && <>
+                <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={L}>Artists</span><span style={L}>{contributors.length}</span>
+                </div>
+                <div style={{ padding: '3px 10px', fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.5, color: 'var(--lv-sec)' }}>
+                  {contributors.slice(0, 12).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 12 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 12} more</span>}
+                </div>
+              </>}
+              <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}` }}><span style={L}>Discogs</span></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '4px 10px 2px' }}>
+                {discogsPill('c', !!dAcct?.linked && inColl, '+ collection', 'in your collection')}
+                {discogsPill('w', !!dAcct?.linked && inWant, '+ wantlist', 'on your wantlist')}
+                <a className="lnv-np" href={buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`} target="_blank" rel="noopener noreferrer" style={NP}>buy ↗</a>
+              </div>
+            </div>
+          </div>
+          {/* right: Tracks (highlights on top, then the whole record), then the post */}
+          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: NOTES_GAP }}>
+            <div style={{ ...NOTE_BOX, flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 10px 10px' }}>
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 10, padding: '0 10px' }}>
+                <span style={L}>{tracks.length} track{tracks.length === 1 ? '' : 's'}{runtime ? ` · ${runtime}` : ''}</span>
+              </div>
+              <div data-inner-scroll="" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto', marginTop: 4, ...INNER_SCROLL_STYLE }}>
+                {/* highlights: every track is here, folded away unless the poster or you picked it, so adding and removing one animates */}
+                <NoteFold open={nPicked > 0} shift={0}>
+                  <div style={{ paddingTop: 6 }}>
+                    <div style={{ display: 'flex', gap: 8, margin: '0 10px 6px', ...L }}><span>Highlights</span><span>{nPicked}</span></div>
+                    {tracks.map((t, i) => {
+                      const h = hlOf(t), mine = !!me && h.by.includes(me), own = !!ownerName && h.by.includes(ownerName)
+                      const u = urlOf(t), on = !!activeUrl && u === activeUrl
+                      const who = [own && ownerName !== me ? ownerName : null, mine ? 'you' : null].filter(Boolean).join(' + ')
+                      return (
+                        <NoteFold key={t.id || i} open={own || mine}>
+                          <div style={{ paddingBottom: 6 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto 30px', gap: 10, alignItems: 'center', padding: '7px 4px 7px 7px', borderRadius: 18, background: `color-mix(in srgb, var(--theme-accent) ${on ? 30 : 16}%, transparent)` }}>
+                              <button onClick={() => playIdx(i)} disabled={!u} aria-label={`${on ? 'Stop' : 'Play'} ${t.title}`}
+                                style={{ width: 38, height: 38, borderRadius: '50%', border: on ? 'none' : `1px solid ${NOTE_HAIR2}`, background: on ? 'var(--lv-pri)' : 'none', color: on ? cardBg : 'var(--lv-pri)', fontSize: 12, cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.4 }}>{on ? '❚❚' : '▶'}</button>
+                              <button onClick={() => playIdx(i)} style={{ minWidth: 0, border: 'none', background: 'none', padding: 0, textAlign: 'left', color: 'var(--lv-pri)', cursor: u ? 'pointer' : 'default' }}>
+                                <span style={{ display: 'block', fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)' }}>{[t.position, t.duration, who].filter(Boolean).join(' · ')}</span>
+                                <span style={{ display: 'block', ...TN, lineHeight: 1.15 }}>{shelfTrack(t, comp).title}</span>
+                              </button>
+                              <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-sec)' }}>★{h.n}</span>
+                              {star(t, h, mine, true)}
+                            </div>
+                          </div>
+                        </NoteFold>
+                      )
+                    })}
+                    <div style={{ margin: '4px 10px 0', borderTop: `1px solid ${NOTE_HAIR}` }} />
+                  </div>
+                </NoteFold>
+                {/* the whole record, in order, under one big letter per side */}
+                {sides.map(g => (
+                  <div key={g.key + (g.items[0]?.i ?? 0)} style={{ display: 'grid', gridTemplateColumns: g.key ? '26px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 2, alignItems: 'start', padding: g.key ? '6px 0 6px 10px' : '6px 0 6px 2px' }}>
+                    {g.key && <span aria-label={`Side ${g.key}`} style={{ fontFamily: d.bodyFf, fontWeight: 900, fontSize: g.key.length > 1 ? 13 : 18, lineHeight: '26px', color: 'var(--lv-ter)' }}>{g.key}</span>}
+                    <div>
+                      {g.items.map(({ t, i }) => {
+                        const u = urlOf(t), on = !!activeUrl && u === activeUrl
+                        const h = hlOf(t), mine = !!me && h.by.includes(me)
+                        const v = shelfTrack(t, comp)
+                        return (
+                          <div key={t.id || i}>
+                            <div className="lnv-nr" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto 18px 24px 28px', gap: 6, alignItems: 'center', minHeight: 26, padding: '0 2px 0 8px', borderRadius: 10, background: on ? 'color-mix(in srgb, var(--lv-pri) 8%, transparent)' : undefined }}>
+                              <button onClick={() => playIdx(i)} title={u ? undefined : 'No link for this track yet'}
+                                style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', alignItems: 'baseline', border: 'none', background: 'none', padding: '6px 0', textAlign: 'left', cursor: u ? 'pointer' : 'default', ...TN, color: on ? 'var(--theme-accent)' : 'var(--lv-pri)', opacity: u ? 1 : 0.55 }}>
+                                <NoteDash />
+                                <span style={{ overflowWrap: 'anywhere' }}>{v.title}{(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, color: 'var(--lv-sec)' }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}</span>
+                              </button>
+                              <span style={TM}>{t.duration || ''}</span>
+                              <span style={{ fontFamily: d.monoFf, fontSize: 10, color: 'var(--lv-sec)', textAlign: 'right' }}>{h.n || ''}</span>
+                              <span className="lnv-off" style={{ display: 'grid', placeItems: 'center' }}>{u ? <AddToPlaylistButton tracks={[trackFrom(post, t)]} label="+" align="right" style={{ fontFamily: d.monoFf, fontSize: 15, color: 'var(--lv-pri)' }} /> : null}</span>
+                              {star(t, h, mine, false)}
+                            </div>
+                            {on && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={g.key ? 8 : 20} />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ ...NOTE_BOX, flexShrink: 0, padding: '16px 20px 14px', maxHeight: '45%', display: 'flex', flexDirection: 'column' }}>
+              <div data-inner-scroll="" style={{ minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+                {quoteText && <p style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 22, lineHeight: 1.22, letterSpacing: '-0.01em', color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
+                {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : 0, fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+                {!quoteText && !showDesc && <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+              </div>
+              <div style={{ flexShrink: 0, marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                {posterName && <span style={{ fontFamily: d.bodyFf, fontSize: 13, color: 'var(--lv-sec)' }}>— <b style={{ fontWeight: 700, color: 'var(--lv-sec)' }}>{posterName}</b></span>}
+                <button className="lnv-np" onClick={e => setNotesReply(v => !v, { x: e.clientX, y: e.clientY })} aria-expanded={notesReply}
+                  style={{ ...NP, fontSize: 13, padding: '11px 19px', marginLeft: 'auto', ...(notesReply ? { background: 'var(--lv-pri)', borderColor: 'var(--lv-pri)', color: cardBg } : null) }}>
+                  reply{commentCount > 0 && <span style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 11, letterSpacing: 0, marginLeft: 6 }}>{commentCount}</span>}
+                </button>
+              </div>
+            </div>
+            {notesReply && createPortal(<NoteReplies post={post} posterName={posterName} size={replySize} d={d} cardBg={cardBg} onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+          </div>
+        </div>
+        {/* one pill across the foot: who posted it, main number, time, edit / delete */}
+        <div style={{ flexShrink: 0, margin: `${NOTES_GAP}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${NOTE_HAIR}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12.5 }}>
+          {posterName && <UserChip name={posterName} d={d} />}
+          <FollowedTag post={post} />
+          <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12.5, color: 'var(--lv-ter)' }} />
+          {privateWaiting > 0 && <button onClick={() => { setNotesReply(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+          <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+          {canModify && <>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </>}
+        </div>
+      </div>
+    )
+  }
+
+  if (PAIRED_CARDS) {
+    const cap = { fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)' }
+    const chip = { display: 'inline-block', margin: '0 5px 5px 0', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 12, padding: '4px 11px', borderRadius: 99, border: '1px solid var(--lv-sec)', background: 'none', color: 'var(--lv-pri)', cursor: 'pointer' }
+    const dt = { ...cap, paddingTop: 3 }
+    const nPlaylists = (post.playlists || []).length
+    const plBtn = e => { const r = cardEl.current.getBoundingClientRect(); setPlPop({ x: Math.min(Math.max(e.clientX - r.left - 150, 16), r.width - 316), bottom: r.bottom - e.clientY + 14 }) }
+    return (
+      <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
+        style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', background: cardBg, padding: `${PAIRED_PAD_Y}px 0`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)', boxSizing: 'border-box' }}>
+        <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
+        {/* the header box (gabriel, 12 Oct; from mockup24): the artist, the title, the release line, the location pills and the genres in a soft box of their own */}
+        <div ref={hdrR} style={{ flexShrink: 0, margin: `0 ${d.bandPadX}px 12px`, borderRadius: 34, background: 'color-mix(in srgb, var(--theme-showcase) 14%, transparent)', padding: '18px 26px 16px' }}>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+              {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+            </div>
+            <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+            <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+              {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+              {label && (catNo || post.year) ? ' · ' : ''}
+              {[catNo, post.year].filter(Boolean).join(' · ')}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12, flexShrink: 0 }}>
+              <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
+              {locations.map(({ p, n }) => (
+                <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                  style={{ ...badge, ...(PAIRED_CARDS ? mutedPill(p, 24) : { border: 'none', background: shelfColor(p), color: p === 'beatport' ? '#000' : '#fff' }), cursor: 'pointer' }}>
+                  {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+                </button>
+              ))}
+              <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+              {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+            </div>
+            {post.genres?.length > 0 && (
+              <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+                {post.genres.map(g => (
+                  <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                    style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+                ))}
+                <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+              </div>
+            )}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, padding: `0 ${d.bandPadX}px` }}>
+          {/* left: the cover, then Plays from / The post */}
+          <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <div style={{ position: 'relative', width: d.artSize, height: `min(${d.artSize}px, calc(100vh - ${2 * (PAIRED_PAD_Y + FLOAT_INSET_Y) + 300}px))`, flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+              {playingSrc ? (
+                <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+              ) : (
+                <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                  {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                  <span style={{ position: 'absolute', left: 10, top: 10, fontFamily: d.monoFf, fontWeight: 500, fontSize: 11, letterSpacing: '0.08em', padding: '6px 9px', borderRadius: 99, background: 'var(--lv-pri)', color: cardBg }}>#{num}</span>
+                </div>
+              )}
+            </div>
+            <PairBox d={d} name="Plays from" sub={`${locations.length} place${locations.length === 1 ? '' : 's'}`} open={pairL === 's'} onOpen={() => setPairL('s')}>
+              <div style={{ ...cap, margin: '2px 0 8px' }}>Play this release from</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {locations.map(({ p, n }) => {
+                  const on = srcPref === p || (!srcPref && platformOf(firstUrl) === p)
+                  return (
+                    <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}${on ? ' (your choice)' : ''}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 99, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 11, ...mutedPill(p, on ? 42 : 20) }}>
+                      {on ? '▶ ' : ''}{SOURCE_NAME[p] || p}
+                      {tracks.length > 1 && n > 0 && <small style={{ fontFamily: d.monoFf, fontWeight: 500, fontSize: 10, opacity: 0.85 }}>{n}/{tracks.length}</small>}
+                    </button>
+                  )
+                })}
+              </div>
+            </PairBox>
+            <PairBox d={d} name="The post" sub={`${commentCount} repl${commentCount === 1 ? 'y' : 'ies'}`} open={pairL === 'p'} onOpen={() => setPairL('p')}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '2px 0 6px', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 13 }}>
+                <span>{posterName}</span><span style={{ fontFamily: d.monoFf, fontWeight: 600, fontSize: 11, color: 'var(--lv-ter)' }}>{stampOf(post.created_at)}</span>
+              </div>
+              {quoteText && <p style={{ margin: '2px 0 0', fontFamily: d.bodyFf, fontStyle: 'italic', fontSize: 19, lineHeight: 1.3, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>}
+              {showDesc && <p style={{ margin: quoteText ? '8px 0 0' : '2px 0 0', fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.45, color: 'var(--lv-sec)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</p>}
+              {!quoteText && !showDesc && <p style={{ margin: '2px 0 0', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+              <CardReplies fill={false} size={14} posterName={posterName} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
+            </PairBox>
+          </div>
+          {/* right: artist / title, then Tracks / Details */}
+          <div ref={colR} style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <PairBox d={d} name="Tracks" sub={`${tracks.length}${highlighted ? ` · ${highlighted} ★` : ''}`} open={tracksOpen} onOpen={() => setPairR('t')} bodyRef={trkBody}>
+              {tracks.map(row)}
+            </PairBox>
+            <PairBox d={d} name="Details" sub="lists · discogs · buy" open={detailsOpen} onOpen={() => setPairR('d')} bodyRef={detBody}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '2px 0 10px' }}>
+                {[['In playlists', nPlaylists, { kind: 'playlists', lists: post.playlists || [] }], ['Kept by', 1 + (post.alsoPostedBy || []).length, { kind: 'people', people: [posterName, ...(post.alsoPostedBy || [])].filter(Boolean) }]].map(([k, n, props]) => (
+                  <button key={k} onClick={() => openD3?.('postlist', { ...props, title: k, post: [artist, post.title].filter(Boolean).join(' – ') })} title={`See ${k === 'Kept by' ? 'who kept this' : 'the playlists it is in'}`}
+                    style={{ border: '1px solid color-mix(in srgb, var(--lv-pri) 30%, transparent)', borderRadius: 16, padding: '8px 12px', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15, background: 'none', color: 'var(--lv-pri)', textAlign: 'left', cursor: 'pointer' }}>
+                    <small style={{ ...cap, display: 'block', marginBottom: 2, fontSize: 9, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{k}</small>{n} <span style={{ float: 'right', color: 'var(--lv-ter)' }}>→</span>
+                  </button>
+                ))}
+              </div>
+              {/* the actions as pills, flush left under the tiles (no row labels) */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', margin: '0 0 12px' }}>
+                {dAcct?.linked && [['collection', inColl, 'add to Discogs collection', 'In your Discogs collection', '＋'], ['wantlist', inWant, 'add to Discogs wantlist', 'On your Discogs wantlist', '♡']].map(([k, on, add, yes, ic]) => (
+                  on ? <span key={k} style={{ ...chip, margin: 0, fontSize: 13, cursor: 'default', background: 'color-mix(in srgb, var(--lv-pri) 10%, transparent)' }}>✓ {yes}</span>
+                    : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={{ ...chip, margin: 0, fontSize: 13, textDecoration: 'none' }}>{ic} {add} ↗</a> : null
+                ))}
+                {(() => {
+                  const href = buyHref || `https://www.discogs.com/search/?${new URLSearchParams({ q: [artist, post.title].filter(Boolean).join(' '), type: 'release' })}`
+                  const where = buyHref && platformOfUrl(post.stream_url) === 'bandcamp' && !post.discogs_id ? 'Bandcamp' : 'Discogs'
+                  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ ...chip, margin: 0, fontSize: 13, textDecoration: 'none' }}>Buy on {where} ↗</a>
+                })()}
+                <AddToPlaylistButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
+                <HeartButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
+                <FollowedTag post={post} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start', fontFamily: d.bodyFf, fontWeight: 400, fontSize: 14, color: 'var(--lv-pri)' }}>
+                {contributors.length > 0 && <><span style={dt}>Artists</span><span style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5 }}>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}</span></>}
+                {nPlaylists > 0 && <><span style={dt}>Playlists</span><span>{post.playlists.map(pl => <button key={pl.id} onClick={plBtn} title={`${pl.name} · by ${pl.owner}`} style={chip}>♫ {pl.name}</button>)}</span></>}
+                {(post.alsoPostedBy || []).length > 0 && <><span style={dt}>Also by</span><span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{post.alsoPostedBy.slice(0, 4).map(n => <UserChip key={n} name={n} d={d} />)}{post.alsoPostedBy.length > 4 && <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>+{post.alsoPostedBy.length - 4}</span>}</span></>}
+              </div>
+            </PairBox>
+          </div>
+        </div>
+        {/* one pill across the foot: who posted it, main number, time, edit / delete */}
+        <div style={{ flexShrink: 0, margin: `${SHELF_PAD_Y / 2}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${CARD_LINE}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12 }}>
+          {posterName && <UserChip name={posterName} d={d} />}
+          <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
+          {privateWaiting > 0 && <button onClick={() => { setCommentsOpen(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting} private</button>}
+          <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
+          {canModify && <>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </>}
+        </div>
+        {plPop && <PlaylistsPop lists={post.playlists || []} at={plPop} cardBg={cardBg} d={d} onClose={() => setPlPop(null)} />}
+        {commentsOpen && (
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 360, zIndex: 20, background: cardBg, borderLeft: '1px solid var(--lv-line)', boxShadow: '-18px 0 40px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', animation: 'lnvShelfIn 0.28s ease-out' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '26px 24px 6px 26px', flexShrink: 0 }}>
+              <h3 style={{ margin: 0, flex: 1, minWidth: 0, fontFamily: d.bodyFf, fontWeight: 900, fontSize: 26, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist || post.title}</h3>
+              <span style={{ fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
+              <button onClick={() => setCommentsOpen(false)} aria-label="Close replies" style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--lv-line)', background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', color: 'var(--lv-sec)', cursor: 'pointer', fontSize: 16, flexShrink: 0, alignSelf: 'center' }}>×</button>
+            </div>
+            <div data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 24px 14px 26px', ...INNER_SCROLL_STYLE }}>
+              {note && <div style={{ fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 18, lineHeight: 1.4, color: 'var(--lv-pri)', paddingLeft: 12, borderLeft: '3px solid var(--theme-accent)', whiteSpace: 'pre-line', overflowWrap: 'anywhere', margin: '10px 0' }}>{note}</div>}
+              <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={9999} inputSize={13} drawer ownerName={posterName} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }}
+      style={{ position: 'relative', flexShrink: 0, width: comp ? d.cardW + SHELF_COMP_EXTRA : d.cardW, height: '100%', background: cardBg, padding: `${SHELF_PAD_Y}px ${d.bandPadX}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'background 0.8s', color: 'var(--lv-pri)' }}>
+      <style>{'@keyframes lnvShelfIn { from { transform: translateX(100%) } }'}</style>
+
+      {/* top: sleeve (the player takes its place) | pills, artist, title, label, genres */}
+      <div style={{ display: 'grid', gridTemplateColumns: `${d.artSize}px minmax(0, 1fr)`, gap: COL_GAP, height: stageH, flexShrink: 0 }}>
+        <div style={{ position: 'relative', height: '100%', aspectRatio: '1 / 1', flexShrink: 0, background: playingSrc ? '#000' : undefined, borderRadius: d.artRadius, overflow: 'hidden' }}>
+          {playingSrc ? (
+            <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
+          ) : (
+            <div onClick={() => firstUrl && setActiveUrl(firstUrl)} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+              {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+            </div>
+          )}
+        </div>
+        <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14, flexShrink: 0 }}>
+            <span style={{ ...badge, background: 'var(--theme-showcase)', color: '#fff' }}>{kind}</span>
+            {locations.map(({ p, n }) => (
+              <button key={p} onClick={() => playFrom(p)} title={`Play from ${SOURCE_NAME[p] || p}`}
+                style={{ ...badge, border: 'none', cursor: 'pointer', background: shelfColor(p), color: p === 'beatport' ? '#000' : '#fff' }}>
+                {SOURCE_NAME[p] || p}{tracks.length > 1 && n > 0 ? <span style={{ fontFamily: d.monoFf, fontWeight: 500, opacity: 0.8, marginLeft: 5, letterSpacing: 0 }}>{n}/{tracks.length}</span> : null}
+              </button>
+            ))}
+            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>◈ discogs</a>
+            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={{ ...badge, border: '1px solid var(--lv-line)', color: 'var(--lv-sec)' }}>buy ↗</a>}
+          </div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontWeight: d.artistWeight, fontSize: d.artistSize, lineHeight: d.artistLh, letterSpacing: `${d.artistLs}em`, color: 'var(--lv-pri)', wordBreak: 'break-word' }}>
+            {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet>{artist}</DrawerLink> : (artist || post.title)}
+          </div>
+          <div style={{ flexShrink: 0, fontFamily: d.artistFf, fontStyle: 'italic', fontSize: d.titleSize, lineHeight: d.titleLh, letterSpacing: `${d.titleLs}em`, color: 'var(--lv-sec)', wordBreak: 'break-word' }}>{post.title}</div>
+          <div style={{ flexShrink: 0, fontFamily: d.monoFf, fontSize: d.metalineSize, lineHeight: d.metalineLh, letterSpacing: `${d.metalineLs}em`, textTransform: 'uppercase', color: 'var(--lv-sec)', marginTop: d.metalineMt }}>
+            {label && <DrawerLink kind="labels" name={label}>{label}</DrawerLink>}
+            {label && (catNo || post.year) ? ' · ' : ''}
+            {[catNo, post.year].filter(Boolean).join(' · ')}
+          </div>
+          {post.genres?.length > 0 && (
+            <div ref={genreBox} style={{ display: 'flex', flexWrap: 'wrap', gap: d.pillGap, marginTop: 12, flexShrink: 0 }}>
+              {post.genres.map(g => (
+                <button key={g} data-g="" onClick={() => openD3?.('genres', { filter: g })}
+                  style={{ fontSize: d.pillSize, background: 'var(--theme-dark3)', color: 'var(--lv-sec)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: 'none', cursor: 'pointer' }}>{g}</button>
+              ))}
+              <span data-more="" style={{ display: 'none', fontSize: d.pillSize, background: 'transparent', color: 'var(--lv-ter)', padding: `${d.pillPy}px ${d.pillPx}px`, borderRadius: d.pillRadius, fontFamily: d.bodyFf, border: '1px solid var(--lv-line)' }} />
+            </div>
+          )}
+          {contributors.length > 0 && (
+            <div style={{ marginTop: 12, minHeight: 0, overflow: 'hidden', fontFamily: d.bodyFf, fontSize: 12, lineHeight: 1.6, color: 'var(--lv-sec)' }}>
+              <div style={{ fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>{contributors.length} artists</div>
+              {contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}
+              {contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}
+            </div>
+          )}
+          {/* the big post number, as on the old cards, in the column's spare room (gabriel, 2026-10-08) */}
+          <div ref={numBox} aria-hidden="true" style={{ pointerEvents: 'none', flex: '1 1 0', minHeight: 0, marginTop: 8 }}>
+            {numSize >= 56 && <div style={{ whiteSpace: 'nowrap', fontFamily: d.numeralFf, fontWeight: d.numeralWeight, fontSize: numSize, lineHeight: d.numeralLh, letterSpacing: `${d.numeralLs}em`, opacity: d.numeralOpacity, color: 'var(--lv-pri)' }}>{num}</div>}
+            <div style={{ height: 1, background: 'var(--lv-line)', marginTop: numSize >= 56 ? NUM_LINE_GAP : 0 }} />
+          </div>
+        </div>
+      </div>
+
+      {/* tracklist: always there, scrolls inside its own space */}
+      <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.monoFf, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 4 }}>
+          <span>Tracklist{me ? ' · tap ☆ to highlight' : ''}</span><span>{tracks.length} track{tracks.length === 1 ? '' : 's'}{highlighted ? <> · {highlighted} highlighted <span style={{ color: MINE_HL, marginLeft: 6 }}>● you</span>{ownerName && ownerName !== me && <span style={{ color: OWNER_HL, marginLeft: 6 }}>● {ownerName}</span>}</> : ''}</span>
+        </div>
+        <div ref={listRef} data-inner-scroll={listFit.overflows ? '' : undefined} onScroll={listFit.onScroll}
+          style={{ flex: '0 1 auto', minHeight: 0, overflowY: listFit.overflows ? 'auto' : 'hidden', display: 'grid', gridTemplateColumns: tracks.length > 3 ? '1fr 1fr' : '1fr', columnGap: COL_GAP, alignContent: 'start', ...INNER_SCROLL_STYLE, ...fadeMask(listFit) }}>
+          {tracks.map(row)}
+        </div>
+      </div>
+
+      {/* the poster's own words: the description takes all the room left under the tracklist and
+          scrolls only once it has filled it (the tracklist gives way before this block drops below ~two lines) */}
+      {quoteText && (
+        <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', marginTop: 22, marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginBottom: 8 }}>
+            <span>The post</span><span style={{ fontFamily: d.monoFf, fontWeight: 400, letterSpacing: '0.06em' }}>{posterName}{post.created_at ? ` · ${stampOf(post.created_at)}` : ''}</span>
+          </div>
+          <p style={{ margin: 0, paddingLeft: 16, borderLeft: '3px solid var(--theme-accent)', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: textSize, lineHeight: 1.3, color: 'var(--lv-pri)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{quoteText}</p>
+        </div>
+      )}
+      {showDesc && (
+        <div style={{ flex: '1 1 0', minHeight: 60, display: 'flex', flexDirection: 'column', marginTop: quoteText ? 6 : 26, marginBottom: 6 }}>
+          {!quoteText && <>
+            <div style={{ ...{ fontFamily: d.labelFf, fontWeight: 600, fontSize: d.postLabelSize, letterSpacing: `${d.zlabelLs}em`, textTransform: 'uppercase', color: 'var(--lv-ter)' } }}>The post</div>
+            <div aria-hidden="true" style={{ height: 1, background: 'var(--lv-line)', margin: '9px 0 8px' }} />
+          </>}
+          <p ref={descRef} data-inner-scroll={descFit.overflows ? '' : undefined} onScroll={descFit.onScroll}
+            style={{ fontSize: d.descSize, lineHeight: 1.4, fontFamily: d.bodyFf, color: 'var(--lv-sec)', margin: 0, flex: '1 1 0', minHeight: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-line', overflowY: descFit.overflows ? 'auto' : 'hidden', ...INNER_SCROLL_STYLE, ...fadeMask(descFit) }}>{note}</p>
+        </div>
+      )}
+
+      {/* replies under the post */}
+      <CardReplies fill={!showDesc} size={textSize} posterName={posterName} post={post} count={commentCount} onCount={setCommentCount} onOpen={() => setCommentsOpen(true)} d={d} />
+
+      {/* footer: actions, then who posted it / who else / which public playlists */}
+      <div style={{ marginTop: 'auto', paddingTop: 10, display: 'flex', gap: 10, alignItems: 'baseline', flexShrink: 0 }}>
+        <button onClick={() => setCommentsOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }}>
+          <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
+        </button>
+        {privateWaiting > 0 && <button onClick={() => { setCommentsOpen(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--theme-accent)' }}>🔒 {privateWaiting} private</button>}
+        <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <FollowedTag post={post} />
+        {canModify && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
+            <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
+            <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--theme-accent)', opacity: deleting ? 0.5 : 1 }}>{deleting ? 'deleting…' : 'delete'}</button>
+          </span>
+        )}
+      </div>
+      <div style={{ marginTop: 8, paddingTop: 10, borderTop: '1px solid var(--lv-line)', display: 'grid', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: d.bodyFf, fontSize: 12, color: 'var(--lv-ter)' }}>
+          {posterName && <UserChip name={posterName} d={d} />}
+          <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
+          <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em`, color: 'var(--lv-ter)' }}>
+            {stampOf(post.created_at)}
+          </span>
+        </div>
+        {((post.alsoPostedBy || []).length > 0 || (post.playlists || []).length > 0) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            {(post.alsoPostedBy || []).length > 0 && <>
+              <span style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--lv-ter)' }}>Also posted by</span>
+              {post.alsoPostedBy.slice(0, 3).map(n => <UserChip key={n} name={n} d={d} />)}
+              {post.alsoPostedBy.length > 3 && <span style={{ fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>+{post.alsoPostedBy.length - 3}</span>}
+            </>}
+            {(post.playlists || []).length > 0 && <>
+              <span style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--lv-ter)', marginLeft: (post.alsoPostedBy || []).length ? 10 : 0 }}>In playlists</span>
+              {post.playlists.slice(0, 2).map(pl => (
+                <button key={pl.id} onClick={e => { const r = cardEl.current.getBoundingClientRect(); setPlPop({ x: Math.min(Math.max(e.clientX - r.left - 150, 16), r.width - 316), bottom: r.bottom - e.clientY + 14 }) }} title={`${pl.name} · by ${pl.owner}`}
+                  style={{ flexShrink: 0, border: '1px solid var(--lv-line)', background: 'none', borderRadius: 99, padding: '2px 10px', cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 12, color: 'var(--lv-pri)' }}>{pl.name} <small style={{ fontFamily: d.monoFf, fontWeight: 400, fontSize: 10, color: 'var(--lv-ter)' }}>{pl.owner}</small></button>
+              ))}
+              {post.playlists.length > 2 && <button onClick={e => { const r = cardEl.current.getBoundingClientRect(); setPlPop({ x: Math.min(Math.max(e.clientX - r.left - 150, 16), r.width - 316), bottom: r.bottom - e.clientY + 14 }) }} style={{ flexShrink: 0, border: '1px solid var(--lv-line)', background: 'none', borderRadius: 99, padding: '2px 10px', cursor: 'pointer', fontFamily: d.monoFf, fontSize: 11, color: 'var(--lv-ter)' }}>+{post.playlists.length - 2}</button>}
+            </>}
+          </div>
+        )}
+      </div>
+      {plPop && <PlaylistsPop lists={post.playlists || []} at={plPop} cardBg={cardBg} d={d} onClose={() => setPlPop(null)} />}
+
+      {/* replies: a panel out of the card's right edge, laid out like the artist / label drawers */}
+      {commentsOpen && (
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 360, zIndex: 20, background: cardBg, borderLeft: '1px solid var(--lv-line)', boxShadow: '-18px 0 40px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', animation: 'lnvShelfIn 0.28s ease-out' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '26px 24px 6px 26px', flexShrink: 0 }}>
+            <h3 style={{ margin: 0, flex: 1, minWidth: 0, fontFamily: d.bodyFf, fontWeight: 900, fontSize: 26, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--lv-pri)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist || post.title}</h3>
+            <span style={{ fontFamily: d.monoFf, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--lv-ter)', whiteSpace: 'nowrap' }}>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span>
+            <button onClick={() => setCommentsOpen(false)} aria-label="Close replies" style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--lv-line)', background: 'color-mix(in srgb, var(--lv-pri) 7%, transparent)', color: 'var(--lv-sec)', cursor: 'pointer', fontSize: 16, flexShrink: 0, alignSelf: 'center' }}>×</button>
+          </div>
+          <div data-inner-scroll="" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 24px 14px 26px', ...INNER_SCROLL_STYLE }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: 14, alignItems: 'end', margin: '6px 0 4px' }}>
+              {cover ? <img src={cover} alt="" style={{ width: 72, height: 72, borderRadius: 14, objectFit: 'cover' }} /> : <span />}
+              <div style={{ fontFamily: d.monoFf, fontSize: 11.5, lineHeight: 1.7, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--lv-sec)' }}>
+                <div>{post.title}</div>
+                {(label || post.year) && <div>{[label, post.year].filter(Boolean).join(' · ')}</div>}
+                <div>Posted by {posterName} · {stampOf(post.created_at)}</div>
+              </div>
+            </div>
+            {note && <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', margin: '18px 0 6px' }}><span>The post</span><span>#{post.id}</span></div>
+              <div style={{ fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 18, lineHeight: 1.4, color: 'var(--lv-pri)', paddingLeft: 12, borderLeft: '3px solid var(--theme-accent)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{note}</div>
+            </>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: d.bodyFf, fontWeight: 600, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--lv-ter)', margin: '18px 0 2px' }}><span>Replies</span><span>oldest first</span></div>
+            <CommentThread postId={post.id} onCountChange={setCommentCount} d={d} maxH={9999} inputSize={13} drawer ownerName={posterName} />
+          </div>
         </div>
       )}
     </div>
@@ -1830,15 +3869,6 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     enabled: type !== 'channel' && !!trackReleaseId,
     staleTime: Infinity,
   })
-  const selectedOnSite = !!selectedRelease && onSiteIds.has(selectedRelease.id)
-  // What "add this to the feed" means per type — ComposeModal's initialUrl
-  // pipeline takes any supported platform url, so a channel's uploads can be
-  // added straight from here the same way a Discogs release can.
-  const addUrl = !selectedRelease
-    ? null
-    : type === 'channel'
-      ? (selectedRelease.url || `https://www.youtube.com/watch?v=${selectedRelease.id}`)
-      : `https://www.discogs.com/${selectedRelease.type === 'master' ? 'master' : 'release'}/${selectedRelease.id}`
   const catalogueSource = type === 'channel' ? 'YouTube' : 'Discogs'
 
   // Artist headshot / label logo from Discogs, or — for channels, which have
@@ -1879,7 +3909,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   //             a click inverts the row and opens it: releases show their
   //             tracklist (each track playable in place), channel uploads
   //             open straight into the player
-  //   cta     — unchanged (+ add to feed / view all)
+  //   cta     — "view all →" (the "+ add to feed" button moved into each open row, 2026-10-08)
   // Rows come from the catalogue when there is one, otherwise from this
   // subject's own LNV posts, so every spotlight gets the same anatomy.
   // Masters come without format/label: ask for their main release's (slow
@@ -1962,11 +3992,12 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // click (playTrack) — one capped, cached YouTube search, never up front.
   const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const onSitePost = openRow?.kind === 'release' ? posts.find(p => p.discogs_id === (trackReleaseId || openRow.id)) : null
+  const postTrackView = (p, t) => shelfTrack(t, isCompilation(p, p.tracks || []))
   const releaseRows = withoutHeadings(selectedFull?.tracklist)
   const releaseKeys = linkKeys(releaseRows)
   const openTracks = !openRow ? []
     : openRow.kind === 'post'
-      ? (openRow.post.tracks || []).map(t => ({ position: t.position, title: t.title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
+      ? (openRow.post.tracks || []).map(t => ({ position: t.position, artists: postTrackView(openRow.post, t).artists.map(name => ({ name })), title: postTrackView(openRow.post, t).title, duration: t.duration, url: t.stream_url || t.youtube_url || '', embed: trackEmbedSrc(t, toEmbedSrc) }))
       : openRow.kind === 'release'
         ? releaseRows.map((t, ti) => {
             const tt = normT(t.title)
@@ -2184,6 +4215,19 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
 
               {open && (
                 <div style={{ padding: '10px 6px 14px', borderBottom: `1px solid ${divider}` }}>
+                  {/* "+ add to my feed" right in the row (2026-10-08, gabriel; it replaced the footer
+                      button): a release or channel upload that isn't on LNV yet goes to the composer. */}
+                  {hasCatalogue && !r.onSite && (r.kind === 'release' || r.kind === 'video') && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          onCreateFromDiscogs?.(r.kind === 'video' ? `https://www.youtube.com/watch?v=${r.id}` : `https://www.discogs.com/${r.key.startsWith('master:') ? 'master' : 'release'}/${r.id}`)
+                        }}
+                        style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '5px 14px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
+                      >+ add to my feed</button>
+                    </div>
+                  )}
                   {/* A channel upload, or one of this subject's own posts that
                       has no tracklist (a live set), opens straight into its
                       player — there's nothing to list. */}
@@ -2218,7 +4262,17 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                             title={miss ? 'no YouTube link found' : found === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}
                             style={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) 48px 16px 36px', gap: 10, alignItems: 'baseline', padding: '4px 0', borderBottom: `1px dotted ${divider}`, cursor: miss ? 'default' : 'pointer', background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                             <span style={{ ...monoText, color: textTer }}>{t.position || i + 1}</span>
-                            <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>{t.title}</span>
+                            <span style={{ ...rowText, color: isPlaying ? textPri : textSec, fontWeight: isPlaying ? 600 : 400 }}>
+                              {t.title}
+                              {rowArtists(t).length > 0 && (
+                                <span>
+                                  <span style={{ margin: '0 7px', color: textTer, fontWeight: 400 }}>–</span>
+                                  {rowArtists(t).map((a, k) => (
+                                    <span key={a.name + k}>{k > 0 && ', '}<DrawerLink kind="artists" name={a.name} quiet style={{ fontWeight: 700, color: textPri }}>{a.name}</DrawerLink></span>
+                                  ))}
+                                </span>
+                              )}
+                            </span>
                             <span style={{ ...monoText, color: textTer, textAlign: 'right' }}>{t.duration || ''}</span>
                             <span style={{ ...monoText, color: isPlaying ? 'var(--theme-accent)' : textTer, textAlign: 'right' }}>{state}</span>
                             {/* ♡ and + once the track has a link (2026-10-03); a track
@@ -2265,15 +4319,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         )}
       </div>
 
-      {/* cta row — unchanged behaviour: "+ add to feed" for an open
-          catalogue entry that isn't on LNV yet, otherwise "view all →". */}
+      {/* footer: "view all →" (the add-to-feed button now lives inside each open row) */}
       <div style={{ flexShrink: 0, marginTop: 15, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {hasCatalogue && selectedRelease && !selectedOnSite ? (
-          <button
-            onClick={() => addUrl && onCreateFromDiscogs?.(addUrl)}
-            style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '7px 18px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
-          >+ add to my feed</button>
-        ) : browsable ? (
+        {browsable ? (
           <span onClick={() => openD3?.(type === 'artist' ? 'artists' : 'labels', { filter: name })} style={{ fontSize: T.metarowSize, fontWeight: 600, cursor: 'pointer', color: textPri, fontFamily: T.bodyFf, borderBottom: '1px dotted currentColor' }}>view all →</span>
         ) : <span />}
         <span style={{ fontSize: T.stampSize, letterSpacing: `${T.stampLs}em`, fontFamily: T.monoFf, color: textSec }}>LNV · editorial</span>
@@ -2770,13 +4818,13 @@ function PhoneOpening({ deckRef, ctlRef }) {
   )
 }
 
-function Slide({ bg, children }) {
+function Slide({ bg, children, bare = false }) {
   const ref = useRef(null)
   const ink = useInk(ref)
   return (
-    <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
+    <section style={{ flex: '0 0 100%', minWidth: 0, height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} ${PHONE_GAP}px ${PHONE_GAP}px`, scrollSnapAlign: 'center', scrollSnapStop: 'always' }}>
       <div ref={ref} data-inner-scroll=""
-        style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: PHONE_RADIUS, background: bg, boxShadow: '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
+        style={{ height: '100%', overflowY: 'auto', overscrollBehaviorY: 'contain', borderRadius: bare ? 0 : PHONE_RADIUS, background: bg, boxShadow: bare ? 'none' : '0 10px 30px -10px rgba(0,0,0,0.3)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', ...ink }}>
         {children}
       </div>
     </section>
@@ -2997,6 +5045,8 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
   // Card colours by the shelf's own index, so introductions don't shift them.
   let shelfIdx = -1
   const bgs = list.map(it => it.kind === 'intro' ? cardBg(0, it) : cardBg(++shelfIdx, it))
+  let phonePostIdx = -1 // posts only (no spotlights / live sets): the blocks card walks its colour spectrum by this
+  const blocksOf = list.map(it => (BLOCKS_CARDS && it.kind === 'post' && !isLiveSetPost(it.post) ? ++phonePostIdx : -1))
   // A wall's card (WallCard) leads it; the posts follow.
   const head = header ? 1 : 0
 
@@ -3060,10 +5110,14 @@ function PhoneFeed({ shelf, intros, cardBg, emptyText, onEdit, hasMore, loadMore
       </div>
       <div ref={deckRef} onScroll={onScroll} aria-label="Posts — swipe for the next one"
         style={{ position: 'absolute', inset: 0, display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', scrollbarWidth: 'none' }}>
-        {header && <Slide bg="var(--theme-showcase)">{header}</Slide>}
+        {header && (BLOCKS_CARDS ? <Slide bg="var(--theme-bg)" bare>{header}</Slide> : <Slide bg="var(--theme-showcase)">{header}</Slide>)}
         {list.length === 0 ? (
           <section style={{ flex: '0 0 100%', height: '100%', boxSizing: 'border-box', padding: `${PHONE_TOPBAR_H} 32px 32px`, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: P_SANS, fontSize: 15, lineHeight: 1.5, color: 'var(--theme-text-sec)', scrollSnapAlign: 'center' }}>{emptyText}</section>
-        ) : list.map((it, i) => (
+        ) : list.map((it, i) => blocksOf[i] >= 0 ? (
+          <Slide key={it.key} bg="var(--theme-bg)" bare>
+            <ShelfCard post={latestPost ? latestPost(it.post) : it.post} cardBg="var(--theme-bg)" d={D} onEdit={onEdit} idx={blocksOf[i]} phone />
+          </Slide>
+        ) : (
           <Slide key={it.key} bg={bgs[i]}>
             {it.kind === 'intro'
               ? <IntroCard intro={it.intro} compact placeholder={!!it.intro.placeholder} />
@@ -3095,16 +5149,42 @@ export default function Feed() {
   // reviews and hits post themselves.
   function openComposeWithUrl(url) { setComposeInitialUrl(url); setComposeOpen(true) }
   const [search, setSearch]           = useState('')
+  const [authTab, setAuthTab]         = useState(null) // the Module look: the welcome card swaps for the account card (sign in / create) in its own slot
   const shelfItems                    = useRef([])
   const shelfState                    = useRef(null)
   const lastPostsSignature            = useRef(null)
   const clockWrapRef                  = useRef(null)
   const scrollCueRef                  = useRef(null)
   const queryClient                   = useQueryClient()
-  const { feedRef, driveFeedScroll, composeBtnRef, scrollToPost: scrollShelfToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
+  const { feedRef, driveFeedScroll, scrollToPost: scrollShelfToPost, postRefs, openD3, jumpHandlerRef } = useLayout() || {}
   // Phones get one post per screen, swiped sideways (PhoneFeed in Feed.jsx,
   // 2026-10-05) — same posts, same feeds; a jump to a post moves that deck.
   const phone = usePhone()
+  // The Module look keeps its controls in the nav strip (Strip.jsx sends 'lnv-tool'): the search and the feed switch open as a floating bar,
+  // new post opens the composer, the theme picker floats beside the strip, and the listen panel is ListeningSettings in `rail` mode.
+  const railTools = MODULE_CARDS && !phone
+  const [toolBar, setToolBar] = useState(false)
+  const toolBarRef = useRef(null)
+  useEffect(() => {
+    if (!railTools) return undefined
+    const on = e => {
+      const k = e.detail
+      if (k === 'search' || k === 'feeds') { setToolBar(true); if (k === 'search') setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '/' })), 80) }
+      else if (k === 'compose') setComposeOpen(true)
+      else if (k === 'theme') setPickerOpen(v => !v)
+      else if (k === 'listen') window.dispatchEvent(new Event('lnv-listen-toggle'))
+    }
+    window.addEventListener('lnv-tool', on)
+    return () => window.removeEventListener('lnv-tool', on)
+  }, [railTools])
+  useEffect(() => {
+    if (!toolBar) return undefined
+    const key = e => { if (e.key === 'Escape') setToolBar(false) }
+    const away = e => { if (toolBarRef.current && !toolBarRef.current.contains(e.target)) setToolBar(false) }
+    window.addEventListener('keydown', key)
+    document.addEventListener('pointerdown', away)
+    return () => { window.removeEventListener('keydown', key); document.removeEventListener('pointerdown', away) }
+  }, [toolBar])
   const phoneJumpRef = useRef(null)
   const scrollToPost = useCallback(id => (phone ? phoneJumpRef.current?.(id) : scrollShelfToPost?.(id)), [phone, scrollShelfToPost])
   const onPhoneDeck = useCallback(id => phone && (shelfItems.current || []).some(it => it.post?.id === id), [phone])
@@ -3569,6 +5649,8 @@ export default function Feed() {
         onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
       />
     )}
+    {/* Once, after signing in: add your Discogs collection and wantlist (2026-10-08) */}
+    <DiscogsPrompt />
   </>)
 
   if (phone) return (
@@ -3596,6 +5678,13 @@ export default function Feed() {
     </>
   )
 
+  const composeAnchor = (
+    <div key="compose-anchor" style={{ position: 'sticky', left: STRIP_RADIUS + COMPOSE_LOCK_GAP - (16 + FLOAT_GAP / 2), flex: '0 0 0', width: 0, height: 0, alignSelf: 'flex-end', zIndex: 100 }}>
+      <button onClick={() => setComposeOpen(true)} aria-label="New post"
+        style={{ position: 'absolute', bottom: 16, left: 16 + FLOAT_GAP / 2, width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
+    </div>
+  )
+
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--theme-bg)', position: 'relative' }}>
 
@@ -3614,12 +5703,14 @@ export default function Feed() {
           just stops the browser from independently claiming wheel input. */}
       <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
+        {/* No posts: the button rides with the first card there is (your profile / the welcome), in its lower-left corner. */}
+        {!posts.length && !railTools && composeAnchor}
         {/* A wall opens on its owner's card (2026-10-05). */}
-        {feedMode.type === 'wall' && !search && <FloatSlot key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
+        {feedMode.type === 'wall' && !search && <FloatSlot bare={BLOCKS_CARDS} key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
-        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
+        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
         {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
-        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot key="welcome"><WelcomeCard /></FloatSlot>}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="welcome">{MODULE_CARDS && authTab ? <Login embedded startTab={authTab} onClose={() => setAuthTab(null)} /> : <WelcomeCard onAuth={MODULE_CARDS ? setAuthTab : undefined} />}</FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.
@@ -3629,53 +5720,83 @@ export default function Feed() {
         )}
         {(() => {
           const nodes = []
+          // The compose button (48px, gabriel 2026-10-01) rides with the first post (2026-10-08): it starts in
+          // that card's lower-left corner and scrolls with the feed until it reaches the nav strip, where it
+          // locks — exactly where the old fixed button sat. A zero-size sticky anchor in the row; the button
+          // hangs off it. sticky `left` is the card slot's side padding (FLOAT_GAP / 2) negative, so the
+          // anchor pins COMPOSE_LOCK_LEFT from the scroll edge (minus where the button hangs: 16 + that padding),
+          // which puts the locked button COMPOSE_LOCK_GAP clear of the rail, tucked beside its rounded corner.
+          // With no posts the button is placed before the first card instead (above, 9 Oct) — it used to sit at the
+          // far right end of the row, under the bottom-right buttons.
+          if (posts.length && !railTools) nodes.push(composeAnchor)
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
+          let postIdx = -1 // posts only (no spotlights or live sets): the blocks card walks its colour spectrum by this
           withIntros(shelfItems.current, intros).forEach(item => {
             if (item.kind === 'intro') {
               nodes.push(<FloatSlot key={item.key}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
               return
             }
             idx++
+            if (item.kind !== 'spotlight' && !isLiveSetPost(item.post)) postIdx++
             const cardBg = getCardBg(idx, item)
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
+                : SHELF_CARDS
+                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} idx={postIdx} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
                     d={item.mirror ? { ...designFor(idx, false), mediaSide: 'left', plateAlign: 'left' } : designFor(idx, detectType(item.post) === 'livemix')} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
-            nodes.push(<FloatSlot key={item.key}>{card}</FloatSlot>)
+            nodes.push(<FloatSlot key={item.key} bare={BLOCKS_CARDS && SHELF_CARDS && item.kind !== 'spotlight' && !isLiveSetPost(item.post)}>{card}</FloatSlot>)
           })
+          // Empty feed: the row after the clock panel is only the profile/welcome card slot + the empty panel
+          // (about 1,628px), shorter than a wide screen, so the scroll ran out with the clock still half in view.
+          // This room lets that card scroll up beside the rail, with only it showing. It stops STRIP_RADIUS short of the
+          // very edge: the feed starts STRIP_RADIUS under the rail, so the full scroll tucked the card under the rail's
+          // rounded corner (9 Oct).
+          if (!posts.length) nodes.push(<div key="end-room" aria-hidden="true" style={{ flex: '0 0 auto', width: `max(0px, calc(100% - ${2 * DESIGN_BASE.cardW + FLOAT_GAP + STRIP_RADIUS}px))` }} />)
           return nodes
         })()}
       </div>
 
       {/* Main feed / my feed / shared feeds (2026-10-03) */}
-      <FeedSwitcher />
+      {!railTools && <FeedSwitcher />}
 
       {/* Search — dropdown of post numbers, posts, artists/labels/genres */}
-      {searchBox()}
+      {!railTools && searchBox()}
+
+      {/* How do you listen? — which services to play from first (2026-10-08) */}
+      <ListeningSettings rail={railTools} />
+
+      {/* The Module look: the feed switch and the search open here, beside the strip */}
+      {railTools && toolBar && (
+        <div ref={toolBarRef} style={{ position: 'fixed', left: RAIL_WIDTH + 16, top: 16, zIndex: 300, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <FeedSwitcher menuLeft noFollow style={{ position: 'relative', top: 'auto', right: 'auto', flexShrink: 0 }} />
+          <div style={{ position: 'relative', width: 340 }}>{searchBox({ position: 'relative', top: 'auto', right: 'auto', width: '100%' })}</div>
+          <button onClick={() => setToolBar(false)} aria-label="Close" style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--theme-border)', background: 'var(--theme-dark3)', color: 'var(--theme-text-sec)', cursor: 'pointer', fontSize: 15, boxShadow: '0 2px 8px rgba(0,0,0,0.2)', flexShrink: 0 }}>×</button>
+        </div>
+      )}
+      {railTools && pickerOpen && (
+        <>
+          <div onClick={() => setPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 299 }} />
+          <div style={{ position: 'fixed', left: RAIL_WIDTH + 16, bottom: 16, width: 164, height: 1, zIndex: 300 }}>
+            <ThemePicker currentIdx={themeIdx} onSelect={i => { setThemeIdx(i); setPickerOpen(false) }} />
+          </div>
+        </>
+      )}
 
       {/* Theme button */}
-      <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 100 }}>
+      {!railTools && <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 100 }}>
         {pickerOpen && <ThemePicker currentIdx={themeIdx} onSelect={i => { setThemeIdx(i); setPickerOpen(false) }} />}
         <button onClick={() => setPickerOpen(v => !v)}
           style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', cursor: 'pointer', color: 'var(--theme-text-sec)', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>◐</button>
         <div style={{ fontSize: 8, textAlign: 'center', color: 'var(--theme-text-ter)', marginTop: 3, fontFamily: 'VT323, monospace', letterSpacing: '0.06em' }}>
           {themeIdx === -1 ? 'AUTO' : currentPalette?.name?.split(' ')[0].toUpperCase()}
         </div>
-      </div>
-
-      {/* Compose button — 48px (36 → 72 → 48, gabriel 2026-10-01), and only on
-          the main feed: hidden over the intro, shown once the strip has
-          fully collapsed (LayoutProvider sets data-show; .lnv-compose-btn
-          in index.css fades it). */}
-      <div ref={composeBtnRef} className="lnv-compose-btn" style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 100 }}>
-        <button onClick={() => setComposeOpen(true)} aria-label="New post"
-          style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--theme-accent)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', transition: 'background 0.8s' }}>+</button>
-      </div>
+      </div>}
 
       {modals}
     </div>

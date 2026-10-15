@@ -3,11 +3,21 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, 'vinyl_crate.db');
+const DB_PATH = process.env.LNV_DB_PATH || join(__dirname, 'vinyl_crate.db');
 
 const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
+// Tuned for a database that grows to tens of millions of catalogue rows
+// (2026-10-07). synchronous NORMAL is safe in WAL mode (a power cut can lose the
+// last moments, never corrupt the file); a 128 MB page cache and memory-mapped
+// reads keep the hot parts of the indexes in RAM; the WAL is trimmed back
+// after big crawl bursts instead of staying large.
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = -131072');          // 128 MB (was 16 MB)
+db.pragma('mmap_size = 1073741824');        // read up to 1 GB through the OS page cache
+db.pragma('journal_size_limit = 67108864'); // WAL file shrinks back to 64 MB
+db.pragma('wal_autocheckpoint = 4000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -193,6 +203,9 @@ const migrations = [
   // A track's own player (2026-10-02): Bandcamp tracks can't be embedded
   // from their page URL — the player needs the track id.
   'ALTER TABLE post_tracks ADD COLUMN embed_url TEXT',
+  // A track's own artist (2026-10-08): compilations credit each track to someone
+  // other than the release artist ("Various"). Shown bold and linked on the card.
+  'ALTER TABLE post_tracks ADD COLUMN artist TEXT',
   // Channel crawler (2026-10-02): every upload of a spotlighted YouTube
   // channel, collected 50 per request (1 quota unit) in the background.
   // next_page = where the backfill resumes; backfill_done once the oldest
@@ -235,6 +248,10 @@ const migrations = [
     PRIMARY KEY (kind, entity_id, item_type, item_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_discogs_catalogue_year ON discogs_catalogue(kind, entity_id, year)',
+  // The order the lists are shown in (newest year first, undated last, then
+  // title) — without it every page re-sorted the whole label (Polydor, deep
+  // in: 1.2 s; with it, ~0.1 s). 2026-10-07.
+  'CREATE INDEX IF NOT EXISTS idx_catalogue_page ON discogs_catalogue(kind, entity_id, (year IS NULL), year DESC, title)',
   `CREATE TABLE IF NOT EXISTS discogs_catalogue_crawl (
     kind TEXT NOT NULL,
     entity_id INTEGER NOT NULL,
@@ -341,6 +358,18 @@ const migrations = [
     PRIMARY KEY (post_id, user_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_post_joins_user ON post_joins(user_id)',
+  // Track highlights (2026-10-10): a signed-in person stars a track on a post; the card shows how many and who.
+  // The poster's own highlights read as the post's picks.
+  `CREATE TABLE IF NOT EXISTS track_highlights (
+    post_track_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (post_track_id, user_id),
+    FOREIGN KEY (post_track_id) REFERENCES post_tracks(id) ON DELETE CASCADE
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_track_highlights_user ON track_highlights(user_id)',
+  // A private comment (2026-10-10): only its author and the post's owner can see it; it is left out of the public count.
+  'ALTER TABLE comments ADD COLUMN private INTEGER NOT NULL DEFAULT 0',
   // Profiles (2026-10-05): up to 3 labels a user pins as favourites, and the
   // playlists they choose to show (shown = readable by its share link).
   `CREATE TABLE IF NOT EXISTS profile_pins (
@@ -414,9 +443,10 @@ const migrations = [
      AND id = (SELECT MIN(id) FROM playlists p2 WHERE p2.owner_id = playlists.owner_id AND p2.name = 'Hearted tracks')
      AND NOT EXISTS (SELECT 1 FROM playlists p3 WHERE p3.owner_id = playlists.owner_id AND p3.is_default = 1)`,
   // Every playlist public for now (2026-10-06, gabriel: privacy later):
-  // shown on its owner's profile and readable by its share link.
-  'UPDATE playlists SET on_profile = 1 WHERE on_profile = 0',
-  "UPDATE playlists SET share_token = lower(hex(randomblob(18))) WHERE share_token IS NULL",
+  // shown on its owner's profile and readable by its share link. Not the Discogs
+  // collection / wantlist lists (2026-10-09): those are private to their owner.
+  "UPDATE playlists SET on_profile = 1 WHERE on_profile = 0 AND kind NOT IN ('collection', 'wantlist')",
+  "UPDATE playlists SET share_token = lower(hex(randomblob(18))) WHERE share_token IS NULL AND kind NOT IN ('collection', 'wantlist')",
   `CREATE TABLE IF NOT EXISTS channel_status (
     name_key TEXT PRIMARY KEY,
     name TEXT NOT NULL,

@@ -175,15 +175,26 @@ function detectPostType({ platform, duration, title = '', tags = [], description
   if (tracks.length >= 6) return 'album';
   if (catNo && tracks.length <= 2) return 'single'; // catNo alone = single only if very few tracks
 
-  let score = 0;
-  const t = (title + ' ' + tags.join(' ') + ' ' + description).toLowerCase();
+  // Only the title says what this is. Tags and descriptions are uploader spam
+  // ("half of where you live", "We don't own the rights...") and made plain
+  // tracks from re-upload channels read as sets.
+  const lowTitle = title.toLowerCase();
+  const setWord = /\b(live|mix|dj.?set|podcast|session|b2b|boiler.?room|fabric|berghain|hor)\b/;
+  // "(Fort Romeau Remix)", "Official Audio": released music, however long.
+  const trackTitle = /\b(re-?mix|rework|edit|dub|vip|official (audio|video|music video)|lyric video|visuali[sz]er)\b/.test(lowTitle)
+    && !/\b(live|dj.?set|b2b|podcast|session)\b/.test(lowTitle);
 
+  let score = 0;
   if (duration > 1800) score += 2;  // >30min
   if (duration > 3600) score += 1;  // >60min bonus
-  if (/\b(live|mix|dj.?set|podcast|session|b2b|boiler.?room|fabric|berghain|hor|h.r)\b/.test(t)) score += 2;
-  if (/\bat\b/.test(title.toLowerCase())) score += 1;
-  if (KNOWN_CHANNELS.some(c => title.includes(c) || description.includes(c))) score += 3;
-  if (duration < 900 && !/(mix|set|live)/i.test(t)) score -= 3;  // <15min, no mix keyword
+  if (setWord.test(lowTitle)) score += 2;
+  if (/\bat\b/.test(lowTitle)) score += 1;
+  const channelHit = KNOWN_CHANNELS.some(c => new RegExp(`(^|[^\\p{L}\\p{N}])${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'iu').test(title));
+  if (channelHit) score += 3;
+  if (duration && duration < 900 && !setWord.test(lowTitle)) score -= 3;  // <15min, no set word
+  if (trackTitle) score -= 3;
+  // "Full Album" / "Full EP" uploads are long but are releases, not sets.
+  if (/\bfull (album|ep|lp)\b/.test(lowTitle) && !/\b(live|dj.?set|b2b|session)\b/.test(lowTitle)) return 'album';
 
   if (score >= 2) return 'livemix';
   if (tracks.length >= 6) return 'album';

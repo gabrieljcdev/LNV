@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
 import { newShareToken } from '../services/collectionsService.js';
+import { releasesFor } from '../services/discogsAccount.js';
 
 // Playlists (2026-10-03): lists of tracks picked from posts and spotlights.
 // - The owner can share a read-only link (share_token): anyone with it can
@@ -22,6 +23,7 @@ export function playlistRole(p, userId) {
 }
 
 const tracksOf = id => db.prepare('SELECT * FROM playlist_tracks WHERE playlist_id = ? ORDER BY sort, id').all(id);
+const isReleaseList = p => p?.kind === 'collection' || p?.kind === 'wantlist';
 
 function summary(p, userId) {
   const role = playlistRole(p, userId);
@@ -33,7 +35,11 @@ function summary(p, userId) {
     invite_token: role === 'owner' ? p.invite_token : undefined,
     track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c,
     member_count: db.prepare('SELECT COUNT(*) c FROM playlist_members WHERE playlist_id = ?').get(p.id).c,
-    covers: db.prepare('SELECT cover FROM playlist_tracks WHERE playlist_id = ? AND cover IS NOT NULL ORDER BY sort LIMIT 3').all(p.id).map(r => r.cover),
+    // Discogs collection / wantlist playlists hold releases, not tracks (services/discogsAccount.js).
+    ...(isReleaseList(p) ? { release_count: db.prepare('SELECT COUNT(*) c FROM playlist_releases WHERE playlist_id = ?').get(p.id).c } : {}),
+    covers: isReleaseList(p)
+      ? db.prepare('SELECT cover FROM playlist_releases WHERE playlist_id = ? AND cover IS NOT NULL ORDER BY added_at DESC LIMIT 3').all(p.id).map(r => r.cover)
+      : db.prepare('SELECT cover FROM playlist_tracks WHERE playlist_id = ? AND cover IS NOT NULL ORDER BY sort LIMIT 3').all(p.id).map(r => r.cover),
   };
 }
 
@@ -144,6 +150,16 @@ router.get('/:id', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// The records of a Discogs collection / wantlist playlist (services/discogsAccount.js):
+// ?offset=&limit=&q= -> { total, releases: [{ discogs_id, title, artist, label, year, format, cover, playable }] }
+router.get('/:id/releases', (req, res, next) => {
+  try {
+    const p = load(req, res); if (!p) return;
+    if (!isReleaseList(p)) return res.json({ total: 0, releases: [] });
+    res.json(releasesFor(p.id, { offset: req.query.offset, limit: req.query.limit, q: req.query.q }));
+  } catch (err) { next(err); }
+});
+
 router.patch('/:id', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
@@ -157,6 +173,7 @@ router.patch('/:id', (req, res, next) => {
 router.delete('/:id', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isReleaseList(p)) return res.status(400).json({ error: 'This list comes from your Discogs account — disconnect Discogs to remove it.' });
     if (p.is_default) return res.status(400).json({ error: 'Your default playlist can’t be deleted — rename it, or empty it, instead.' });
     db.transaction(() => {
       db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(p.id);
@@ -171,6 +188,7 @@ router.delete('/:id', (req, res, next) => {
 router.post('/:id/share', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isReleaseList(p)) return res.status(400).json({ error: 'Your Discogs lists are private for now — sharing them isn’t switched on yet.' });
     const token = !p.share_token || req.body?.renew ? newShareToken() : p.share_token;
     db.prepare('UPDATE playlists SET share_token = ? WHERE id = ?').run(token, p.id);
     res.json({ share_token: token });
@@ -181,6 +199,7 @@ router.post('/:id/share', (req, res, next) => {
 router.post('/:id/invite', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isReleaseList(p)) return res.status(400).json({ error: 'Your Discogs lists are private for now — sharing them isn’t switched on yet.' });
     const token = !p.invite_token || req.body?.renew ? newShareToken() : p.invite_token;
     db.prepare('UPDATE playlists SET invite_token = ? WHERE id = ?').run(token, p.id);
     res.json({ invite_token: token });
@@ -207,6 +226,7 @@ router.delete('/:id/members/:userId', (req, res, next) => {
 router.post('/:id/tracks', (req, res, next) => {
   try {
     const p = load(req, res); if (!p) return;
+    if (isReleaseList(p)) return res.status(400).json({ error: 'This list comes from your Discogs account — its records can’t be edited here.' });
     const list = Array.isArray(req.body?.tracks) ? req.body.tracks : [];
     res.status(201).json(addTracks(p.id, list));
   } catch (err) { next(err); }

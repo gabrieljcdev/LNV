@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { logEvent } from './logService.js';
+import { quotaDay } from './quotaDay.js';
 
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -528,7 +529,7 @@ const SEARCH_COST = 100;
 const SEARCH_HIT_RECHECK = 90 * 24 * 60 * 60 * 1000; // a hit this old is re-checked (free), not re-searched
 const SEARCH_MISS_TTL = 30 * 24 * 60 * 60 * 1000;
 const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => quotaDay();   // Google's quota day is Pacific, not UTC (services/quotaDay.js)
 
 export function quotaUsed(provider = 'youtube') {
   return db.prepare('SELECT units FROM api_quota WHERE provider = ? AND day = ?').get(provider, today())?.units || 0;
