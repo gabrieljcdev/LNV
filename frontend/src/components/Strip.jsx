@@ -167,7 +167,7 @@ export default function Strip({ activeView }) {
   // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
   // sliders (BrandScaleTool.jsx) win over these.
   useEffect(() => {
-    if (railWordmarkRef.current) applyBrandScale(railWordmarkRef.current, readBrandScale() || { chewing: 84, ceiling: 24, left: 23, bottom: 6 });
+    if (railWordmarkRef.current) applyBrandScale(railWordmarkRef.current, readBrandScale() || { chewing: 72, ceiling: 20, left: 46, bottom: 10 }); // clear of the nav chips (they end at x=39), still inside the 108px rail (15 Oct)
   }, [railWordmarkRef]);
   const feedMode = useFeedMode();
 
