@@ -65,3 +65,49 @@ export const MODULE_CSS = `
 .mod-tr{transition:background .2s,padding .25s}.mod-tr:hover{background:color-mix(in srgb,var(--lv-pri) 7%,transparent);padding-left:8px}
 .mod-sr{transition:background .2s}.mod-sr:hover{background:color-mix(in srgb,var(--lv-pri) 9%,transparent)}
 `
+
+// ── The spectrum sweep (gabriel, 21 Oct 2026) ──────────────────────────────────────────────────────────────
+// Instead of one colour per post, the active theme's ramp is laid across the feed window (left edge to right edge) and every box marked
+// data-sweep takes the colour of where it is standing, so a post changes colour as it travels. ?sweep=1 turns it on, ?sweep=0 off; remembered.
+// Boxes: data-sweep="base" | "a1" | "a2" (opposite end of the ramp, so the accent contrasts) | "cover" (a deeper shade). The feed row carries data-sweep-field.
+export const SWEEP = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('sweep')
+    if (q === '1' || q === '0') localStorage.setItem('lnv-sweep', q)
+    return localStorage.getItem('lnv-sweep') === '1'
+  } catch { return false }
+})()
+const INK = { // the same ink Blk uses (lib/blocksKit.js), written straight onto the box
+  dark: { '--theme-text-pri': 'rgba(255,255,255,0.95)', '--theme-text-sec': 'rgba(255,255,255,0.80)', '--theme-text-ter': 'rgba(255,255,255,0.72)', '--theme-border': 'rgba(255,255,255,0.18)', '--lv-pri': 'rgba(255,255,255,0.95)', '--lv-sec': 'rgba(255,255,255,0.80)', '--lv-ter': 'rgba(255,255,255,0.72)', '--lv-line': 'rgba(255,255,255,0.18)' },
+  light: { '--theme-text-pri': 'rgba(0,0,0,0.86)', '--theme-text-sec': 'rgba(0,0,0,0.72)', '--theme-text-ter': 'rgba(0,0,0,0.66)', '--theme-border': 'rgba(0,0,0,0.12)', '--lv-pri': 'rgba(0,0,0,0.86)', '--lv-sec': 'rgba(0,0,0,0.72)', '--lv-ter': 'rgba(0,0,0,0.66)', '--lv-line': 'rgba(0,0,0,0.12)' },
+}
+let sweepRunning = false
+export function startSweep() {
+  if (sweepRunning || !SWEEP) return () => {}
+  sweepRunning = true
+  let raf = 0
+  const frame = () => {
+    raf = requestAnimationFrame(frame)
+    if (document.hidden) return
+    const els = document.querySelectorAll('[data-sweep]')
+    if (!els.length) return
+    const ramp = MODULE_RAMPS[getActivePaletteName()] || MODULE_RAMPS.Morning
+    const field = document.querySelector('[data-sweep-field]')?.getBoundingClientRect()
+    const L = field ? field.left : 0, W = field ? field.width : window.innerWidth
+    const reads = []
+    els.forEach(el => { const r = el.getBoundingClientRect(); if (r.right >= L - 40 && r.left <= L + W + 40) reads.push([el, (r.left + r.width / 2 - L) / W]) })
+    reads.forEach(([el, p]) => {
+      const t = Math.max(0, Math.min(1, p)), kind = el.dataset.sweep
+      const c0 = along(ramp, kind === 'a1' ? (t < 0.5 ? t + 0.5 : t - 0.5) : kind === 'a2' ? (t < 0.5 ? t + 0.35 : t - 0.35) : t)
+      const c = kind === 'cover' ? mixc(c0, '#000000', 0.32) : c0
+      if (el._sw === c) return
+      el._sw = c
+      const s = el.style
+      s.transition = 'none'; s.background = c; s.setProperty('--blk-bg', c)
+      const ink = INK[lumOf(c) < 0.18 ? 'dark' : 'light']
+      for (const k in ink) s.setProperty(k, ink[k])
+    })
+  }
+  raf = requestAnimationFrame(frame)
+  return () => { cancelAnimationFrame(raf); sweepRunning = false }
+}

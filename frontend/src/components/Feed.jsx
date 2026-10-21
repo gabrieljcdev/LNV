@@ -17,7 +17,7 @@ import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
-import { MODULE_CARDS, MODULE_CSS, moduleLook, solid } from '../lib/moduleKit'
+import { MODULE_CARDS, MODULE_CSS, moduleLook, solid, startSweep } from '../lib/moduleKit'
 import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -2691,7 +2691,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
 
         {/* the top row: the artist name takes what the post number does not need */}
         <div style={{ gridArea: 'top', display: 'grid', gap: 8, minHeight: 0, gridTemplateColumns: numOnly ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr) max(240px, calc(100% - 546px))' }}>
-        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ borderRadius: R, padding: ph ? '16px 18px' : '14px 26px 0', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, paddingBottom: 4, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
             {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
           </h2>
@@ -2699,7 +2699,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* the post number */}
-        <Blk bg={BASE} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0 }}>
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ borderRadius: R, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: numOnly ? '12px 18px' : '0 20px 0 22px', minWidth: 0 }}>
           <div aria-label={`Post ${num}`} style={{ position: 'relative', zIndex: 2, flex: 'none', minWidth: numOnly ? 0 : 96, lineHeight: 1.2 }}>
             <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
             <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
@@ -2709,7 +2709,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </div>
 
         {/* left of the media: the details, with the add-to buttons */}
-        <Blk bg={A1} className="lnv-still" style={{ gridArea: 'det', borderRadius: R, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Blk bg={A1} {...(ph ? null : { 'data-sweep': 'a1' })} className="lnv-still" style={{ gridArea: 'det', borderRadius: R, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div className={`mod-hatch${playing ? ' on' : ''}`} style={{ flex: '0 0 46px' }}>
             <span style={{ ...mono, position: 'absolute', left: 10, top: 12, fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'var(--lv-pri)', color: 'var(--blk-bg)', zIndex: 2 }}>Details</span>
           </div>
@@ -2736,7 +2736,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* the cover; the player takes its place */}
-        <Blk bg={DARK} className="lnv-still" style={{ gridArea: 'cover', borderRadius: R, padding: 0, ...(ph ? { aspectRatio: '1 / 1' } : null) }}>
+        <Blk bg={DARK} {...(ph ? null : { 'data-sweep': 'cover' })} className="lnv-still" style={{ gridArea: 'cover', borderRadius: R, padding: 0, ...(ph ? { aspectRatio: '1 / 1' } : null) }}>
           {playingSrc ? (
             <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
           ) : (
@@ -2747,7 +2747,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* the big box beside the cover: the playlists this record is in (the sources moved to the small box, 14 Oct) */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>playlists</span><span>{nPl}</span></div>
           <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
             {nPl === 0 ? <div style={{ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.4, opacity: 0.65 }}>Not in anyone's playlists yet.</div>
@@ -2769,7 +2769,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </Blk>
 
         {/* under the media: the post, and only the post */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'post', borderRadius: R, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'post', borderRadius: R, padding: '14px 20px 12px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', opacity: 0.7 }}><span>the post</span><span>{commentCount} repl{commentCount === 1 ? 'y' : 'ies'}</span></div>
           <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, marginTop: 6, overflow: 'hidden' }}>
             {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: ph ? 12 : 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
@@ -2789,7 +2789,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
 
         {/* kept by, playlists */}
         <div style={{ gridArea: 'stats', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minHeight: 0 }}>
-          <Blk bg={A2} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
+          <Blk bg={A2} {...(ph ? null : { 'data-sweep': 'a2' })} className="lnv-still" style={{ borderRadius: R, padding: '14px 16px', display: 'flex', flexDirection: 'column', minHeight: ph ? 150 : undefined }}>
             <span style={{ ...mono, opacity: 0.6 }}>kept by</span>
             <div style={{ marginTop: 'auto', fontFamily: d.bodyFf, fontWeight: 200, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.05em', color: 'var(--lv-pri)' }}>{String(keptBy.length).padStart(2, '0')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
@@ -2814,7 +2814,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </div>
 
         {/* the tracks */}
-        <Blk bg={BASE} className="lnv-still" style={{ gridArea: 'trk', borderRadius: R, padding: ph ? '14px 16px 6px' : '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'trk', borderRadius: R, padding: ph ? '14px 16px 6px' : '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
             <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
             <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
@@ -5163,6 +5163,7 @@ export default function Feed() {
   // The Module look keeps its controls in the nav strip (Strip.jsx sends 'lnv-tool'): the search and the feed switch open as a floating bar,
   // new post opens the composer, the theme picker floats beside the strip, and the listen panel is ListeningSettings in `rail` mode.
   const railTools = MODULE_CARDS && !phone
+  useEffect(() => (railTools ? startSweep() : undefined), [railTools]) // ?sweep=1: the spectrum sweep (moduleKit.js); a no-op unless switched on
   const [toolBar, setToolBar] = useState(false)
   const toolBarRef = useRef(null)
   useEffect(() => {
@@ -5701,7 +5702,7 @@ export default function Feed() {
           -> #scroll-outer.scrollTop instead. 'hidden' still allows
           programmatic .scrollLeft writes (which is all this ever needs), it
           just stops the browser from independently claiming wheel input. */}
-      <div ref={feedRef} style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
+      <div ref={feedRef} data-sweep-field style={{ display: 'flex', flex: 1, gap: 0, overflowX: 'hidden', overflowY: 'hidden', alignItems: 'stretch', scrollbarWidth: 'none', background: FEED_SURFACE }}>
         <FeedIntro clockWrapRef={clockWrapRef} scrollCueRef={scrollCueRef} />
         {/* No posts: the button rides with the first card there is (your profile / the welcome), in its lower-left corner. */}
         {!posts.length && !railTools && composeAnchor}
