@@ -96,7 +96,9 @@ function withId(book, name) {
 
 // editPost: a full post (GET /posts shape). Opens the same form pre-filled,
 // and saving PATCHes that post instead of creating a new one.
-export default function ComposeModal({ onClose, onPosted, initialUrl = '', editPost = null }) {
+// `origin` / `originRef` (2026-10-22): when the window was opened from a drawer's or a spotlight's "+ add to my feed", the record is 'found digging' there; a pasted
+// link, or a link changed after opening, is 'link'. Recorded on the post (and on a keep, if it turns out the record is already up).
+export default function ComposeModal({ onClose, onPosted, initialUrl = '', editPost = null, origin = null, originRef = '' }) {
  // Posting needs a signed-in account (2026-10-01). Not signed in → the bar
  // shows phase 'name': a prompt that goes to /login.
  const user = getUser(), userId = getUserId()
@@ -105,6 +107,9 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const [phase, setPhase] = useState(() => (editPost ? 'form' : !user || !userId ? 'name' : 'link'))
  const [coverEdit, setCoverEdit] = useState(false)
  const [openTrack, setOpenTrack] = useState(null) // track row whose link field is open
+ // Where the record was found: 'digging' only while the link is still the one the drawer / spotlight handed over.
+ const linkTyped = useRef(false)
+ const foundHow = () => (origin === 'digging' && !linkTyped.current ? { origin: 'digging', origin_ref: originRef || undefined } : { origin: 'link' })
 
  const [inputUrl, setInputUrl] = useState(editPost ? (editPost.stream_url || editPost.discogs_url || '') : initialUrl)
  const [title, setTitle] = useState(editPost?.title || '')
@@ -442,7 +447,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  if (!title.trim() || needsComment) return
  setPosting(true); setFetchError('')
  try {
- const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
+ const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ ...(editPost ? {} : foundHow()), discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
  if (!postRes.ok) { const e = await postRes.json().catch(() => ({})); throw new Error(e.error || `${editPost ? 'SAVE' : 'POST'} failed: ${postRes.status}`) }
  const saved = await postRes.json()
  const savedPostId = saved.id || saved.postId || editPost?.id
@@ -461,7 +466,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const dupMine = !!duplicate && (duplicate.user_id === getUserId() || (duplicate.alsoPostedBy || []).includes(getUser()))
  async function postItToo() {
  setFetching(true); setFetchError('')
- try { await joinApi.join(duplicate.id); setDuplicate(null); setFetchStatus('IN YOUR FEED ✓'); setTimeout(() => { onPosted?.({ postId: duplicate.id }); onClose() }, 800) }
+ try { await joinApi.join(duplicate.id, foundHow()); setDuplicate(null); setFetchStatus('IN YOUR FEED ✓'); setTimeout(() => { onPosted?.({ postId: duplicate.id }); onClose() }, 800) }
  catch (err) { setFetchError(String(err.message).toUpperCase()) }
  finally { setFetching(false) }
  }
@@ -491,7 +496,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  <button autoFocus onClick={goSignIn} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 18 }}>Sign in or create an account to post</button>
  ) : <input
  key={phase} autoFocus value={val} disabled={busy} spellCheck={false} autoComplete="off"
- onChange={e => setInputUrl(e.target.value)}
+ onChange={e => { linkTyped.current = true; setInputUrl(e.target.value) }}
  onKeyDown={e => e.key === 'Enter' && submit()}
  placeholder="paste anything, from any platform"
  style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 18 }}

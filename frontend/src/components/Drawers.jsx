@@ -384,7 +384,7 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
               {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
               <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
             </Row>
-            {isOpen && <ReleasePreview release={r} artistName={kind === 'artist' ? name : r.artist || ''} />}
+            {isOpen && <ReleasePreview release={r} artistName={kind === 'artist' ? name : r.artist || ''} digRef={name} />}
           </div>)
         })}
     {pages.hasNextPage && (
@@ -457,7 +457,7 @@ function MineRows({ records }) {
         </span>
         <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{p.year || ''}{p.lists?.includes('wantlist') && !p.lists.includes('collection') ? ' · want' : ''}</span>
       </Row>
-      {open === p.discogs_id && <ReleasePreview release={{ id: p.discogs_id, type: 'release', thumb: p.cover, year: p.year }} artistName={p.artists[0] || ''} />}
+      {open === p.discogs_id && <ReleasePreview release={{ id: p.discogs_id, type: 'release', thumb: p.cover, year: p.year }} artistName={p.artists[0] || ''} digRef="your Discogs" />}
     </div>
   ))
 }

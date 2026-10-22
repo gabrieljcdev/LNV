@@ -184,6 +184,7 @@ export function FollowedTag({ post, style }) {
 // `text(on, count)` / `onStyle`: the notes card draws it as a "+ add to feed" pill instead of a heart.
 export function HeartButton({ post, size, style, text, onStyle }) {
   const qc = useQueryClient()
+  const mode = useFeedMode()
   const me = getUser()
   const [mine, setMine] = useState(null) // local answer until the feed refreshes
   const [busy, setBusy] = useState(false)
@@ -198,7 +199,9 @@ export function HeartButton({ post, size, style, text, onStyle }) {
     if (!isLoggedIn()) return askToSignIn('keep records in your feed')
     setBusy(true)
     try {
-      await (on ? joinApi.leave(post.id) : joinApi.join(post.id))
+      // "Found from <person>": the owner of the wall you are on, else whoever posted it.
+      const from = (mode.type === 'wall' ? mode.username : post.user?.username) || undefined
+      await (on ? joinApi.leave(post.id) : joinApi.join(post.id, { origin: 'user', origin_ref: from }))
       setMine(!on)
       qc.invalidateQueries({ queryKey: ['posts'] })
       qc.invalidateQueries({ queryKey: ['wall'] })

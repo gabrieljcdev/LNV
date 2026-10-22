@@ -21,7 +21,8 @@ const PRI = 'var(--theme-text-pri)', SEC = 'var(--theme-text-sec)', TER = 'var(-
 const LINE = 'var(--theme-border)'
 const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-export default function ReleasePreview({ release, artistName = '' }) {
+// `digRef`: where it is being looked at (the artist, label or list a drawer is showing), sent along as "found digging in <digRef>" when it is added to the feed.
+export default function ReleasePreview({ release, artistName = '', digRef = '' }) {
   const qc = useQueryClient()
   const [playing, setPlaying] = useState(null)  // { i, url }
   const [found, setFound] = useState({})        // i -> url | 'none' | 'capped'
@@ -112,7 +113,7 @@ export default function ReleasePreview({ release, artistName = '' }) {
             {[full?.labels?.[0]?.name, full?.labels?.[0]?.catno, full?.year || release.year, full?.country].filter(x => x && !/^none$/i.test(x)).join(' · ')}
           </span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl } }))}
+            <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl, origin: 'digging', origin_ref: digRef || artistName || '' } }))}
               style={{ ...btn, border: 0, background: 'var(--theme-accent)', color: '#fff' }}>+ add to my feed</button>
             <a href={discogsUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>Discogs ↗</a>
             {/* Folded pressings (the duplicate comber): all of them, on Discogs. */}

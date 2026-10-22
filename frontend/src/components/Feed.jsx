@@ -4245,7 +4245,8 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                       <button
                         onClick={e => {
                           e.stopPropagation()
-                          onCreateFromDiscogs?.(r.kind === 'video' ? `https://www.youtube.com/watch?v=${r.id}` : `https://www.discogs.com/${r.key.startsWith('master:') ? 'master' : 'release'}/${r.id}`)
+                          // found digging in this spotlight (the artist, label or channel)
+                          onCreateFromDiscogs?.(r.kind === 'video' ? `https://www.youtube.com/watch?v=${r.id}` : `https://www.discogs.com/${r.key.startsWith('master:') ? 'master' : 'release'}/${r.id}`, { origin: 'digging', ref: subject.name })
                         }}
                         style={{ background: 'var(--theme-accent)', border: 'none', borderRadius: 20, padding: '5px 14px', color: '#fff', fontFamily: T.labelFf, fontWeight: T.badgeWeight, fontSize: T.metarowSize, letterSpacing: `${T.badgeLs}em`, textTransform: 'uppercase', cursor: 'pointer' }}
                       >+ add to my feed</button>
@@ -5164,13 +5165,14 @@ export default function Feed() {
   const [composeOpen, setComposeOpen] = useState(false)
   const [editingPost, setEditingPost] = useState(null)
   const [composeInitialUrl, setComposeInitialUrl] = useState('')
+  const [composeFound, setComposeFound] = useState(null) // where the record was found: { origin: 'digging', ref: <drawer or spotlight name> }
   // "Add to feed" from a spotlight's Discogs discography preview — opens
   // the normal compose flow pre-loaded with that release's Discogs URL, so
   // it runs through ComposeModal's own existing fetch/populate/dedupe-check
   // pipeline exactly like pasting the link in by hand (see ComposeModal's
   // initialUrl prop + its mount effect). Nothing is posted until the user
   // reviews and hits post themselves.
-  function openComposeWithUrl(url) { setComposeInitialUrl(url); setComposeOpen(true) }
+  function openComposeWithUrl(url, found = null) { setComposeInitialUrl(url); setComposeFound(found); setComposeOpen(true) }
   const [search, setSearch]           = useState('')
   const [authTab, setAuthTab]         = useState(null) // the Module look: the welcome card swaps for the account card (sign in / create) in its own slot
   const shelfItems                    = useRef([])
@@ -5616,7 +5618,7 @@ export default function Feed() {
   // The phone nav's + (PhoneNav.jsx) opens the composer; with a url
   // (the drawers' release preview, "+ add to my feed") it starts from it.
   useEffect(() => {
-    const h = e => { if (e.detail?.url) openComposeWithUrl(e.detail.url); else setComposeOpen(true) }
+    const h = e => { if (e.detail?.url) openComposeWithUrl(e.detail.url, e.detail.origin ? { origin: e.detail.origin, ref: e.detail.origin_ref } : null); else { setComposeFound(null); setComposeOpen(true) } }
     window.addEventListener('lnv:compose', h)
     return () => window.removeEventListener('lnv:compose', h)
   }, [])
@@ -5688,8 +5690,9 @@ export default function Feed() {
     {composeOpen && (
       <ComposeModal
         initialUrl={composeInitialUrl}
-        onClose={() => { setComposeOpen(false); setComposeInitialUrl('') }}
-        onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
+        origin={composeFound?.origin} originRef={composeFound?.ref}
+        onClose={() => { setComposeOpen(false); setComposeInitialUrl(''); setComposeFound(null) }}
+        onPosted={() => { setComposeOpen(false); setComposeInitialUrl(''); setComposeFound(null); queryClient.invalidateQueries({ queryKey: ['posts'] }) }}
       />
     )}
     {/* Once, after signing in: add your Discogs collection and wantlist (2026-10-08) */}
