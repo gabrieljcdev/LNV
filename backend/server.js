@@ -29,6 +29,7 @@ import { startChannelKeeper } from './services/youtubeService.js';
 import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
+import customLabelRoutes from './routes/customLabels.js';
 import { startLinkHealth } from './services/linkHealth.js';
 import { startSpareQuota } from './services/spareQuota.js';
 import db from './db/database.js';
@@ -36,9 +37,13 @@ import db from './db/database.js';
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
-// 500 requests per visitor per 15 minutes on the live site. On a developer's PC (NODE_ENV not 'production') it is 20000,
-// because every page reload makes dozens of requests; RATE_LIMIT_MAX overrides either.
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.RATE_LIMIT_MAX) || (process.env.NODE_ENV === 'production' ? 500 : 20000) });
+// Per visitor per 15 minutes. A page load makes dozens of reads, so reads (GET/HEAD) get a roomy allowance (6000 live,
+// 20000 on a developer's PC) and anything that writes gets a tighter one (600 live); RATE_LIMIT_MAX overrides the read figure.
+const live = process.env.NODE_ENV === 'production';
+const readMax = Number(process.env.RATE_LIMIT_MAX) || (live ? 6000 : 20000);
+const readLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: readMax, standardHeaders: true, legacyHeaders: false });
+const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: live ? 600 : 20000, standardHeaders: true, legacyHeaders: false });
+const limiter = (req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? readLimiter : writeLimiter)(req, res, next);
 
 // Behind Caddy every request arrives from the proxy; trust its X-Forwarded-For so the rate limit and the
 // request log see the real visitor, not one shared address. (Only the one hop in front of us.)
@@ -51,6 +56,7 @@ app.use('/api', attachUser); // req.user from the Bearer token (or null)
 app.use('/api', requestLogger); // writes, failures and slow requests -> admin log
 app.use('/api/auth',    authRoutes);
 app.use('/api/discogs', discogsRoutes);
+app.use('/api/custom-labels', customLabelRoutes);
 app.use('/api/track-links', trackLinkRoutes);
 app.use('/api/media',   mediaRoutes);
 app.use('/api/posts',   postsRoutes);

@@ -36,6 +36,25 @@ router.put('/me/listening', requireAuth, (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/users/search?q= — find people by username as you type. Public fields only
+// (username, display name, post count; never email), and accounts with no posts are found too.
+// Declared before /:username so "search" is not read as a username.
+router.get('/search', (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 40);
+    if (q.length < 1) return res.json({ users: [] });
+    const like = q.replace(/[\\%_]/g, c => '\\' + c);
+    const users = db.prepare(`
+      SELECT u.username, u.display_name, u.avatar_url,
+             (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS postCount
+      FROM users u
+      WHERE u.username LIKE ? ESCAPE '\\' OR u.display_name LIKE ? ESCAPE '\\'
+      ORDER BY (u.username LIKE ? ESCAPE '\\') DESC, LENGTH(u.username), u.username
+      LIMIT 10`).all(`%${like}%`, `%${like}%`, `${like}%`);
+    res.json({ users });
+  } catch (err) { next(err); }
+});
+
 // GET /api/users/:username
 router.get('/:username', (req, res, next) => {
   try {

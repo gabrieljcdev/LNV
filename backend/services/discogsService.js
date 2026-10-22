@@ -535,7 +535,12 @@ async function drainCatalogues() {
         const fails = (pageFails.get(pk) || 0) + 1;
         pageFails.set(pk, fails);
         console.error('[catalogue crawl]', key, err.message);
-        if (err.status && err.status !== 429 && fails >= PAGE_RETRIES && (skipRun.get(key) || 0) < 3) {
+        if (err.status === 404) {
+          // A page that does not exist is a permanent answer (past the last page, or the entity is gone): the crawl is finished, not retried.
+          db.prepare("UPDATE discogs_catalogue_crawl SET done = 1, crawled_at = datetime('now') WHERE kind = ? AND entity_id = ?").run(kind, id);
+          catalogueCrawling.delete(key); skipRun.delete(key); pageFails.delete(pk);
+          logEvent('warn', 'crawl', `Discogs catalogue ${key}: page ${row.next_page} not found, treated as the end of the list`);
+        } else if (err.status && err.status !== 429 && fails >= PAGE_RETRIES && (skipRun.get(key) || 0) < 3) {
           // Skip the page, remember it, carry on.
           const last = row.next_page >= (row.pages || 0) && row.pages > 0;
           const skipped = [...new Set([...(row.skipped || '').split(',').filter(Boolean), String(row.next_page)])].join(',');
@@ -673,8 +678,10 @@ export function catalogueCandidates(title, limit = 25) {
  * `crawl` progress.
  */
 export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = '' } = {}) {
-  if (!crawlRow(kind, id)) db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)').run(kind, id);
-  if (catalogueCount(kind, id) === 0 && !catalogueCrawling.has(`${kind}:${id}`)) {
+  // A negative id is a label added from Bandcamp (services/customLabels.js): its rows are already complete, nothing to ask Discogs.
+  const own = id < 0;
+  if (!own && !crawlRow(kind, id)) db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)').run(kind, id);
+  if (!own && catalogueCount(kind, id) === 0 && !catalogueCrawling.has(`${kind}:${id}`)) {
     const page = await crawlCataloguePage(kind, id, 1);
     if (page) {
       const done = page.pages <= 1 ? 1 : 0;
@@ -682,7 +689,7 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
                   WHERE kind = ? AND entity_id = ?`).run(page.items, page.pages, done ? 1 : 2, done, kind, id);
     }
   }
-  crawlCatalogue(kind, id); // not awaited
+  if (!own) crawlCatalogue(kind, id); // not awaited
 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 200);
   const off = Math.max(Number(offset) || 0, 0);
@@ -705,6 +712,8 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
       artist: r.artist, label: r.label, format: r.format, catno: r.catno, mainRelease: r.main_release,
       // Pressings folded under this row by the duplicate comber, and its master.
       versions: (r.folded || 0) + 1, masterId: r.item_type === 'master' ? r.item_id : (r.master_id || null),
+      // Bandcamp rows (type 'bandcamp') carry their own page; the id is not a Discogs id.
+      ...(r.item_type === 'bandcamp' ? { source: 'bandcamp', url: r.link } : {}),
     })),
     // items = Discogs' own count (it counts a release once per role).
     pagination: { items: crawl?.total || have, offset: off, limit: lim, matched },
