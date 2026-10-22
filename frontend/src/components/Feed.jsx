@@ -212,6 +212,12 @@ const SPOTLIGHT_TYPES = ['artist', 'label', 'channel']
 // loaded the next page is fetched (60 / 10 → at post 50, 110, 170…).
 const FEED_PAGE = 60
 const FEED_LOAD_AHEAD = 10
+// Smooth start (2026-10-22): the first request used to ask for a whole page (60 posts, 77 cards with spotlights) and React built every card in one
+// synchronous block of about 340 ms, right as the launch animation began, so the animation froze (measured on the production build against live data).
+// Now the first page is shorter, and cards are put on the page a few at a time (FEED_MOUNT_FIRST, then FEED_MOUNT_STEP per turn of the event loop) so no
+// single task is long and the browser can paint between them. Later pages stay FEED_PAGE; search pages by number, so it keeps one size.
+const FEED_FIRST_PAGE = 20
+const FEED_MOUNT_FIRST = 6, FEED_MOUNT_STEP = 4
 const SPOTLIGHT_MIN_POSTS = 3
 
 
@@ -5250,7 +5256,7 @@ export default function Feed() {
     queryKey: feedSel ? ['posts', 'FEED', ...feedSel] : ['posts', search ? 'SEARCH' : 'LATEST', search],
     initialPageParam: null,
     queryFn: async ({ pageParam }) => {
-      const qs = new URLSearchParams({ limit: String(FEED_PAGE) })
+      const qs = new URLSearchParams({ limit: String(!search && !pageParam ? FEED_FIRST_PAGE : FEED_PAGE) })
       if (search) { qs.set('search', search); if (pageParam) qs.set('page', String(pageParam)) }
       else {
         if (feedSel?.[0] === 'home') { qs.set('feed', 'home'); if (feedSel[1] === 'mine') qs.set('friends', '0') }
@@ -5361,6 +5367,21 @@ export default function Feed() {
     shelfItems.current = shelfState.current.items
     lastPostsSignature.current = postsSignature
   }
+
+  // Cards on the page so far (see FEED_FIRST_PAGE). Starts over whenever the feed or the search changes; grows a few cards per turn until all are in.
+  const shelfList = withIntros(shelfItems.current, intros)
+  const mountKey = `${feedSelKey}|${search || ''}`
+  const [mounted, setMounted] = useState({ key: mountKey, cap: FEED_MOUNT_FIRST })
+  const mountCap = mounted.key === mountKey ? mounted.cap : FEED_MOUNT_FIRST
+  useEffect(() => {
+    if (mountCap >= shelfList.length) return undefined
+    // A MessageChannel message is a task of its own that the browser does not throttle in a background tab (setTimeout(0) waits a second there).
+    const ch = new MessageChannel()
+    let live = true
+    ch.port1.onmessage = () => { if (live) setMounted(m => ({ key: mountKey, cap: (m.key === mountKey ? m.cap : FEED_MOUNT_FIRST) + FEED_MOUNT_STEP })) }
+    ch.port2.postMessage(0)
+    return () => { live = false; ch.port1.close() }
+  }, [mountCap, shelfList.length, mountKey])
 
   // Next page once the post FEED_LOAD_AHEAD from the end of the loaded
   // posts comes on screen.
@@ -5748,7 +5769,7 @@ export default function Feed() {
           if (posts.length && !railTools) nodes.push(composeAnchor)
           let idx = -1 // the shelf's own index: introductions don't shift the cards' looks
           let postIdx = -1 // posts only (no spotlights or live sets): the blocks card walks its colour spectrum by this
-          withIntros(shelfItems.current, intros).forEach(item => {
+          shelfList.slice(0, mountCap).forEach(item => {
             if (item.kind === 'intro') {
               nodes.push(<FloatSlot key={item.key}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
               return
