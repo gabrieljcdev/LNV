@@ -15,7 +15,7 @@ function ModFrame({ on, children, style, compact }) {
 import { isLoggedIn, getUser } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
-  usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, useInCommon,
+  usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, hideApi, useInCommon,
   useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner, communityApi,
 } from '../lib/collections'
 
@@ -107,7 +107,7 @@ export function AddToPlaylistButton({ post, tracks: given, label = '+ list', ali
   const chosen = picked ? tracks.filter((_, i) => picked.has(i)) : tracks
   const toggle = i => setPicked(prev => { const s = new Set(prev ?? tracks.map((_, k) => k)); if (s.has(i)) s.delete(i); else s.add(i); return s })
   // Tracks can't be added to the Discogs collection / wantlist lists (they hold records): left out of the menu.
-  const lists = playlists.filter(p => p.role && p.release_count == null)
+  const lists = playlists.filter(p => p.role && p.release_count == null && p.kind !== 'myfeeds') // My feeds is read-only: it follows your posts
   async function addTo(id, name) {
     if (!chosen.length) return setNote('Tick at least one track.')
     try {
@@ -215,6 +215,25 @@ export function HeartButton({ post, size, style, text, onStyle }) {
       {text ? text(on, count) : <><span style={size ? { fontSize: size } : null}>{on ? '♥' : '♡'}</span>{count > 1 ? ` ${count}` : ''}</>}
     </button>
   )
+}
+
+// Hide (2026-10-22): take a record out of your own feed, quietly. Other people's posts only; Playlists -> Hidden brings it back.
+export function HideButton({ post, label = 'hide', style }) {
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  if (!getUser() || post.user?.username === getUser()) return null
+  async function click(e) {
+    e.stopPropagation()
+    setBusy(true)
+    try {
+      await hideApi.hide(post.id)
+      qc.invalidateQueries({ queryKey: ['posts'] })
+      qc.invalidateQueries({ queryKey: ['wall'] })
+      qc.invalidateQueries({ queryKey: ['hidden'] })
+    } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  return <button onClick={click} disabled={busy} title="Hide this from your feed — you can bring it back from Playlists → Hidden" style={{ ...plain, whiteSpace: 'nowrap', cursor: 'pointer', opacity: busy ? 0.5 : 1, ...style }}>{label}</button>
 }
 
 // ♥ by an artist's, label's or channel's name (2026-10-06): add it to

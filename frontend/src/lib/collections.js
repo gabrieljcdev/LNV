@@ -97,6 +97,12 @@ export const joinApi = {
   join: (postId, how) => call('POST', `/posts/${postId}/join`, how),
   leave: postId => call('DELETE', `/posts/${postId}/join`),
 }
+// Silent hide (2026-10-22): a record you do not want in your feed; nobody is told. Not your own posts. The list is for bringing them back.
+export const hideApi = {
+  hide: postId => call('POST', `/posts/${postId}/hide`),
+  unhide: postId => call('DELETE', `/posts/${postId}/hide`),
+  list: () => call('GET', '/posts/hidden'),
+}
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })
 
 // ── walls + following ─────────────────────────────────────────────────────────

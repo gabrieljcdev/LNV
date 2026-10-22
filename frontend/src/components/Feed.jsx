@@ -12,7 +12,7 @@ import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/aut
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
 import { askText } from './Dialogs'
 import Login from '../pages/Login'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
@@ -2735,6 +2735,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           <div style={{ flex: 'none', display: 'grid', gridTemplateColumns: ph ? '1fr 1fr' : '1fr', gap: 6, marginTop: 12 }}>
             <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, width: '100%', background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
             <AddToPlaylistButton post={post} label="＋ Add to playlist" style={{ ...chip, width: '100%', fontSize: 12 }} />
+            <HideButton post={post} label="Hide" style={{ ...chip, width: '100%', fontSize: 12 }} />
             {dAcct?.linked && [['collection', inColl, 'collection', 'in your collection'], ['wantlist', inWant, 'wantlist', 'on your wantlist']].map(([k, on, add, yes]) => (
               on ? <span key={k} style={{ ...chip, cursor: 'default', opacity: 0.85 }}>✓ {yes}</span>
                 : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={chip}>＋ {add} ↗</a> : null
@@ -2775,6 +2776,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <AddToPlaylistButton post={post} label="＋ Add to playlist" style={chip} />
+            <HideButton post={post} label="Hide" style={chip} />
             {nPl > 0 && <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" style={chipFill}>See all</button>}
           </div>
         </Blk>
@@ -3375,6 +3377,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
                 })()}
                 <AddToPlaylistButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
                 <HeartButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
+                <HideButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
                 <FollowedTag post={post} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start', fontFamily: d.bodyFf, fontWeight: 400, fontSize: 14, color: 'var(--lv-pri)' }}>
@@ -5010,6 +5013,7 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
           </button>
           <HeartButton post={post} size={16} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
           <AddToPlaylistButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
+          <HideButton post={post} style={{ fontSize: 13, color: 'var(--theme-text-ter)' }} />
           {canModify && (
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 14, fontFamily: P_MONO, fontSize: 11 }}>
               <button onClick={() => onEdit?.(post)} style={pPlain}>edit</button>
