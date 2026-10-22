@@ -163,6 +163,12 @@ function stop() {
   window.removeEventListener('lnv:compose', onCompose)
 }
 
+// The recording switch was just turned on or off (components/ActivityDrawer.jsx): start or stop at once, without a reload.
+export function setFlowEnabled(want) {
+  if (want && !on && isLoggedIn()) { checkedFor = localStorage.getItem('lnv_auth'); start() }
+  else if (!want && on) { endSession(); stop() }
+}
+
 // Called on load and again whenever someone signs in or out: starts only for an account that has recording switched on.
 export async function initFlow() {
   if (!isLoggedIn()) { if (on) { endSession(); stop() } checkedFor = null; return }

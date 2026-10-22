@@ -12,7 +12,7 @@ import { MODULE_CARDS } from '../lib/moduleKit';
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
 // Drawn in a portal beside the button: the strip clips what overflows it.
-function ProfileMenu({ user, onProfile, onSignOut }) {
+function ProfileMenu({ user, onProfile, onData, onSignOut }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [at, setAt] = useState(null);
@@ -50,6 +50,7 @@ function ProfileMenu({ user, onProfile, onSignOut }) {
         </div>
         <button role="menuitem" autoFocus style={item} {...hover} onClick={() => { setOpen(false); onProfile(); }}>My profile</button>
         <button role="menuitem" style={item} {...hover} onClick={() => { navigator.clipboard?.writeText(wallLink(user)).then(() => setCopied(true)).catch(() => {}); }}>{copied ? '✓ Link copied' : 'Copy a link to my profile'}</button>
+        <button role="menuitem" style={item} {...hover} onClick={() => { setOpen(false); onData(); }}>Your data</button>
         <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 8px' }} />
         <button role="menuitem" style={{ ...item, color: 'var(--theme-text-sec)' }} {...hover} onClick={onSignOut}>Sign out</button>
       </div>,
@@ -380,7 +381,8 @@ export default function Strip({ activeView }) {
             /login (see lib/auth.js). */}
         {user ? (
           <ProfileMenu user={user} onSignOut={handleLogout}
-            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }} />
+            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }}
+            onData={() => openD3('activity')} />
         ) : (
           <a href="/login" title="Sign in or create an account" aria-label="Sign in"
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}

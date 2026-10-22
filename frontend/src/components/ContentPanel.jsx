@@ -12,6 +12,7 @@ import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 import { usePhone } from '../lib/usePhone';
 import { PHONE_NAV_H } from './PhoneNav';
 import { CommunityDrawer } from './CommunityDrawer';
+import { ActivityDrawer } from './ActivityDrawer';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -30,6 +31,8 @@ const COMPONENTS = {
   // checked server-side too.
   admin:   (props) => <Suspense fallback={null}><AdminDrawer {...props} /></Suspense>,
   // Walls and playlists (2026-10-03): the strip's ♥.
+  // "Your data" (the profile menu): the research-recording switch and what it holds.
+  activity: (props) => <ActivityDrawer {...props} />,
   walls:   (props) => <WallsDrawer {...props} />,
   playlists: (props) => <PlaylistsDrawer {...props} />,
   logs:    (props) => <><DrawerHead title="Activity" count="" /><DrawerBody><Logs {...props} /></DrawerBody></>,
