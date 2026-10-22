@@ -7,6 +7,26 @@ const DB_PATH = process.env.LNV_DB_PATH || join(__dirname, 'vinyl_crate.db');
 
 const db = new Database(DB_PATH);
 
+// Prepared statements are kept (2026-10-22). The code calls db.prepare(sql) inline, on every request, 568 times over; preparing is most of the
+// cost of a small query (measured: 100,000 lookups took 1,449 ms prepared every time, 265 ms prepared once, 5.5x) and each one allocates native memory
+// that waits for the garbage collector. Handing back the same statement for the same SQL text removes that without touching a single call site.
+// Safe here because nothing uses the methods that change a statement's state (pluck / raw / iterate / expand / safeIntegers: checked), every
+// call is synchronous, and SQLite re-prepares a statement itself if the schema changes under it. Bounded (least recently used goes first), because
+// some SQL is built with a different number of ? each time.
+const rawPrepare = db.prepare.bind(db);
+const statements = new Map();
+const STATEMENTS_KEPT = 600;
+// LNV_STMT_CACHE=0 switches it off (for comparing, or if it ever misbehaves).
+if (process.env.LNV_STMT_CACHE !== '0') db.prepare = sql => {
+  let st = statements.get(sql);
+  if (st) { statements.delete(sql); statements.set(sql, st); return st; }   // used just now: to the back of the line
+  st = rawPrepare(sql);
+  statements.set(sql, st);
+  if (statements.size > STATEMENTS_KEPT) statements.delete(statements.keys().next().value);
+  return st;
+};
+export const preparedStatementsKept = () => statements.size;
+
 db.pragma('journal_mode = WAL');
 // Tuned for a database that grows to tens of millions of catalogue rows
 // (2026-10-07). synchronous NORMAL is safe in WAL mode (a power cut can lose the
