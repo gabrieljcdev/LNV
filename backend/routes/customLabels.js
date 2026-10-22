@@ -2,7 +2,7 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { isAdminUser } from '../services/authService.js';
 import { logEvent } from '../services/logService.js';
-import { previewLabel, confirmLabel, getCustomLabel, lookupCustomLabel, deleteCustomLabel, createdToday, LabelError } from '../services/customLabels.js';
+import { previewLabel, confirmLabel, listCustomLabels, getCustomLabel, lookupCustomLabel, deleteCustomLabel, createdToday, LabelError } from '../services/customLabels.js';
 
 const router = express.Router();
 
@@ -39,8 +39,11 @@ router.post('/confirm', requireAuth, (req, res, next) => {
 // GET /api/labels/lookup?discogs_id= | ?bandcamp=  -> { label } or { label: null }
 router.get('/lookup', (req, res) => res.json({ label: lookupCustomLabel({ discogsId: req.query.discogs_id, bandcamp: req.query.bandcamp }) }));
 
+// GET /api/custom-labels -> every label added from Bandcamp, A to Z
+router.get('/', (req, res) => res.json({ labels: listCustomLabels(req.user) }));
+
 router.get('/:id', (req, res) => {
-  const label = getCustomLabel(Number(req.params.id));
+  const label = getCustomLabel(Number(req.params.id), req.user);
   if (!label) return res.status(404).json({ error: 'Label not found.' });
   res.json({ label });
 });

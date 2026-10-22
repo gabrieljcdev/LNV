@@ -8,6 +8,7 @@ import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../li
 import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
 import { openWall, openPlaylistFeed } from '../lib/collections'
+import { authHeaders, isLoggedIn } from '../lib/auth'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -464,17 +465,211 @@ const ExtLink = ({ href, children }) => (
   <a href={href} target="_blank" rel="noopener noreferrer" style={{ border: `1px solid ${LINE}`, borderRadius: 99, padding: '3px 10px', fontFamily: SANS, fontSize: 13, color: SEC, textDecoration: 'none' }}>{children}</a>
 )
 
+// ── Labels added from Bandcamp (2026-10-22) ───────────────────────────────────
+// A label that is not on Discogs (or not findable there): paste its Bandcamp page, check what we read
+// and whether it is one we already know ("Is this the label you meant?"), then confirm. Nothing is saved
+// until the confirm. Backend: services/customLabels.js (/api/custom-labels).
+function useCustomLabels() {
+  return useQuery({
+    queryKey: ['custom-labels'],
+    queryFn: async () => { const r = await fetch(`${API}/custom-labels`, { headers: authHeaders() }); return r.ok ? (await r.json()).labels : [] },
+    staleTime: 60_000,
+  })
+}
+async function labelPost(path, body) {
+  const r = await fetch(`${API}/custom-labels/${path}`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error(j.error || `Something went wrong (${r.status})`), { status: r.status })
+  return j
+}
+
+const smallBtn = (primary, disabled) => ({ border: `1px solid ${primary ? 'transparent' : LINE}`, background: primary ? 'var(--theme-accent)' : 'none', color: primary ? '#fff' : SEC, borderRadius: 99, padding: '6px 16px', fontFamily: SANS, fontWeight: 600, fontSize: 14, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.45 : 1 })
+
+function AddLabelPanel({ onDone, onCancel }) {
+  const qc = useQueryClient()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [pv, setPv] = useState(null)
+  const [pick, setPick] = useState(null)    // 'new' | 'd<discogsId>'
+  const [name, setName] = useState('')
+  const reset = () => { setPv(null); setPick(null); setErr('') }
+
+  if (!isLoggedIn()) return <div style={{ border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, margin: '8px 0', fontFamily: SANS, fontSize: 15, color: SEC }}>Sign in to add a label. <button onClick={onCancel} style={smallBtn(false)}>Close</button></div>
+
+  const lookUp = async e => {
+    e?.preventDefault()
+    if (!url.trim() || busy) return
+    setBusy(true); setErr('')
+    try {
+      const out = await labelPost('preview', { url: url.trim() })
+      if (out.alreadyAdded) { qc.invalidateQueries({ queryKey: ['custom-labels'] }); onDone(out.alreadyAdded.id); return }
+      setPv(out); setName(out.label.name); setPick(null)
+    } catch (ex) { setErr(ex.message) } finally { setBusy(false) }
+  }
+  const confirm = async () => {
+    if (!pick || busy) return
+    setBusy(true); setErr('')
+    try {
+      const body = pick === 'new' ? { previewId: pv.previewId, action: 'new', name } : { previewId: pv.previewId, action: 'link', discogsId: Number(pick.slice(1)), name }
+      const { label } = await labelPost('confirm', body)
+      qc.invalidateQueries({ queryKey: ['custom-labels'] })
+      onDone(label.id)
+    } catch (ex) {
+      setErr(ex.message)
+      if (ex.status === 410) reset()   // the preview expired: start again
+    } finally { setBusy(false) }
+  }
+
+  const box = { border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, margin: '8px 0 4px', display: 'grid', gap: 12 }
+  const input = { flex: 1, minWidth: 0, border: `1px solid ${LINE}`, background: FILL, borderRadius: 99, padding: '7px 14px', fontFamily: SANS, fontSize: 15, color: PRI, outline: 0 }
+  const L = pv?.label
+  return (
+    <div style={box}>
+      {!pv ? <>
+        <div style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16 }}>Add a label from Bandcamp</div>
+        <div style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>Paste the label's own Bandcamp page. We read its releases once, you check it is the right label, then it joins the list.</div>
+        <form onSubmit={lookUp} style={{ display: 'flex', gap: 8 }}>
+          <input autoFocus value={url} onChange={e => setUrl(e.target.value)} placeholder="https://name.bandcamp.com" aria-label="Bandcamp page of the label" style={input} />
+          <button type="submit" disabled={busy || !url.trim()} style={smallBtn(true, busy || !url.trim())}>{busy ? 'Reading…' : 'Look it up'}</button>
+          <button type="button" onClick={onCancel} style={smallBtn(false)}>Cancel</button>
+        </form>
+      </> : <>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <Cover src={L.image} size={64} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 19 }}>{L.name}</div>
+            <div style={{ fontFamily: MONO, fontSize: 12.5, color: TER, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{[L.location, plural(L.releaseCount, 'release')].filter(Boolean).join(' · ')}</div>
+            <a href={L.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>View on Bandcamp ↗</a>
+          </div>
+        </div>
+        {pv.sample.length > 0 && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, display: 'grid', gap: 2 }}>
+          {pv.sample.slice(0, 4).map(s => <div key={s.link} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: PRI }}>{s.title}</b>{s.artist ? ` · ${s.artist}` : ''}</div>)}
+          {L.releaseCount > 4 && <div style={{ color: TER }}>+ {L.releaseCount - 4} more</div>}
+        </div>}
+        <div style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16 }}>{pv.question}</div>
+        {pv.matches.length > 0 && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>Discogs has labels with similar names. Pick the right one so two different labels don't get mixed up.</div>}
+        <div role="radiogroup" aria-label={pv.question} style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontFamily: SANS, fontSize: 15, cursor: 'pointer' }}>
+            <input type="radio" name="label-pick" checked={pick === 'new'} onChange={() => setPick('new')} />
+            <span><b>Yes, add “{L.name}” as a new label</b>{pv.matches.length > 0 ? ' (it is none of the ones below)' : ''}</span>
+          </label>
+          {pv.matches.filter(m => m.source === 'discogs').slice(0, 4).map(m => (
+            <label key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontFamily: SANS, fontSize: 15, cursor: 'pointer' }}>
+              <input type="radio" name="label-pick" checked={pick === 'd' + m.id} onChange={() => setPick('d' + m.id)} />
+              <span>It is the same label as <b>{m.name}</b> on Discogs{m.sameBandcamp ? <i style={{ color: 'var(--theme-accent)' }}> · Discogs lists this Bandcamp page</i> : null}{' '}
+                {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: SEC, fontSize: 13 }}>open ↗</a>}</span>
+            </label>
+          ))}
+        </div>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: SANS, fontSize: 14, color: SEC }}>Name shown <input value={name} onChange={e => setName(e.target.value)} maxLength={80} style={input} /></label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={confirm} disabled={!pick || busy} style={smallBtn(true, !pick || busy)}>{busy ? 'Adding…' : pick ? 'Confirm' : 'Pick one to confirm'}</button>
+          <button onClick={reset} style={smallBtn(false)}>No, not this one</button>
+        </div>
+      </>}
+      {err && <div role="alert" style={{ fontFamily: SANS, fontSize: 14, color: 'var(--theme-accent)' }}>{err}</div>}
+    </div>
+  )
+}
+
+function CustomLabelRows({ labels, filter, onOpen }) {
+  const shown = (labels || []).filter(l => matches(filter, l.name))
+  if (!shown.length) return null
+  return <>
+    <SectionHead left="Added from Bandcamp" right={plural(shown.length, 'label')} />
+    {shown.map(l => (
+      <Row key={l.id} onClick={() => onOpen(l.id)}>
+        <Cover src={l.image} size={40} radius={9} />
+        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</span>
+          <span style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>{l.location || 'Bandcamp'}</span>
+        </span>
+        <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, whiteSpace: 'nowrap' }}>{plural(l.releaseCount, 'release')}</span>
+      </Row>
+    ))}
+  </>
+}
+
+function CustomLabelDetail({ id, onBack }) {
+  const qc = useQueryClient()
+  const { data: labels } = useCustomLabels()
+  const label = (labels || []).find(l => l.id === id)
+  const { data: cat, isLoading } = useQuery({
+    queryKey: ['custom-label-releases', id],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/label/${-id}/releases?limit=200`); return r.ok ? r.json() : { releases: [] } },
+    staleTime: 60_000,
+  })
+  const [err, setErr] = useState('')
+  const remove = async () => {
+    if (!window.confirm(`Remove ${label.name} from the site? Its releases here go too (the Bandcamp page is untouched).`)) return
+    try {
+      const r = await fetch(`${API}/custom-labels/${id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not remove it.')
+      qc.invalidateQueries({ queryKey: ['custom-labels'] }); onBack()
+    } catch (ex) { setErr(ex.message) }
+  }
+  if (!label) return <><DrawerHead title="Label" count="" crumb="Labels" onBack={onBack} /><Loading /></>
+  const rows = cat?.releases || []
+  return <>
+    <DrawerHead title={label.name} count={plural(label.releaseCount, 'release')} crumb="Labels" onBack={onBack} />
+    <DrawerBody>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
+        <Cover src={label.image} size={96} round />
+        <div style={{ display: 'grid', gap: 8 }}>
+          <Facts lines={[label.location, 'Added from Bandcamp']} />
+          {label.bio && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, whiteSpace: 'pre-line', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{label.bio}</div>}
+        </div>
+      </div>
+      <SectionHead left="Releases" right="on Bandcamp" />
+      {isLoading ? <Loading /> : rows.length ? rows.map(r => (
+        <a key={r.id} href={r.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+          <Row style={{ pointerEvents: 'none' }}>
+            <Cover src={r.thumb} size={40} radius={9} />
+            <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+              <span style={{ fontFamily: SANS, fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.artist || ''}</span>
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>↗</span>
+          </Row>
+        </a>
+      )) : <Empty>No releases were found on that page.</Empty>}
+      <SectionHead left="Elsewhere" />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <ExtLink href={label.url}>◈ Bandcamp</ExtLink>
+        {label.discogsId && <ExtLink href={`https://www.discogs.com/label/${label.discogsId}`}>◈ Discogs</ExtLink>}
+        {label.mine && <button onClick={remove} style={{ ...smallBtn(false), fontSize: 13 }}>Remove this label</button>}
+      </div>
+      {err && <div role="alert" style={{ fontFamily: SANS, fontSize: 14, color: 'var(--theme-accent)', marginTop: 8 }}>{err}</div>}
+    </DrawerBody>
+  </>
+}
+
+// On a Discogs label's page: "also on Bandcamp" when someone linked that label's Bandcamp page.
+function BandcampAlso({ discogsId, onOpen }) {
+  const { data } = useQuery({
+    queryKey: ['custom-label-lookup', discogsId],
+    queryFn: async () => { const r = await fetch(`${API}/custom-labels/lookup?discogs_id=${discogsId}`); return r.ok ? (await r.json()).label : null },
+    enabled: !!discogsId, staleTime: 5 * 60_000,
+  })
+  return data ? <button onClick={() => onOpen(data.id)} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: SANS, fontSize: 13, color: SEC, cursor: 'pointer' }}>◈ Bandcamp releases</button> : null
+}
+
 // ── Labels ────────────────────────────────────────────────────────────────────
 export function LabelsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
   const { data: totals } = useCatalogueTotals()
+  const { data: custom } = useCustomLabels()
   const [selected, setSelected] = useState(initial || null)
+  const [customId, setCustomId] = useState(null)   // a label added from Bandcamp, open
+  const [adding, setAdding] = useState(false)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
   // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
   const [cmd, setCmd] = useState(_n)
-  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setCustomId(null); setFilter('') } }
+  if (customId != null) return <CustomLabelDetail id={customId} onBack={() => setCustomId(null)} />
   if (isLoading || !data) return <><DrawerHead title="Labels" count="" /><Loading /></>
   const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.labels.map(l => l.name))
@@ -498,13 +693,24 @@ export function LabelsDrawer({ filter: initial, _n }) {
         {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="label" id={discogsIdOf('label', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
-        <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
+          <BandcampAlso discogsId={discogsIdOf('label', selected, ps)} onOpen={setCustomId} />
+        </div>
       </DrawerBody>
     </>
   }
+  const openCustom = id => { setAdding(false); setCustomId(id) }
+  const addButton = <button onClick={() => setAdding(a => !a)} aria-expanded={adding} style={{ ...smallBtn(false), fontSize: 13, padding: '3px 12px' }}>＋ Add a label</button>
   return <>
-    <DrawerHead title="Labels" count={plural(groups.size, 'label')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} totalOf={(name, ps) => totals?.label?.[discogsIdOf('label', name, ps)] ?? null} /></DrawerBody>
+    <DrawerHead title="Labels" count={plural(groups.size + (custom?.length || 0), 'label')} filter={filter} setFilter={setFilter}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}><Chips options={SORTS} value={sort} onChange={setSort} />{addButton}</div>
+    </DrawerHead>
+    <DrawerBody>
+      {adding && <AddLabelPanel onDone={openCustom} onCancel={() => setAdding(false)} />}
+      <NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} totalOf={(name, ps) => totals?.label?.[discogsIdOf('label', name, ps)] ?? null} />
+      <CustomLabelRows labels={custom} filter={filter} onOpen={openCustom} />
+    </DrawerBody>
   </>
 }
 

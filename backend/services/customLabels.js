@@ -68,7 +68,8 @@ async function readBandcamp({ host, origin }) {
     byId.set(Number(m[1]), {
       id: Number(m[1]), title, link: abs(link),
       artist: decodeHtml(li.match(/class="artist-override">\s*([^<]+?)\s*</)?.[1] || '').trim() || null,
-      thumb: li.match(/<img src="([^"]+)"/)?.[1] || null,
+      // Items below the fold are lazy-loaded: the real image is in data-original, src is a 1px placeholder.
+      thumb: [li.match(/data-original="(https:[^"]+)"/)?.[1], li.match(/<img[^>]*\ssrc="(https:[^"]+)"/)?.[1]].find(Boolean) || null,
     });
   }
   for (const i of items) {
@@ -170,7 +171,14 @@ export function confirmLabel(user, { previewId, action, discogsId, name }) {
 export function publicLabel(r) {
   return r && { id: r.id, entityId: -r.id, source: r.source, name: r.name, url: r.url, image: r.image, location: r.location, bio: r.bio, discogsId: r.discogs_id, createdAt: r.created_at };
 }
-export const getCustomLabel = id => publicLabel(db.prepare('SELECT * FROM custom_labels WHERE id = ?').get(id));
+// With how many releases it holds and whether `user` may remove it (its adder, or an admin).
+const withMeta = (r, user) => r && {
+  ...publicLabel(r),
+  releaseCount: db.prepare("SELECT COUNT(*) c FROM discogs_catalogue WHERE kind = 'label' AND entity_id = ?").get(-r.id).c,
+  mine: !!user && (r.created_by === user.id || !!user.is_admin),
+};
+export const listCustomLabels = user => db.prepare('SELECT * FROM custom_labels ORDER BY name COLLATE NOCASE').all().map(r => withMeta(r, user));
+export const getCustomLabel = (id, user) => withMeta(db.prepare('SELECT * FROM custom_labels WHERE id = ?').get(id), user);
 // By Discogs id (a label we linked) or by Bandcamp page.
 export function lookupCustomLabel({ discogsId, bandcamp }) {
   if (discogsId) return publicLabel(db.prepare('SELECT * FROM custom_labels WHERE discogs_id = ? ORDER BY id LIMIT 1').get(Number(discogsId)));
