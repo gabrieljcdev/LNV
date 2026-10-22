@@ -9,6 +9,7 @@ import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
 import { openWall, openPlaylistFeed } from '../lib/collections'
 import { authHeaders, isLoggedIn } from '../lib/auth'
+import { rightSizedCover } from '../lib/covers'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -130,14 +131,14 @@ function Row({ onClick, children, style }) {
 }
 
 const Cover = ({ src, size, radius = 10, round }) => (
-  <span style={{ width: size, height: size, flexShrink: 0, borderRadius: round ? '50%' : radius, background: src ? `var(--theme-dark2) center/cover no-repeat url("${src}")` : 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))' }} />
+  <span style={{ width: size, height: size, flexShrink: 0, borderRadius: round ? '50%' : radius, background: src ? `var(--theme-dark2) center/cover no-repeat url("${rightSizedCover(src, size)}")` : 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))' }} />
 )
 
 function CoverStack({ posts }) {
   return (
     <span style={{ display: 'flex', flexShrink: 0 }}>
       {posts.slice(0, 3).map((p, i) => (
-        <span key={p.id} style={{ width: 26, height: 26, borderRadius: 7, marginLeft: i ? -9 : 0, border: '2px solid var(--theme-bg)', background: p.cover ? `var(--theme-dark2) center/cover no-repeat url("${p.cover}")` : 'var(--theme-dark2)' }} />
+        <span key={p.id} style={{ width: 26, height: 26, borderRadius: 7, marginLeft: i ? -9 : 0, border: '2px solid var(--theme-bg)', background: p.cover ? `var(--theme-dark2) center/cover no-repeat url("${rightSizedCover(p.cover, 26)}")` : 'var(--theme-dark2)' }} />
       ))}
     </span>
   )

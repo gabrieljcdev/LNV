@@ -20,6 +20,7 @@ import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../s
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
 import { MODULE_CARDS, MODULE_CSS, moduleLook, solid, startSweep } from '../lib/moduleKit'
+import { rightSizedCover } from '../lib/covers'
 import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -236,7 +237,8 @@ function artistName(p) { return p.artists?.[0]?.artist_name || p.artists?.[0]?.n
 const isVariousArtist = name => /^various( artists)?$/i.test((name || '').trim())
 function labelName(p)  { return p.labels?.[0]?.label_name  || p.labels?.[0]?.name  || p.label_name  || '' }
 function channelName(p){ return p.channel || '' }
-function coverSrc(p)   { return p.cover_image || p.coverImage || p.thumb_image || p.thumbImage || p.cover_art || '' }
+// A Bandcamp cover is downloaded at the size it is shown (lib/covers.js): the stored 1200 px original costs 5.5 MB to decode for a 330 px slot.
+function coverSrc(p)   { return rightSizedCover(p.cover_image || p.coverImage || p.thumb_image || p.thumbImage || p.cover_art || '', 330) }
 
 // 2026-08-26: pulled out of PostCard's inline embed derivation (same
 // regexes, same platform priority: YouTube > SoundCloud > Mixcloud) so
