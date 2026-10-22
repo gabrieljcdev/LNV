@@ -11,6 +11,7 @@ import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import { runSpareQuota } from '../services/spareQuota.js';
 import { runYoutubeRefresh, refreshStatus } from '../services/youtubeRefresh.js';
 import { adminBadLinks, adminRevert } from '../services/badLinks.js';
+import { flowSummary } from '../services/flow.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
@@ -171,6 +172,11 @@ router.post('/spare-quota', async (req, res, next) => {
 // The 30-day YouTube data refresh by hand: { dry: true } only counts what is due (services/youtubeRefresh.js).
 router.post('/youtube-refresh', async (req, res, next) => {
   try { res.json(await runYoutubeRefresh({ dry: !!req.body?.dry })); } catch (err) { next(err); }
+});
+
+// How people move through the site, for the accounts that have recording on (services/flow.js). Aggregates only.
+router.get('/flow', (req, res, next) => {
+  try { res.json(flowSummary(null, req.query.days)); } catch (err) { next(err); }
 });
 
 router.get('/channels', (req, res, next) => {

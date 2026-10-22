@@ -89,6 +89,7 @@ export function exportActivity(userId) {
     exported_at: new Date().toISOString(),
     settings: { keep_listening: keepsListening(userId) },
     events: activity.prepare('SELECT id, at, kind, post_id, track_id, origin, origin_ref, source, place, ms_played, meta FROM events WHERE user_id = ? ORDER BY id').all(userId),
+    flow: activity.prepare('SELECT id, at, t, session_id, seq, kind, view, target, ref, ms, meta FROM flow_events WHERE user_id = ? ORDER BY id').all(userId),
   };
 }
 // Clear the listening history (play / finish / skip) only.
@@ -96,7 +97,7 @@ export const clearListening = userId => activity.prepare("DELETE FROM events WHE
 // Remove everything held about this person in the activity database (for "delete my data" and account deletion).
 export function deleteUserActivity(userId) {
   return activity.transaction(() => {
-    const events = activity.prepare('DELETE FROM events WHERE user_id = ?').run(userId).changes;
+    const events = activity.prepare('DELETE FROM events WHERE user_id = ?').run(userId).changes + activity.prepare('DELETE FROM flow_events WHERE user_id = ?').run(userId).changes;
     activity.prepare('DELETE FROM user_prefs WHERE user_id = ?').run(userId);
     return events;
   })();

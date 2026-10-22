@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { recordFlow, flowSummary, sessionTrail, recentSessions, clearFlow } from '../services/flow.js';
 import { keepsListening, setKeepListening, recordListening, recentListening, listeningSummary, exportActivity, clearListening, deleteUserActivity } from '../services/listeningHistory.js';
 
 // /api/activity — your own listening history (services/listeningHistory.js). Off until you turn it on; private to you.
@@ -26,6 +27,25 @@ router.post('/listening', (req, res, next) => {
 router.get('/me/listening', (req, res, next) => {
   try { res.json(recentListening(req.user.id, { before: Number(req.query.before) || null, limit: req.query.limit })); } catch (err) { next(err); }
 });
+// Flow (services/flow.js): how you move through the site and how long you listen. Same switch, same rules.
+// POST /flow { session, events: [{ t, seq, kind, view?, target?, ref?, ms?, meta? }] } -> { recorded }   (up to 50 a call)
+router.post('/flow', (req, res, next) => {
+  try { res.json(recordFlow(req.user.id, req.body?.session, req.body?.events)); } catch (err) { next(err); }
+});
+// GET /me/flow?days=30 -> your sessions, time in each view, clicks, paths, what led where, listening
+router.get('/me/flow', (req, res, next) => {
+  try { res.json(flowSummary(req.user.id, req.query.days)); } catch (err) { next(err); }
+});
+router.get('/me/flow/sessions', (req, res, next) => {
+  try { res.json({ sessions: recentSessions(req.user.id, req.query.limit) }); } catch (err) { next(err); }
+});
+router.get('/me/flow/sessions/:id', (req, res, next) => {
+  try { res.json({ trail: sessionTrail(req.user.id, req.params.id) }); } catch (err) { next(err); }
+});
+router.delete('/me/flow', (req, res, next) => {
+  try { res.json({ cleared: clearFlow(req.user.id) }); } catch (err) { next(err); }
+});
+
 // GET /me/summary?days=90 -> counts and your most-played artists, labels, styles, sources
 router.get('/me/summary', (req, res, next) => {
   try { res.json(listeningSummary(req.user.id, req.query.days)); } catch (err) { next(err); }
