@@ -286,13 +286,16 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
   const [openRel, setOpenRel] = useState(null) // 'type:id' of the release open in place
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
+  const [jumpTo, setJumpTo] = useState(null) // a decade chip: 1990 | 'unknown' | null (from the top)
   useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t) }, [query])
 
   const qc = useQueryClient()
   const pages = useInfiniteQuery({
-    queryKey: ['drawer-discography', kind, id, q],
+    queryKey: ['drawer-discography', kind, id, q, jumpTo],
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q })
+      // The first page also asks for the count per decade (the chips); with a chip picked it starts at that decade, and the next pages follow on from there.
+      if (pageParam === 0) { qs.set('decades', '1'); if (jumpTo != null) qs.set('decade', String(jumpTo)) }
       const r = await fetch(`${API}/discogs/${kind}/${id}/releases?${qs}`)
       if (!r.ok) throw new Error(`Discogs catalogue: ${r.status}`)
       return r.json()
@@ -331,6 +334,19 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
   const right = !first ? '' : crawl && !crawl.done
     ? `collecting ${crawl.have.toLocaleString('en-GB')} of ${crawl.total.toLocaleString('en-GB')}`
     : `${total.toLocaleString('en-GB')} on Discogs`
+  // Decade chips (2026-10-22): jump straight to a decade of a long catalogue. The server counts releases per decade and, given `decade`, starts there.
+  const decadeList = first?.decades || []
+  const decadeChips = total > 100 && decadeList.length > 1 ? (
+    <div role="group" aria-label="Jump to a decade" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
+      {[{ key: null, label: 'All' }, ...decadeList.map(d => ({ key: d.decade == null ? 'unknown' : d.decade, label: d.decade == null ? 'Undated' : `${d.decade}s`, n: d.n }))].map(c => {
+        const on = jumpTo === c.key
+        return (
+          <button key={String(c.key)} onClick={() => setJumpTo(c.key)} aria-pressed={on} title={c.n ? `${c.n.toLocaleString('en-GB')} releases` : 'From the newest'}
+            style={{ border: `1px solid ${on ? PRI : LINE}`, borderRadius: 99, padding: '4px 12px', background: on ? PRI : 'transparent', color: on ? 'var(--theme-showcase)' : SEC, fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{c.label}</button>
+        )
+      })}
+    </div>
+  ) : null
   const COLS = kind === 'artist' ? '50px minmax(0, 1fr) 76px 40px' : '50px minmax(0, 1fr) 40px'
 
   if (!id) return <>
@@ -349,11 +365,12 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
         {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
       </label>
     )}
+    {decadeChips}
     {!first ? (pages.isLoading || pages.isFetching ? <><Empty>Pulling the Discogs catalogue…</Empty><SkeletonRows n={5} /></> : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '20px 0' }}>
         <span style={{ fontFamily: SANS, fontSize: 15, color: SEC }}>Couldn’t load the catalogue — Discogs didn’t answer.</span>
         {/* A fresh start, not refetch(): a retry paused while the tab was hidden would just keep waiting. */}
-        <button onClick={() => qc.resetQueries({ queryKey: ['drawer-discography', kind, id, q] })}
+        <button onClick={() => qc.resetQueries({ queryKey: ['drawer-discography', kind, id, q, jumpTo] })}
           style={{ border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 16px', background: FILL, color: PRI, fontFamily: SANS, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Try again</button>
       </div>
     ))
