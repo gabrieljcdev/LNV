@@ -7,6 +7,7 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { recordEvent, cleanOrigin } from '../db/activityDb.js';
 import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage, hiddenIds, hidePost, unhidePost, hiddenPosts } from '../services/collectionsService.js';
@@ -66,10 +67,13 @@ function getFullPost(postId) {
   const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ? AND private = 0').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
   // Everyone else who has it on their wall (♥'d it), first to latest.
-  const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
+  const joins = db.prepare('SELECT u.username, j.origin, j.origin_ref FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId);
+  const alsoPostedBy = joins.map(r => r.username);
+  // How each keeper found it ('digging' | 'user' | 'link', and where from), beside the names above; null on older keeps.
+  const alsoPostedHow = joins.map(r => ({ username: r.username, origin: r.origin, origin_ref: r.origin_ref }));
   // The newest replies, oldest of them first, for the card's reply strip (it shows as many as fit).
   const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? AND c.private = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, playlists, latestComments };
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, alsoPostedHow, playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -334,7 +338,7 @@ router.post('/', requireAuth, (req, res, next) => {
     const {
       discogs_id, discogs_type = 'release',
       title, year, country, cover_image, thumb_image, notes, discogs_url,
-      stream_url, embed_url, platform, post_type = 'album', channel, post_title,
+      stream_url, embed_url, platform, post_type = 'album', channel, post_title, origin, origin_ref,
       artists = [], labels = [], genres = [], tracks = [], related_releases = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
@@ -357,6 +361,10 @@ router.post('/', requireAuth, (req, res, next) => {
       return res.status(409).json({ error: 'This release is already up — ♥ it to keep it in your feed.', postId: existing?.id ?? null });
     }
     const postId = result.lastInsertRowid;
+    // How it reached the site: from a drawer (digging), or pasted in (link, the default).
+    const org = cleanOrigin(origin || 'link', origin_ref);
+    db.prepare('UPDATE posts SET origin = ?, origin_ref = ? WHERE id = ?').run(org.origin, org.origin_ref, postId);
+    recordEvent('post', { userId: user_id, postId, origin: org.origin, originRef: org.origin_ref });
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
     for (const a of artists) ia.run(postId, a.name, a.id || null);
     const il = db.prepare('INSERT INTO post_labels (post_id, label_name, catalogue_number, discogs_label_id) VALUES (?, ?, ?, ?)');
@@ -488,15 +496,21 @@ router.post('/:id/join', requireAuth, (req, res, next) => {
     const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
     if (!post) return res.status(404).json({ error: 'Post not found' });
     if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already in your feed.' });
-    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'also')").run(post.id, req.user.id).changes;
-    if (added) logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
+    // Kept from someone's feed or wall ('user', origin_ref = their username), or from a drawer ('digging').
+    const org = cleanOrigin(req.body?.origin || 'user', req.body?.origin_ref);
+    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind, origin, origin_ref) VALUES (?, ?, 'also', ?, ?)").run(post.id, req.user.id, org.origin, org.origin_ref).changes;
+    if (added) {
+      logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
+      recordEvent('keep', { userId: req.user.id, postId: post.id, origin: org.origin, originRef: org.origin_ref });
+    }
     res.json(getFullPost(post.id));
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/join', requireAuth, (req, res, next) => {
   try {
-    db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id);
+    const gone = db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id).changes;
+    if (gone) recordEvent('unkeep', { userId: req.user.id, postId: Number(req.params.id) });
     res.json(getFullPost(Number(req.params.id)));
   } catch (err) { next(err); }
 });
@@ -510,7 +524,8 @@ router.put('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) => {
   try {
     const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'Track not found' });
-    db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)').run(t.id, req.user.id);
+    const added = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)').run(t.id, req.user.id).changes;
+    if (added) recordEvent('highlight', { userId: req.user.id, postId: Number(req.params.id), trackId: t.id });
     res.json(highlightState(t.id));
   } catch (err) { next(err); }
 });
@@ -518,7 +533,8 @@ router.delete('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) =>
   try {
     const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'Track not found' });
-    db.prepare('DELETE FROM track_highlights WHERE post_track_id = ? AND user_id = ?').run(t.id, req.user.id);
+    const gone = db.prepare('DELETE FROM track_highlights WHERE post_track_id = ? AND user_id = ?').run(t.id, req.user.id).changes;
+    if (gone) recordEvent('unhighlight', { userId: req.user.id, postId: Number(req.params.id), trackId: t.id });
     res.json(highlightState(t.id));
   } catch (err) { next(err); }
 });
@@ -566,6 +582,7 @@ router.post('/:id/comments', requireAuth, (req, res, next) => {
     const priv = req.body.private && post.user_id !== user_id ? 1 : 0;
     const result = db.prepare('INSERT INTO comments (post_id, user_id, content, private) VALUES (?, ?, ?, ?)').run(post.id, user_id, content, priv);
     const comment = db.prepare('SELECT c.*, u.username, u.display_name FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?').get(result.lastInsertRowid);
+    recordEvent('reply', { userId: user_id, postId: post.id, meta: priv ? { private: true } : null }); // ids only, never the text
     res.status(201).json(comment);
   } catch (err) { next(err); }
 });

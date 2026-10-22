@@ -453,6 +453,13 @@ const migrations = [
     official INTEGER NOT NULL,
     set_at TEXT DEFAULT (datetime('now'))
   )`,
+  // Where a record came from (2026-10-12): 'digging' (added from a drawer or playlist), 'user' (kept from a person's
+  // feed or wall; origin_ref = their username) or 'link' (pasted in). NULL on older posts. The same fact is also
+  // appended to the separate activity database as an event (db/activityDb.js).
+  'ALTER TABLE posts ADD COLUMN origin TEXT',
+  'ALTER TABLE posts ADD COLUMN origin_ref TEXT',
+  'ALTER TABLE post_joins ADD COLUMN origin TEXT',
+  'ALTER TABLE post_joins ADD COLUMN origin_ref TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }

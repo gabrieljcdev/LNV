@@ -16,3 +16,15 @@ gzip -f "$TMP"
 find "$DIR" -name 'lnv-*.db.gz' -mtime +14 -delete
 [ -z "$OFFSITE" ] || rclone copy "$TMP.gz" "$OFFSITE"
 echo "backup ok: $TMP.gz ($(du -h "$TMP.gz" | cut -f1))"
+
+# The activity database (what people did: posts, keeps, highlights, replies) is its own file next to the music database.
+ACT=${LNV_ACTIVITY_DB_PATH:-$(dirname "$DB")/activity.db}
+if [ -f "$ACT" ]; then
+  ATMP="$DIR/activity-$STAMP.db"
+  sqlite3 "$ACT" ".backup '$ATMP'"
+  [ "$(sqlite3 "$ATMP" 'PRAGMA integrity_check;')" = "ok" ] || { echo "activity backup failed integrity check" >&2; rm -f "$ATMP"; exit 1; }
+  gzip -f "$ATMP"
+  find "$DIR" -name 'activity-*.db.gz' -mtime +14 -delete
+  [ -z "$OFFSITE" ] || rclone copy "$ATMP.gz" "$OFFSITE"
+  echo "activity backup ok: $ATMP.gz ($(du -h "$ATMP.gz" | cut -f1))"
+fi
