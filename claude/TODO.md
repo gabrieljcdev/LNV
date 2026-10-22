@@ -29,16 +29,18 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 | **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
 
 ## 2. Bugs to chase
-1. **Adding to the feed from an artist or label spotlight closes the spotlight** and breaks listening (18 Oct). It should stay open and keep playing, or at least reopen the drawer. Check phone too.
-2. **"My feed" jumps back to the start** of your profile instead of keeping your place (18 Oct).
-3. **Playlists** (14 Oct): opening one does not land on it; "View as feed" does not show the whole list; track titles are white on white. **(check)**
-4. **Highlighted tracks** (15 Oct): highlights set in compose do not show on the post in the feed; and highlights are too subtle. **(check)**
-5. **Spotify embed squashed in the media box** on Module cards (19 Oct). **(check)**
-6. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
-7. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
-8. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
-9. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
-10. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
+1. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
+2. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
+3. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
+4. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
+5. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
+
+**Fixed 22 Oct, committed on `dedupe`, NOT deployed yet (frontend build only):** please look at each in a real browser.
+- Adding a record from an artist/label spotlight no longer makes the spotlight vanish: new posts arriving at the front (yours, or the 30-second refresh) are put on the front and the rest of the shelf stays as it was (it used to rebuild and reshuffle everything). Tried on desktop (spotlights identical before/after a new post). **Phone not tried.** The shelf shifts one card to the right when a post is added at the front (the same as before); not compensated.
+- "My feed" keeps your place: where you were in each feed is remembered, and returning to it (from a friend's feed, a playlist) puts you back there instead of on your profile card. The mechanism was tried with simulated positions only (the test pane has no animation frames, so real scrolling is unseen).
+- Playlists: a playlist opened from a card, the queue bar or a link now opens (a shared one used to never open; a stale one could stay on top). **Track titles white on white fixed**: the playlist and Following rows were buttons whose background was set to "undefined", so the browser's light grey showed behind white text in dark themes (fixed in the shared Row). Tried across all 8 palettes (dark ones now 19.9:1). "View as feed" shows only tracks that came from posts: that is how it is built (see Build next); the paging problem that cut it short was the feed bug fixed earlier.
+- Highlights: a highlight set in compose does show on the card (checked: saved by the server, returned, drawn); it is now obvious: the whole row glows in the accent colour with a bar on the left, bold title and a big accent star (it was a slightly brighter star).
+- Spotify embed in the Module card's square media box: it was cut off between its two real sizes. In a box 152 to 351 px tall it now uses the compact 152 px player, centred; at 352 or more the full one. Tried with the player mounted on its own in boxes of 120/330/352/400 px; not tried with a real Spotify track playing.
 
 ## 3. Build next
 ### Player and listening
@@ -56,6 +58,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - Still open: **Nightly job: seed from crawled channels** (step 4 of the 7 Oct link plan); **"Tracks with nothing to play"** are still only counted, not chased; Tidal links in cards; Last.fm as a free match check (minor).
 - Short-title matching ("Meftah – 7") is listed under Bugs, item 8.
 ### Feed and cards
+- **"View as feed" for a playlist** shows only the tracks that came from posts. Decide: a card for tracks that did not (a small "track" card), or leave it.
 - **Add to a playlist from the compose window**, applied only when the post succeeds (15 Oct).
 - **A whole playlist as one card** in your feed (10 Oct).
 - **Post format**: one-line (about 300 characters) by default is built; the full post is optional. Decide what is left (9 Oct).

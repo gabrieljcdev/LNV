@@ -2621,17 +2621,18 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
     const v = shelfTrack(t, comp)
     const h = hlOf(t)
     const mine = !!me && h.by.includes(me)
-    const byOwner = !!ownerName && ownerName !== me && h.by.includes(ownerName)
     const mix = (c, n) => `color-mix(in srgb, ${c} ${n}%, transparent)`
-    const grad = c => `linear-gradient(90deg, ${mix(c, 30)}, ${mix(c, 6)})`
-    const tint = byOwner && mine ? `linear-gradient(90deg, ${mix(OWNER_HL, 30)}, ${mix(MINE_HL, 30)})` : byOwner ? grad(OWNER_HL) : mine ? grad(MINE_HL) : mix('var(--lv-pri)', 7)
-    const pick = byOwner // kept for the star colour below
+    // A highlighted track must be obvious at a glance (gabriel, 15 Oct: "too subtle"; 22 Oct): anybody's highlight lights the whole row in the accent colour
+    // (it was the palette's showcase colour, nearly white in some palettes), with an outline, a bar on the left, bolder text and a bigger accent star.
+    const lit = h.n > 0 || mine
+    const ACC = 'var(--theme-accent)'
+    const tint = lit ? `linear-gradient(90deg, ${mix(ACC, 42)}, ${mix(ACC, 12)})` : mix('var(--lv-pri)', 7)
     return (
       <div key={i}>
         <div onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-          style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', margin: '0 0 5px', padding: `${Math.max(4, d.trackRowpad - 2)}px 11px`, borderRadius: 12, border: `1px solid ${byOwner ? mix(OWNER_HL, 55) : mine ? mix(MINE_HL, 55) : 'transparent'}`, cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : tint }}>
+          style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', margin: '0 0 5px', padding: `${Math.max(4, d.trackRowpad - 2)}px 11px`, borderRadius: 12, border: `1px solid ${lit ? mix(ACC, 75) : 'transparent'}`, boxShadow: lit ? `inset 4px 0 0 ${ACC}` : 'none', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 22%, transparent)' : tint }}>
           <span style={{ fontFamily: d.monoFf, fontSize: d.tracknumSize, color: active ? 'var(--theme-accent)' : 'var(--lv-ter)' }}>{active ? '▶' : (t.position || i + 1)}</span>
-          <span style={{ fontFamily: d.bodyFf, fontSize: trackText, lineHeight: 1.2, color: 'var(--lv-pri)', fontWeight: PAIRED_CARDS ? 400 : 600, minWidth: 0, overflowWrap: 'anywhere' }}>
+          <span style={{ fontFamily: d.bodyFf, fontSize: trackText, lineHeight: 1.2, color: 'var(--lv-pri)', fontWeight: lit ? 700 : PAIRED_CARDS ? 400 : 600, minWidth: 0, overflowWrap: 'anywhere' }}>
             {v.title}
             {(v.artists.length > 0 || v.remixers.length > 0) && <span><span style={{ margin: '0 7px', color: 'var(--lv-ter)', fontWeight: 400 }}>–</span>{[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
           </span>
@@ -2644,7 +2645,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontFamily: d.monoFf, fontSize: 11.5, color: 'var(--lv-ter)' }}>
             {h.n > 0 && <span style={{ display: 'inline-flex' }}>{h.by.slice(0, 3).map((n, k) => <i key={n} style={{ width: 16, height: 16, borderRadius: '50%', marginLeft: k ? -5 : 0, border: `2px solid ${cardBg}`, background: 'var(--lv-sec)', color: cardBg, font: '700 8px/12px sans-serif', fontStyle: 'normal', textAlign: 'center' }}>{n[0]?.toUpperCase()}</i>)}</span>}
             {h.n > 0 && <span>{h.n}</span>}
-            <span style={{ fontSize: 15, lineHeight: 1, color: mine ? MINE_HL : pick ? OWNER_HL : 'var(--lv-ter)' }}>{mine || h.n ? '★' : '☆'}</span>
+            <span style={{ fontSize: lit ? 18 : 15, lineHeight: 1, color: lit ? ACC : 'var(--lv-ter)' }}>{lit ? '★' : '☆'}</span>
           </button>
         </div>
         {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
@@ -2686,12 +2687,13 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       const v = shelfTrack(t, comp)
       const h = hlOf(t)
       const mine = !!me && h.by.includes(me)
+      const lit = h.n > 0 || mine // anybody's highlight lights the row (22 Oct: it was only a slightly brighter star, "too subtle")
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
             <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
-            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: 500 }}>
+            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500 }}>
               {v.title}
               {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
             </span>
@@ -2700,7 +2702,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
             <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
               aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
               title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
-              style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: 15, color: mine ? 'var(--theme-accent)' : 'inherit', opacity: mine || h.n ? 1 : 0.4 }}>{mine || h.n ? '★' : '☆'}</button>
+              style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: lit ? 18 : 15, color: lit ? 'var(--theme-accent)' : 'inherit', opacity: lit ? 1 : 0.4 }}>{lit ? '★' : '☆'}</button>
           </div>
           {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
         </div>
@@ -4544,6 +4546,14 @@ function buildShelfItems(posts, prev = null) {
   return st
 }
 
+// New posts arriving at the FRONT of the same list (you just posted, or the 30-second refresh found someone else's): they are put on the front and
+// everything already on the shelf stays exactly as it was (2026-10-22). It used to rebuild the whole shelf with a fresh shuffle, so adding a record from
+// an artist or label spotlight made that spotlight vanish (its key and subject changed) and stopped what was playing in it.
+function prependToShelf(prev, posts, n) {
+  const fresh = posts.filter(p => !p.is_spotlight).slice(0, n)
+  return { ...prev, items: [...fresh.map(post => ({ key: `p-${post.id}`, kind: 'post', post, mirror: false })), ...prev.items], count: prev.count + fresh.length, picks: { ...prev.picks } }
+}
+
 // ── Introductions (alpha, 2026-10-05) ─────────────────────────────────────────
 // My feed slots in an introduction (IntroCard, Collect.jsx) at most once
 // every INTRO_EVERY cards, never before the INTRO_EVERY-th, always after a
@@ -5415,7 +5425,15 @@ export default function Feed() {
     // search, new posts at the front) → rebuild.
     const prev = lastPostsSignature.current
     const appended = prev && shelfState.current && postsSignature.startsWith(prev + ',')
-    shelfState.current = buildShelfItems(posts, appended ? shelfState.current : null)
+    // The 30-second refresh returns the newest page again, so after a new post the list is [new, ...the old ones, cut at the old end]: new posts on the
+    // front followed by the same posts in the same order is what counts, whatever the length.
+    const added = (() => {
+      if (!prev || !shelfState.current) return 0
+      const was = prev.split(','), now = postsSignature.split(',')
+      const k = now.indexOf(was[0])
+      return k > 0 && now.slice(k).every((id, i) => id === was[i]) ? k : 0
+    })()
+    shelfState.current = added ? prependToShelf(shelfState.current, posts, added) : buildShelfItems(posts, appended ? shelfState.current : null)
     shelfItems.current = shelfState.current.items
     lastPostsSignature.current = postsSignature
   }
@@ -5464,11 +5482,32 @@ export default function Feed() {
   // than back on the intro. Only clearing a search returns to the start.
   const viewKey = search ? `s:${search}` : feedSel ? `f:${feedSel.join(':')}` : ''
   const scrolledForSearch = useRef(viewKey) // a page load keeps its intro, whichever feed it opens on
+  // Keeping your place (2026-10-22): where you were in each feed (not searches), so "my feed" after a visit to someone's feed or a playlist lands where you
+  // left off, not back on your profile card. Remembered while you scroll; put back once that feed's cards are all on the page.
+  const placeByView = useRef({})
+  const liveView = useRef(viewKey)
+  liveView.current = viewKey
+  const restoreTo = useRef(null)
+  useEffect(() => {
+    const feed = feedRef?.current
+    if (!feed) return undefined
+    const on = () => { if (!liveView.current.startsWith('s:')) placeByView.current[liveView.current] = feed.scrollLeft }
+    feed.addEventListener('scroll', on, { passive: true })
+    return () => feed.removeEventListener('scroll', on)
+  }, [feedRef])
+  useEffect(() => {
+    if (restoreTo.current == null || searching || isFetching || mountCap < shelfList.length) return
+    const left = restoreTo.current
+    restoreTo.current = null
+    driveFeedScroll?.(left)
+  }, [searching, isFetching, mountCap, shelfList.length, driveFeedScroll])
   useEffect(() => {
     if (searching || scrolledForSearch.current === viewKey) return
     const prev = scrolledForSearch.current
     scrolledForSearch.current = viewKey
     if (pendingJump.current != null) return // a jump to a post is on its way
+    const saved = viewKey.startsWith('s:') ? null : placeByView.current[viewKey]
+    if (saved > 0) { restoreTo.current = saved; return }
     // Effects run after the new results are in the DOM, so measure now.
     const feed = feedRef?.current
     if (!feed) return

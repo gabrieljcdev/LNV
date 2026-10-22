@@ -124,7 +124,7 @@ function Row({ onClick, children, style }) {
   const [h, setH] = useState(false)
   return (
     <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
-      style={{ display: 'flex', alignItems: 'center', gap: 12, width: 'calc(100% + 20px)', margin: '0 -10px', padding: '8px 10px', border: 0, borderRadius: 12, background: h ? HOVER : 'none', textAlign: 'left', cursor: 'pointer', color: PRI, ...style }}>
+      style={{ display: 'flex', alignItems: 'center', gap: 12, width: 'calc(100% + 20px)', margin: '0 -10px', padding: '8px 10px', border: 0, borderRadius: 12, background: h ? HOVER : 'none', textAlign: 'left', cursor: 'pointer', color: PRI, ...style, ...(style?.background === undefined ? { background: h ? HOVER : 'none' } : null) /* a caller passing background: undefined must not leave a button its default light grey (white text on it was unreadable) */ }}>
       {typeof children === 'function' ? children(h) : children}
     </button>
   )

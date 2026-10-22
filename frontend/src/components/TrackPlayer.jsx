@@ -116,7 +116,15 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
     })
     return () => { cancelled = true; unregister?.(); try { ctrl?.destroy?.() } catch { /* already gone */ } inner?.remove() }
   }, [finalSrc, isSp]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (isSp) return <div ref={spHolder} style={{ width: '100%', height: '100%' }} />
+  if (isSp) {
+    // Spotify's embed has two real sizes: compact (152 px tall) and full (352 px, with the track list). In a box between the two it is cut off, which is what
+    // squashed it in the Module card's square media box (22 Oct). So it gets the whole box when the box is tall enough for the full size or too small for
+    // the compact one, and the compact size, centred, in between. A container query on the box's own height, so it needs no measuring in script.
+    return <div style={{ width: '100%', height: '100%', containerType: 'size', display: 'flex', alignItems: 'center' }} className="lnv-spw">
+      <style>{'@container (min-height: 152px) and (max-height: 351px) { .lnv-sph { height: 152px !important } }'}</style>
+      <div ref={spHolder} className="lnv-sph" style={{ width: '100%', height: '100%' }} />
+    </div>
+  }
   return (
     <iframe ref={ref} src={finalSrc}
       style={{ width: '100%', height: '100%', border: 'none' }}

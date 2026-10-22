@@ -241,8 +241,13 @@ export function PlaylistsDrawer({ open: initialId, token, _n }) {
   const qc = useQueryClient()
   const [openId, setOpenId] = useState(initialId || null)
   const [cmd, setCmd] = useState(_n)
-  if (_n !== cmd) { setCmd(_n); if (initialId) setOpenId(initialId) } // a playlist opened from a card arrives as a new command
   const [shareToken, setShareToken] = useState(token || null)
+  // A playlist opened from a card, the queue bar or a link arrives as a new command (2026-10-22): the drawer is kept built, so it must follow it. An id opens that playlist
+  // and leaves any shared one; a share link opens that one. (It used to follow the id only, so a shared playlist never opened and a stale one could stay on top.)
+  if (_n !== cmd) {
+    setCmd(_n)
+    if (initialId) { setOpenId(initialId); setShareToken(null) } else if (token) setShareToken(token)
+  }
   const [name, setName] = useState('')
   if (shareToken) return <PlaylistView token={shareToken} onBack={isLoggedIn() ? () => setShareToken(null) : undefined} />
   if (!isLoggedIn()) return <SignedOut title="Playlists">Sign in to make playlists from the tracks on the feed, heart tracks, and invite friends to add to them.</SignedOut>
