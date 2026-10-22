@@ -9,6 +9,7 @@ import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
 import { recordEvent, cleanOrigin } from '../db/activityDb.js';
 import { notify, recordMentions, mentionsOfPost, removeMyMention } from '../services/notifications.js';
+import rateLimit from 'express-rate-limit';
 import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage, hiddenIds, hidePost, unhidePost, hiddenPosts } from '../services/collectionsService.js';
@@ -140,7 +141,16 @@ function triggerSpotlights(postId) {
   }
 }
 
-router.get('/', (req, res, next) => {
+// Friction for scraping (2026-10-22): the two calls that return posts in bulk are limited per address for people who are not signed in
+// (signed-in people are not held by this, only by the general limit). Generous for a real visitor, slow for a copier.
+// ANON_BROWSE_MAX / ANON_LIST_MAX per 15 minutes; large on a developer's PC.
+const anonLimit = max => rateLimit({ windowMs: 15 * 60 * 1000, max, skip: req => !!req.user, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'That is a lot of reading for someone not signed in. Sign in to keep going, or try again in a few minutes.' } });
+const live = process.env.NODE_ENV === 'production';
+const anonBrowse = anonLimit(Number(process.env.ANON_BROWSE_MAX) || (live ? 60 : 20000));
+const anonList = anonLimit(Number(process.env.ANON_LIST_MAX) || (live ? 400 : 20000));
+
+router.get('/', anonList, (req, res, next) => {
   try {
     const { artist, label, genre, year, catno, user_id, discogs_id, search, page = 1, limit = 20 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
@@ -252,7 +262,7 @@ router.get('/', (req, res, next) => {
 // matching artists / labels / genres. Must sit above GET /:id.
 // Every post as a compact summary, for the browse drawers (artists, labels,
 // genres, live sets) — they group and filter on the client. Newest first.
-router.get('/browse', (req, res, next) => {
+router.get('/browse', anonBrowse, (req, res, next) => {
   try {
     const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at, discogs_id
       FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all();
