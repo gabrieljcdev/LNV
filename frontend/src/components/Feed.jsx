@@ -12,7 +12,7 @@ import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/aut
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
 import { askText } from './Dialogs'
 import Login from '../pages/Login'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, FoundVia, TagChips, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote, WrongLinkRow } from './TrackLinkAdd'
@@ -946,8 +946,11 @@ function PostCard({ post, cardBg, d, onEdit }) {
         <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
       </button>
       <AddToPlaylistButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
+      <HideButton post={post} label="hide" style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <HeartButton post={post} style={{ fontSize: d.metarowSize, color: textTer, fontFamily: d.bodyFf }} />
       <FollowedTag post={post} />
+      <FoundVia post={post} />
+      <TagChips post={post} />
       <WallLink name={post.user?.username || post.username} style={{ fontSize: d.handleSize, fontWeight: d.handleWeight, color: textPri, fontFamily: d.bodyFf }} />
       <AlsoPosted post={post} style={{ fontSize: d.handleSize, color: textPri, fontFamily: d.bodyFf }} />
       <MainNumber post={post} style={{ fontSize: d.stampSize, color: textTer, fontFamily: d.monoFf }} />
@@ -1295,10 +1298,13 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
               <div style={{ ...cap, margin: '2px 0 10px' }}>Options</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <AddToPlaylistButton post={post} style={{ ...chip, fontSize: 13 }} />
+                <HideButton post={post} label="hide" style={{ ...chip, fontSize: 13 }} />
                 <HeartButton post={post} style={{ ...chip, fontSize: 13 }} />
                 {streamUrl && <a href={streamUrl} target="_blank" rel="noopener noreferrer" style={{ ...chip, fontSize: 13 }}>↗ Open on {SOURCE_NAME[platform] || platform || 'the site'}</a>}
                 {streamUrl && <button onClick={() => { try { navigator.clipboard?.writeText(streamUrl) } catch { /* no clipboard */ } }} style={{ ...chip, fontSize: 13 }}>⎘ Copy link</button>}
                 <FollowedTag post={post} />
+                <FoundVia post={post} />
+                <TagChips post={post} />
               </div>
             </div>
           </div>
@@ -1447,10 +1453,13 @@ function LiveSetCard({ post, cardBg, d, onEdit }) {
         )}
         <HeartButton post={post} style={{ color: 'var(--lv-ter)' }} />
         <AddToPlaylistButton post={post} style={{ color: 'var(--lv-ter)' }} />
+        <HideButton post={post} label="hide" style={{ color: 'var(--lv-ter)' }} />
         <button onClick={() => setCommentsOpen(v => !v)} style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span> replies
         </button>
         <FollowedTag post={post} />
+        <FoundVia post={post} />
+        <TagChips post={post} />
         <WallLink name={post.user?.username || post.username} style={{ color: 'var(--lv-sec)' }} />
         <AlsoPosted post={post} style={{ color: 'var(--lv-sec)' }} />
         <MainNumber post={post} />
@@ -1702,8 +1711,11 @@ function AlbumCard({ post, cardBg, d, onEdit }) {
           <span style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{commentCount}</span>&nbsp;replies
         </button>
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <HideButton post={post} label="hide" style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
+        <FoundVia post={post} />
+        <TagChips post={post} />
         <WallLink name={post.user?.username || post.username} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, fontWeight: d.handleWeight, color: 'var(--lv-pri)' }} />
         <AlsoPosted post={post} style={{ fontFamily: d.bodyFf, fontSize: d.handleSize, color: 'var(--lv-pri)' }} />
         <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: d.stampSize, color: 'var(--lv-ter)' }} />
@@ -2729,6 +2741,9 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               {label && <div><dt style={dt}>Label</dt><dd style={dd}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></dd></div>}
               {(catNo || post.year) && <div><dt style={dt}>{catNo && post.year ? 'Cat. no. · Year' : catNo ? 'Cat. no.' : 'Year'}</dt><dd style={dd}>{[catNo, post.year].filter(Boolean).join(' · ')}</dd></div>}
               {post.genres?.length > 0 && <div><dt style={dt}>Genres</dt><dd style={{ ...dd, fontWeight: 400, opacity: 0.9 }}>{post.genres.join(', ')}</dd></div>}
+              {(post.mentions?.length > 0 || post.origin === 'digging' || (post.origin === 'user' && post.origin_ref) || (post.alsoPostedHow || []).some(h => h.origin)) && (
+                <div><dt style={dt}>Found / tagged</dt><dd style={{ ...dd, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><FoundVia post={post} style={{ whiteSpace: 'normal' }} /><TagChips post={post} /></dd></div>
+              )}
               {contributors.length > 0 && <div><dt style={dt}>Artists</dt><dd style={{ ...dd, fontWeight: 400, fontSize: 12.5 }}>{contributors.slice(0, 8).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 8 && <span style={{ opacity: 0.6 }}> +{contributors.length - 8}</span>}</dd></div>}
             </dl>
           </div>
@@ -3011,6 +3026,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
                       : discogsExact ? <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" title="Opens the release on Discogs, where you add it to your list" style={pillBtn}>+ {add} ↗</a> : null
                   ))}
                   <FollowedTag post={post} />
+                  <FoundVia post={post} />
+                  <TagChips post={post} />
                 </div>
                 {contributors.length > 0 && (
                   <div style={{ marginTop: 10, fontFamily: d.bodyFf, fontSize: 13, lineHeight: 1.5 }}>
@@ -3147,6 +3164,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 0' }}>
                 <HeartButton post={post} text={on => on ? '✓ in your feed' : '+ add to feed'} style={{ ...NP }} onStyle={{ background: 'var(--theme-accent)', borderColor: 'var(--theme-accent)', color: '#fff' }} />
                 <AddToPlaylistButton post={post} label="+ add" align="left" style={{ ...NP, cursor: 'pointer' }} />
+                <HideButton post={post} label="hide" style={{ ...NP, cursor: 'pointer' }} />
               </div>
               <div style={{ margin: '5px 10px 0', paddingTop: 5, borderTop: `1px solid ${NOTE_HAIR}`, display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={L}>Kept by</span><span style={L}>{keptBy.length}</span>
@@ -3258,6 +3276,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         <div style={{ flexShrink: 0, margin: `${NOTES_GAP}px ${d.bandPadX}px 0`, height: 44, padding: '0 20px 0 5px', border: `1px solid ${NOTE_HAIR}`, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 14, fontFamily: d.monoFf, fontSize: 12.5 }}>
           {posterName && <UserChip name={posterName} d={d} />}
           <FollowedTag post={post} />
+          <FoundVia post={post} />
+          <TagChips post={post} />
           <MainNumber post={post} style={{ fontFamily: d.monoFf, fontSize: 12.5, color: 'var(--lv-ter)' }} />
           {privateWaiting > 0 && <button onClick={() => { setNotesReply(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
           <span title={stampOf(post.created_at)} style={{ marginLeft: 'auto', color: 'var(--lv-sec)', whiteSpace: 'nowrap' }}>{stampOf(post.created_at)}</span>
@@ -3379,6 +3399,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
                 <HeartButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
                 <HideButton post={post} style={{ ...chip, margin: 0, fontSize: 13 }} />
                 <FollowedTag post={post} />
+                <FoundVia post={post} />
+                <TagChips post={post} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start', fontFamily: d.bodyFf, fontWeight: 400, fontSize: 14, color: 'var(--lv-pri)' }}>
                 {contributors.length > 0 && <><span style={dt}>Artists</span><span style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5 }}>{contributors.slice(0, 9).map((n, k) => <span key={n}>{k > 0 && ' · '}{artistLink(n)}</span>)}{contributors.length > 9 && <span style={{ color: 'var(--lv-ter)' }}> +{contributors.length - 9} more</span>}</span></>}
@@ -3520,8 +3542,11 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         </button>
         {privateWaiting > 0 && <button onClick={() => { setCommentsOpen(true); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--theme-accent)' }}>🔒 {privateWaiting} private</button>}
         <AddToPlaylistButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
+        <HideButton post={post} label="hide" style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <HeartButton post={post} style={{ fontFamily: d.bodyFf, fontSize: d.metarowSize, color: 'var(--lv-ter)' }} />
         <FollowedTag post={post} />
+        <FoundVia post={post} />
+        <TagChips post={post} />
         {canModify && (
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontFamily: d.monoFf, fontSize: d.stampSize, letterSpacing: `${d.stampLs}em` }}>
             <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', letterSpacing: 'inherit', color: 'var(--lv-ter)' }}>edit</button>
@@ -3790,15 +3815,18 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const [catalogueQuery, setCatalogueQuery] = useState('')
   const [shownRows, setShownRows] = useState(SPOTLIGHT_ROWS_AT_FIRST)
   const [catalogueFilter, setCatalogueFilter] = useState('')
-  useEffect(() => { setShownRows(SPOTLIGHT_ROWS_AT_FIRST) }, [catalogueQuery])
+  const [decadeJump, setDecadeJump] = useState(null) // a decade chip (2026-10-22): 1990 | 'unknown' | null = from the newest
+  useEffect(() => { setShownRows(SPOTLIGHT_ROWS_AT_FIRST) }, [catalogueQuery, decadeJump])
   useEffect(() => {
     const t = setTimeout(() => setCatalogueFilter(catalogueQuery.trim()), 300)
     return () => clearTimeout(t)
   }, [catalogueQuery])
   const cataloguePages = useInfiniteQuery({
-    queryKey: ['spotlight-catalogue', type, catalogueKey, catalogueFilter],
+    queryKey: ['spotlight-catalogue', type, catalogueKey, catalogueFilter, decadeJump],
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q: catalogueFilter })
+      // Artists and labels: the first page also counts releases per decade (the chips) and, with a chip picked, starts at that decade.
+      if (type !== 'channel' && pageParam === 0) { qs.set('decades', '1'); if (decadeJump != null) qs.set('decade', String(decadeJump)) }
       const url = type === 'channel'
         ? `${API}/media/channel-uploads?videoUrl=${encodeURIComponent(channelVideoUrl)}&${qs}`
         : `${API}/discogs/${type}/${catalogueKey}/releases?${qs}`
@@ -4189,6 +4217,15 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
             <span style={{ ...monoText, color: textTer, flexShrink: 0 }}>{catalogue.pagination.matched.toLocaleString('en-GB')} found</span>
           )}
         </label>
+      )}
+      {bigCatalogue && type !== 'channel' && (catalogueFirst?.decades?.length || 0) > 1 && (
+        <div role="group" aria-label="Jump to a decade" style={{ flexShrink: 0, marginTop: 10, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {[{ key: null, label: 'All' }, ...catalogueFirst.decades.map(dc => ({ key: dc.decade == null ? 'unknown' : dc.decade, label: dc.decade == null ? 'Undated' : `${dc.decade}s`, n: dc.n }))].map(c => {
+            const on = decadeJump === c.key
+            return <button key={String(c.key)} onClick={() => setDecadeJump(c.key)} aria-pressed={on} title={c.n ? `${c.n.toLocaleString('en-GB')} ${itemWord}` : 'From the newest'}
+              style={{ ...monoText, border: `1px solid ${on ? textPri : divider}`, borderRadius: 99, padding: '2px 9px', background: on ? textPri : 'transparent', color: on ? 'var(--blk-bg, var(--theme-bg))' : textTer, cursor: 'pointer' }}>{c.label}</button>
+          })}
+        </div>
       )}
       {/* 10px of room each side so the rows' rounded hover isn't clipped.
           The next 100 entries load as the list nears the bottom. */}
@@ -5008,6 +5045,8 @@ function PhoneCard({ post, playing, onPlay, onStop, onEdit }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 8, fontFamily: P_SANS, fontSize: 13, color: 'var(--theme-text-ter)', borderTop: '1px solid var(--theme-border)', paddingTop: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
           <FollowedTag post={post} />
+          <FoundVia post={post} />
+          <TagChips post={post} />
           <WallLink name={post.user?.username || post.username} style={{ fontWeight: 600, fontSize: 14, color: 'var(--theme-text-pri)' }} />
           <AlsoPosted post={post} style={{ fontSize: 14, color: 'var(--theme-text-pri)' }} />
         </span>

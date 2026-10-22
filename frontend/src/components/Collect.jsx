@@ -12,7 +12,7 @@ import { MODULE_CARDS, MODULE_CSS, moduleLook, modFrameFor, solid as solidBg } f
 function ModFrame({ on, children, style, compact }) {
   return on ? <div className={`lnv-mod${compact ? ' lnv-modp' : ''}`} style={{ ...modFrameFor(moduleLook(0)), ...style }}>{children}</div> : <>{children}</>
 }
-import { isLoggedIn, getUser } from '../lib/auth'
+import { isLoggedIn, getUser, authHeaders } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, hideApi, useInCommon,
@@ -173,6 +173,42 @@ export function FollowedTag({ post, style }) {
     <span title={`From ${post.followedFrom}, who you follow`}
       style={{ flexShrink: 0, fontFamily: MONO, fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#fff', background: 'var(--theme-accent)', borderRadius: 99, padding: '2px 7px', whiteSpace: 'nowrap', alignSelf: 'center', ...style }}>following</span>
   )
+}
+
+// "Found via" (2026-10-22): where the record came from, as the poster (or you, if you kept it) said: 'digging' + the drawer or spotlight, or 'user' + whose feed.
+// A pasted link says nothing, so no chip.
+export function FoundVia({ post, style }) {
+  const me = getUser()
+  const mine = me ? (post.alsoPostedHow || []).find(h => h.username === me) : null
+  const src = mine?.origin ? mine : { origin: post.origin, origin_ref: post.origin_ref }
+  const text = src.origin === 'digging' ? `found digging${src.origin_ref ? ` · ${src.origin_ref}` : ''}` : src.origin === 'user' && src.origin_ref ? `found via ${src.origin_ref}` : ''
+  if (!text) return null
+  return <span title={mine?.origin ? 'How you found it' : 'How the poster found it'} style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: MONO, fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '1px 7px', ...style }}>{text}</span>
+}
+
+// Tag chips (2026-10-22): people tagged with @ in the post's text. Yours has an × to take your own tag off (DELETE /posts/:id/mentions/me).
+export function TagChips({ post, style }) {
+  const qc = useQueryClient()
+  const me = getUser()
+  const [gone, setGone] = useState(false)
+  const names = (post.mentions || []).filter(n => !(gone && n === me))
+  if (!names.length) return null
+  const untag = async e => {
+    e.stopPropagation()
+    try {
+      const r = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/posts/${post.id}/mentions/me`, { method: 'DELETE', headers: authHeaders() })
+      if (r.ok) { setGone(true); qc.invalidateQueries({ queryKey: ['posts'] }) }
+    } catch { /* leave it */ }
+  }
+  return <>
+    {names.slice(0, 3).map(n => (
+      <span key={n} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: MONO, fontSize: 10, color: 'var(--theme-text-sec)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '1px 7px', ...style }}>
+        <button onClick={e => { e.stopPropagation(); openWall(n) }} title={`Open ${n}'s feed`} style={{ ...plain, color: 'inherit' }}>@{n}</button>
+        {n === me && <button onClick={untag} title="Take my tag off" aria-label="Take my tag off" style={{ ...plain, color: 'var(--theme-text-ter)' }}>×</button>}
+      </span>
+    ))}
+    {names.length > 3 && <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 10, color: 'var(--theme-text-ter)' }}>+{names.length - 3}</span>}
+  </>
 }
 
 // ♥ (2026-10-06): keep a record — it goes on your wall and into your
