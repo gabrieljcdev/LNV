@@ -20,6 +20,11 @@ import { SECONDARY_STRIP_WIDTH, STRIP_RADIUS } from './Strip'; // round 17: move
 // Runs once per hard load — mounted by Layout, never remounted by in-app
 // route changes. Purely time-based (not gated on real asset/data loading),
 // so a slow network can never leave it stuck open.
+//
+// 2026-10-22 (gabriel): (1) the 0–100 counter in the bottom left is gone — it also re-rendered this component on every frame just to
+// change a number; (2) scrolling is locked until the reveal has finished: a transparent shield sits over the feed (above it, below the
+// nav strip, so the strip still works) and scroll keys are ignored, so wheel, touch, drag and keys cannot move the feed early. The lock is
+// released when the reveal ends, and by a plain timer as well, so a hidden tab (no animation frames) or a slow device can never leave it on.
 const DURATION_MS = 1800; // the one duration constant recovered from avantt's
                            // own bundle (a Tween.js reveal used elsewhere in
                            // their code, for an SVG stroke-draw animation) —
@@ -45,9 +50,12 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+const LOCK_FAILSAFE_MS = DURATION_MS + 1500; // released by the clock even if the animation never ran
+
 export default function Preloader({ onDone }) {
-  const [progress, setProgress] = useState(0); // 0..100, for display only
   const [fading, setFading] = useState(false);
+  const [locked, setLocked] = useState(true);
   const [mounted, setMounted] = useState(true);
   const startRef = useRef(null);
   const rafRef = useRef(null);
@@ -58,7 +66,6 @@ export default function Preloader({ onDone }) {
       if (startRef.current === null) startRef.current = now;
       const t = Math.min(1, (now - startRef.current) / DURATION_MS);
       const eased = easeOutCubic(t);
-      setProgress(Math.round(eased * 100));
       if (coverRef.current) {
         const full = Math.max(0, window.innerWidth - RAIL_W);
         const rest = Math.max(0, full - SECONDARY_STRIP_WIDTH);
@@ -69,21 +76,41 @@ export default function Preloader({ onDone }) {
       } else {
         setFading(true);
         setTimeout(() => {
+          setLocked(false);
           setMounted(false);
           onDone?.();
         }, 220);
       }
     }
     rafRef.current = requestAnimationFrame(tick);
-    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+    const failsafe = setTimeout(() => setLocked(false), LOCK_FAILSAFE_MS);
+    return () => { rafRef.current && cancelAnimationFrame(rafRef.current); clearTimeout(failsafe); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!mounted) return null;
+  // Scroll keys do nothing while locked (typing in a field still works).
+  useEffect(() => {
+    if (!locked) return undefined;
+    const onKey = e => {
+      if (!SCROLL_KEYS.has(e.key)) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [locked]);
+
+  if (!mounted && !locked) return null;
 
   return (
     <>
-      <div
+      {locked && (
+        // The scroll lock: over the feed, under the strip (z-index 100) — nothing underneath receives wheel, touch or drag.
+        <div aria-hidden="true" data-launch-lock="" style={{ position: 'fixed', inset: 0, zIndex: 50, touchAction: 'none', overscrollBehavior: 'contain' }}
+          onWheel={e => e.preventDefault()} onTouchMove={e => e.preventDefault()} />
+      )}
+      {mounted && <div
         ref={coverRef}
         aria-hidden="true"
         style={{
@@ -103,27 +130,7 @@ export default function Preloader({ onDone }) {
           transition: fading ? 'opacity 0.2s ease' : 'none',
           pointerEvents: 'none',
         }}
-      />
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          left: '24px',
-          bottom: '24px',
-          zIndex: 1000,
-          writingMode: 'vertical-rl',
-          transform: 'rotate(180deg)',
-          fontFamily: 'VT323, monospace',
-          fontSize: '64px',
-          lineHeight: 1,
-          color: 'var(--orange)',
-          opacity: fading ? 0 : 1,
-          transition: fading ? 'opacity 0.2s ease' : 'none',
-          pointerEvents: 'none',
-        }}
-      >
-        {String(progress).padStart(2, '0')}
-      </div>
+      />}
     </>
   );
 }
