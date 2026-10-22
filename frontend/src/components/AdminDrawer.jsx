@@ -210,6 +210,26 @@ function BadLinksSection() {
   )
 }
 
+// Playable coverage (2026-10-22, backend services/coverage.js): how much of the site can be played, and in full or only as a Spotify preview.
+function CoverageSection({ c }) {
+  const t = c.tracks, b = c.book
+  const rows = [
+    ['YouTube', t.youtube], ['SoundCloud', t.soundcloud], ['Bandcamp', t.bandcamp], ['Other direct link', t.otherDirect],
+    ['Spotify only (a 30-second preview unless signed in there)', t.spotifyOnly], ['Nothing to play', t.none],
+  ]
+  return (
+    <Section title="Playable coverage" right={`${t.playablePct}% playable · ${t.fullLengthPct}% in full`}>
+      <div style={{ fontFamily: SANS, fontSize: 13, color: TER, marginBottom: 6 }}>Tracks on live posts, by the best link each has ({n(t.total)} tracks).</div>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', fontFamily: SANS, fontSize: 14, color: SEC }}>
+          <span>{k}</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{n(v)}{t.total ? ` · ${(Math.round(v / t.total * 1000) / 10)}%` : ''}</span>
+        </div>))}
+      <div style={{ fontFamily: SANS, fontSize: 13, color: TER, margin: '10px 0 4px' }}>The link book ({n(b.total)} tracks of records): {n(b.youtube)} with YouTube, {n(b.spotifyOnly)} Spotify only, {n(b.no_link)} nothing yet, {n(b.byListeners)} added by listeners, {n(b.flagged)} flagged wrong.</div>
+      {c.placeholdersReadyToSwap > 0 && <Note>{n(c.placeholdersReadyToSwap)} Spotify placeholder{c.placeholdersReadyToSwap === 1 ? '' : 's'} on posts have a YouTube link waiting; the hourly swap puts it on the post.</Note>}
+    </Section>
+  )
+}
+
 function ServicesSection({ s }) {
   const rows = [
     ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
@@ -376,6 +396,7 @@ function StatusTab({ onShowLogs }) {
     <QuotaBalance y={youtube} />
 
     {data.services && <ServicesSection s={data.services} />}
+    {data.coverage && <CoverageSection c={data.coverage} />}
     <FlowSection />
     <MemorySection />
     <BadLinksSection />

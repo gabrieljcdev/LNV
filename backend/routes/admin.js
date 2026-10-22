@@ -9,6 +9,7 @@ import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } f
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import { runSpareQuota } from '../services/spareQuota.js';
+import { playableCoverage } from '../services/coverage.js';
 import { runYoutubeRefresh, refreshStatus } from '../services/youtubeRefresh.js';
 import { adminBadLinks, adminRevert } from '../services/badLinks.js';
 import { flowSummary } from '../services/flow.js';
@@ -117,6 +118,7 @@ router.get('/status', (req, res, next) => {
       youtube: youtubeBalance(),
       crawls: { catalogues, channels },
       gaps: gapCounts(),
+      coverage: playableCoverage(),
       // Each outside service's load today (2026-10-06) — cache hits don't count.
       services: {
         youtube: { used: quotaUsed(), cap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000 },

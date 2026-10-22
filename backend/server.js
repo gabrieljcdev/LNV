@@ -35,6 +35,7 @@ import { startMemoryWatch } from './services/memoryWatch.js';
 import activityRoutes from './routes/activity.js';
 import { startLinkHealth } from './services/linkHealth.js';
 import { startSpareQuota } from './services/spareQuota.js';
+import { startPlaceholderSwap } from './services/placeholderSwap.js';
 import { startYoutubeRefresh } from './services/youtubeRefresh.js';
 import db from './db/database.js';
 
@@ -105,6 +106,7 @@ const server = app.listen(PORT, () => {
   startGapSweeper();
   // In the last hours of YouTube's quota day, spend the units the day did not use on links people want.
   startSpareQuota();
+  startPlaceholderSwap();
   // Memory over time (resident, anonymous vs file-backed, heap, cache sizes), every 10 minutes: Admin → Status.
   startMemoryWatch();
   startYoutubeRefresh();

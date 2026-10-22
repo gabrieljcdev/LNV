@@ -142,7 +142,8 @@ async function fillGenresFromLastfm() {
 async function fillTrackLinks() {
   const tracks = db.prepare(`
     SELECT t.id, t.title, t.post_id,
-      (SELECT artist_name FROM post_artists a WHERE a.post_id = t.post_id ORDER BY a.id LIMIT 1) AS artist,
+      -- the track's own artist first (a compilation's release artist is just "Various"); then the post's first artist unless that is "Various"
+      COALESCE(NULLIF(t.artist, ''), (SELECT artist_name FROM post_artists a WHERE a.post_id = t.post_id AND a.artist_name NOT LIKE 'Various%' ORDER BY a.id LIMIT 1)) AS artist,
       (SELECT label_name FROM post_labels l WHERE l.post_id = t.post_id ORDER BY l.id LIMIT 1) AS label
     FROM post_tracks t
     WHERE COALESCE(t.youtube_url, '') = '' AND COALESCE(t.stream_url, '') = ''

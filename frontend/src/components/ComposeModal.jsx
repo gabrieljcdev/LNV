@@ -4,6 +4,7 @@ import { STRIP_RADIUS } from './Strip'
 import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
 import { isHeadingRow, linkKeys, withoutHeadings } from '../lib/tracklist'
+import { askConfirm } from './Dialogs'
 import { SOURCE_SHORT, SOURCE_NAME, platformOf } from '../lib/sources'
 import { MentionSuggest } from './UserPicker'
 
@@ -395,7 +396,8 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  const updated = [...initial]
  for (let i = 0; i < updated.length && videos?.length; i++) {
  if (updated[i].stream_url) continue
- const tt = normalize(updated[i].title); const ar = normalize(fArtist)
+ // The track's own artist (a compilation's release artist is just "Various"), else the release artist.
+ const tt = normalize(updated[i].title); const ar = normalize((updated[i].artists || []).map(a => a.name).filter(Boolean).join(' ') || (/^various( artists)?$/i.test((fArtist || '').trim()) ? '' : fArtist))
  let best = null, bestScore = -Infinity
  for (const v of videos) {
  const vurl = v.url || v.uri || ''
@@ -404,7 +406,7 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  let score = 0
  if (vt.includes(tt)) score += 50
  else { const words = tt.split(' ').filter(w => w.length > 2); const matched = words.filter(w => vt.includes(w)); if (words.length > 0 && matched.length / words.length >= 0.7) score += 30 }
- if (vt.includes(ar)) score += 20
+ if (ar && vt.includes(ar)) score += 20
  if (/live|remix|cover|karaoke/.test(vt)) score -= 20
  if (score > bestScore) { bestScore = score; best = v }
  }
@@ -440,12 +442,45 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  })()
  }
 
+ // Link check (2026-10-22): each track's link is opened on the server (the platform's own title, free) and compared with the track, so the poster sees
+ // what the link really is before posting. 'ok' looks right; 'weak' might not be; 'bad' does not fit (or cannot be read). Posting asks to confirm weak/bad ones.
+ const [linkChecks, setLinkChecks] = useState({}) // url -> { state: 'checking'|'ok'|'weak'|'bad', title, reason }
+ const checkedUrls = useRef(new Set())
+ const linksKey = tracks.map(t => t.stream_url || '').join('|') + '|' + artist
+ useEffect(() => {
+ if (isLiveMix) return
+ const releaseArtist = /^various( artists)?$/i.test((artist || '').trim()) ? '' : (artist || '')
+ let cancelled = false
+ const timer = setTimeout(async () => {
+ for (const t of tracks) {
+ const url = (t.stream_url || '').trim()
+ if (!url || !t.title?.trim() || checkedUrls.current.has(url + '|' + t.title) || !detectPlatform(url)) continue
+ checkedUrls.current.add(url + '|' + t.title)
+ setLinkChecks(m => ({ ...m, [url]: { state: 'checking' } }))
+ try {
+ const who = (t.artists || []).map(a => a.name).filter(Boolean).join(', ') || releaseArtist
+ const r = await fetch(`${API}/track-links/check`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ url, title: t.title, artist: who }) })
+ const d = await r.json().catch(() => ({}))
+ if (cancelled) return
+ setLinkChecks(m => ({ ...m, [url]: r.ok && d.ok ? { state: d.verdict === 'strong' ? 'ok' : 'weak', title: d.title, reason: d.reason || '' } : r.status === 422 ? { state: 'bad', title: d.title || '', reason: d.reason || 'This link does not look like the track.' } : { state: 'unknown' } }))
+ } catch { setLinkChecks(m => ({ ...m, [url]: { state: 'unknown' } })) }
+ }
+ }, 900)
+ return () => { cancelled = true; clearTimeout(timer) }
+ }, [linksKey, isLiveMix]) // eslint-disable-line
  function updateTrack(i, patch) { setTracks(prev => prev.map((t, idx) => (idx === i ? { ...t, ...patch } : t))) }
  function removeGenre(g) { setGenres(prev => prev.filter(x => x !== g)) }
  function addGenre(g) { const t = g.trim(); if (t && !genres.includes(t)) setGenres(prev => [...prev, t]) }
 
  async function handlePost() {
  if (!title.trim() || needsComment) return
+ // Ask before posting links that do not look right (new posts and edits alike); nothing is blocked, the poster decides.
+ const doubtful = tracks.filter(t => t.stream_url && ['weak', 'bad'].includes(linkChecks[t.stream_url]?.state))
+ if (doubtful.length) {
+ const lines = doubtful.slice(0, 6).map(t => { const c = linkChecks[t.stream_url]; return `${t.title}: ${c.state === 'bad' ? 'does not look right' : 'might not match'}${c.title ? ` (the link is “${c.title.slice(0, 50)}”)` : ''}` }).join('\n')
+ const go = await askConfirm({ title: doubtful.length === 1 ? 'One link may be wrong' : `${doubtful.length} links may be wrong`, body: <span style={{ whiteSpace: 'pre-line' }}>{lines}{doubtful.length > 6 ? `\n…and ${doubtful.length - 6} more` : ''}</span>, ok: 'Post anyway', cancel: 'Go back and look' })
+ if (!go) return
+ }
  setPosting(true); setFetchError('')
  try {
  const postRes = await fetch(editPost ? `${API}/posts/${editPost.id}` : `${API}/posts`, { method: editPost ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ ...(editPost ? {} : foundHow()), discogs_id: discogsId || null, discogs_url: discogsId ? `https://www.discogs.com/release/${discogsId}` : (isDiscogs ? inputUrl : ''), stream_url: streamUrl || inputUrl, embed_url: embedUrl || '', channel: channel || '', platform: activePlatform?.id || editPost?.platform || '', post_type: postType, title: title.trim(), artists: artistsForDB, labels: labelsForDB, year: year ? parseInt(year) : null, cover_image: coverArt, genres, tracks: tracks.filter(t => t.title?.trim()), body: comment.trim(), notes: comment.trim(), post_title: postTitle.trim(), related_releases: editPost ? undefined : relatedReleases.current.filter(r => r.discogs_id && String(r.discogs_id) !== String(discogsId)).map(r => ({ discogs_id: r.discogs_id, release_title: r.release_title, artists: r.artists, label: r.label, label_id: r.label_id, catNo: r.catNo, year: r.year, cover_image: r.thumb_image || r.cover_image, format: r.format })) }) })
@@ -638,6 +673,14 @@ export default function ComposeModal({ onClose, onPosted, initialUrl = '', editP
  style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', alignSelf: 'center', fontSize: 15, lineHeight: 1, color: t.highlight ? 'var(--theme-accent)' : 'var(--theme-text-ter)' }}>{t.highlight ? '★' : '☆'}</button>
  <button onClick={() => setOpenTrack(o => (o === i ? null : i))} title={t.stream_url ? 'Playable — edit link' : 'No link — add one'} style={{ width: 8, height: 8, padding: 0, borderRadius: '50%', border: 'none', cursor: 'pointer', alignSelf: 'center', background: t.stream_url ? (tp?.color || '#4caf50') : 'var(--theme-border)' }} />
  </div>
+ {t.stream_url && linkChecks[t.stream_url] && linkChecks[t.stream_url].state !== 'unknown' && openTrack !== i && (() => {
+ const c = linkChecks[t.stream_url]
+ const tone = c.state === 'ok' ? 'var(--theme-text-ter)' : c.state === 'weak' ? '#d39b1e' : c.state === 'bad' ? '#d1462f' : 'var(--theme-text-ter)'
+ const mark = c.state === 'checking' ? 'checking…' : c.state === 'ok' ? '✓ looks right' : c.state === 'weak' ? '? check this one' : '✗ does not look right'
+ return <div style={{ ...mono, fontSize: 9.5, textTransform: 'none', letterSpacing: 0, marginLeft: 38, marginTop: 2, color: tone, lineHeight: 1.4 }} title={c.reason || ''}>
+ {mark}{c.title ? ` · “${c.title.length > 70 ? c.title.slice(0, 68) + '…' : c.title}”` : ''}{c.state === 'bad' || c.state === 'weak' ? (c.reason ? ` · ${c.reason}` : '') : ''}
+ </div>
+ })()}
  {openTrack !== i && t.stream_url && (
  <button onClick={() => setOpenTrack(i)} title={`${t.stream_url}
 Click to edit`}

@@ -12,7 +12,7 @@ router.post('/check', async (req, res, next) => {
   try {
     const { url, title, artist } = req.body || {};
     const c = await checkLink({ url, title: String(title || ''), artist: String(artist || '') });
-    if (!c.ok) return res.status(422).json({ ok: false, reason: c.reason });
+    if (!c.ok) return res.status(422).json({ ok: false, reason: c.reason, ...(c.meta?.title ? { title: c.meta.title } : {}) });
     res.json({ ok: true, platform: c.platform, title: c.meta.title, author: c.meta.author, thumb: c.meta.thumb, verdict: c.verdict, reason: c.reason });
   } catch (err) { next(err); }
 });

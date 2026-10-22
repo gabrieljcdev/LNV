@@ -11,9 +11,12 @@
 // Each night-ish tick re-fetches everything older than REFRESH_AFTER_DAYS with videos.list (1 unit per 50 ids): a video still
 // there, public and embeddable gets its title confirmed and its clock restarted; one that is gone, private or has embedding off
 // is cleared. Then, as a hard stop that does not depend on the API being reachable, anything still older than 30 days is cleared.
+// Channel details (2026-10-22): yt_channels (title, thumbnail, counts; refreshed by refreshChannelStats, 1 unit per 50, a channel the API no longer returns is
+// deleted with its uploads), youtube_channel_cache and yt_channel_urls (a name resolved to a channel) have no refresh of their own, so they are simply
+// deleted once they are old (25 and 30 days); they are looked up again when someone needs them.
 // Posts' own links (post_tracks) are not touched here: a pasted link is the poster's, and linkHealth.js already re-checks them.
 import db from '../db/database.js';
-import { ytApi, spendQuota, extractVideoId } from './youtubeService.js';
+import { ytApi, spendQuota, extractVideoId, refreshChannelStats } from './youtubeService.js';
 import { logEvent } from './logService.js';
 import { quotaDay } from './quotaDay.js';
 
@@ -76,8 +79,11 @@ async function lookUp(ids) {
   return alive;
 }
 
+const CHANNEL_DUE = days => `SELECT (SELECT COUNT(*) FROM yt_channels WHERE stats_at IS NULL OR stats_at < datetime('now', '-${days} days'))
+  + (SELECT COUNT(*) FROM youtube_channel_cache WHERE fetched_at < datetime('now', '-${days} days'))
+  + (SELECT COUNT(*) FROM yt_channel_urls WHERE checked_at < datetime('now', '-${days} days')) AS c`;
 export function refreshStatus() {
-  const n = days => STORES.reduce((sum, s) => sum + db.prepare(s.count(days)).get().c, 0);
+  const n = days => STORES.reduce((sum, s) => sum + db.prepare(s.count(days)).get().c, 0) + db.prepare(CHANNEL_DUE(days)).get().c;
   return {
     due: n(REFRESH_AFTER_DAYS),             // older than 25 days: waiting for a refresh
     overdue: n(LIMIT_DAYS),                 // older than 30 days: should not exist
@@ -96,6 +102,8 @@ export async function runYoutubeRefresh({ dry = false } = {}) {
   try {
     // Make sure today is on record, so "when the job started" is known even before the first unit is spent.
     db.prepare("INSERT OR IGNORE INTO api_quota (provider, day, units) VALUES ('yt-refresh', ?, 0)").run(quotaDay());
+    // Channel details first (their own 1-unit batches through spendQuota, a few hundred channels at most).
+    try { await refreshChannelStats(); } catch (err) { logEvent('error', 'links', `Channel details refresh: ${err.message}`); }
     rounds: for (;;) {
       // Up to 500 due rows per store per round, grouped by video id so a video in several places costs one lookup.
       const byId = new Map();   // id -> [{ store, k }]
@@ -128,7 +136,15 @@ export async function runYoutubeRefresh({ dry = false } = {}) {
     logEvent('error', 'links', `YouTube refresh: ${err.message}`);
   } finally {
     // The hard stop: whatever is still past 30 days goes, whether or not the refresh above could run.
-    try { for (const s of STORES) out.expired += db.prepare(s.expire(LIMIT_DAYS)).run().changes; } catch (err) { logEvent('error', 'links', `YouTube refresh (expiry): ${err.message}`); }
+    try {
+      for (const s of STORES) out.expired += db.prepare(s.expire(LIMIT_DAYS)).run().changes;
+      // Channel details: what the refresh above could not renew goes (a row with no timestamp is of unknown age: only once the job has run 30 days).
+      const old = startedLongAgo(LIMIT_DAYS) === '1' ? "stats_at IS NULL OR stats_at < datetime('now', '-30 days')" : "stats_at < datetime('now', '-30 days')";
+      db.prepare(`DELETE FROM yt_channel_videos WHERE channel_id IN (SELECT channel_id FROM yt_channels WHERE ${old})`).run();
+      out.expired += db.prepare(`DELETE FROM yt_channels WHERE ${old}`).run().changes;
+      out.expired += db.prepare("DELETE FROM youtube_channel_cache WHERE fetched_at < datetime('now', '-25 days')").run().changes;
+      out.expired += db.prepare("DELETE FROM yt_channel_urls WHERE checked_at < datetime('now', '-30 days')").run().changes;
+    } catch (err) { logEvent('error', 'links', `YouTube refresh (expiry): ${err.message}`); }
     running = false;
   }
   last = out;

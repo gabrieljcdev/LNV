@@ -139,7 +139,7 @@ export async function runSpareQuota({ force = false, dry = false } = {}) {
         if (r.youtube_url) {
           g.found++; out.found++;
           if (c.releaseId && c.position != null) saveLink.run(c.releaseId, String(c.position), c.title, r.youtube_url, r.youtube_title || null, paid);
-          if (c.kind === 'post') db.prepare("UPDATE post_tracks SET youtube_url = ?, stream_url = COALESCE(NULLIF(stream_url, ''), ?) WHERE id = ? AND COALESCE(youtube_url, '') NOT LIKE '%youtu%'").run(r.youtube_url, r.youtube_url, c.trackId);
+          if (c.kind === 'post') db.prepare("UPDATE post_tracks SET youtube_url = ?, stream_url = CASE WHEN COALESCE(stream_url, '') = '' OR stream_url LIKE '%spotify.com/%' THEN ? ELSE stream_url END WHERE id = ? AND COALESCE(youtube_url, '') NOT LIKE '%youtu%'").run(r.youtube_url, r.youtube_url, c.trackId);
         }
         markTried.run(c.kind, c.ref, r.youtube_url ? 1 : 0);
         await sleep(800);

@@ -5,7 +5,7 @@ This is the list to read and keep current. The old running notes (6 to 22 Oct, i
 Items marked **(check)** were written down earlier and I have not re-verified them against the code since.
 
 ## 0. Where we are
-- **Live on waxopathy.com: `9e65a65`** (frontend rebuilt 22 Oct evening; backend restarted at `3d2e12a`). Nothing is waiting to be deployed.
+- **Live on waxopathy.com: `9e65a65`** (the links work below is committed after it, not yet deployed) (frontend rebuilt 22 Oct evening; backend restarted at `3d2e12a`). Nothing is waiting to be deployed.
 - Everything from the 22 Oct arc is live: research-only recording and "Your data", notifications, @tags, Hide, My feeds, found-via and tag chips, wrong-link flagging,
   decade chips, For later, /u/<name>, the launch scroll lock and smooth start, the feed-paging fix. What it is and how to undo it: `claude/2026-10-22-handover.md`.
 - **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips, and the feed now reaching all 71 posts. (The tool pane here cannot show real layout or scrolling.)
@@ -49,10 +49,14 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - Starting a track anywhere closes every other open player (Spotify was fixed; re-check everything).
 - **"Listening to now"** box on someone's profile, with a play-it-too button (10 Oct). It needs the opt-in rules first.
 ### Links and playback
-- Compose: **preview each track's link before posting** and ask the poster to confirm (6 Oct item 6).
-- Compilations: use each track's own artist in the gap sweep and compose (the release preview already does) (6 Oct item 4).
-- Nightly job swapping Spotify placeholders for YouTube links using only spare budget; "playable coverage" numbers in Admin; refresh `yt_channels` and channel-cache rows under the 30-day rule.
-- Tidal links in cards; Last.fm as a free match check (minor).
+- BUILT 22 Oct, committed on `dedupe`, NOT deployed (needs a backend restart + frontend build):
+  - **Compose checks each track's link before posting**: the platform's real title is shown under the link with "✓ looks right / ? check this one / ✗ does not look right" (uses `/api/track-links/check`, free oEmbed); posting asks "Post anyway / Go back and look" if any look wrong. The API was tried against real YouTube; the compose screen itself was not tried in a browser (the note box needs a resolved link).
+  - **Compilations use each track's own artist** in the gap sweep (SQL, falls back to the post's first artist unless it is "Various") and in compose's Discogs-video matching (the other compose searches already did).
+  - **Spotify placeholder -> YouTube**: `services/placeholderSwap.js`, hourly and a minute after start, database only (no units). A post track whose link is still the Spotify placeholder recorded in the link book gets the YouTube link once one exists. `PLACEHOLDER_SWAP=0` switches it off. The nightly spare-units job now also swaps (it used to set the YouTube link but leave the Spotify one showing). Tried on a throwaway copy of the data.
+  - **Admin Status, "Playable coverage"** (`services/coverage.js`): tracks on live posts by best link (YouTube, SoundCloud, Bandcamp, other, Spotify only, nothing), % playable and % in full, the link book's numbers, and how many placeholders are waiting to swap. Tried on the data copy (dev: 85% playable, 77% in full).
+  - **30-day rule for channel data**: channel title/thumbnail/counts refresh every 25 days with the other refreshes (a channel the API no longer returns is deleted with its uploads); `youtube_channel_cache` is deleted after 25 days and `yt_channel_urls` after 30; what cannot be renewed is deleted at 30 days. Tried on the data copy (old rows gone, new kept). The Admin "YouTube 30 days" counts include them.
+- Still open: **Nightly job: seed from crawled channels** (step 4 of the 7 Oct link plan); **"Tracks with nothing to play"** are still only counted, not chased; Tidal links in cards; Last.fm as a free match check (minor).
+- Short-title matching ("Meftah – 7") is listed under Bugs, item 8.
 ### Feed and cards
 - **Add to a playlist from the compose window**, applied only when the post succeeds (15 Oct).
 - **A whole playlist as one card** in your feed (10 Oct).

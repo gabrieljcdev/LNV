@@ -229,13 +229,14 @@ async function ensureChannel(videoId) {
 // pass on their own. An admin can mark a channel official, or not, by
 // name (channel_status), over the numbers.
 export const PROPER_CHANNEL = { minUploads: 50, minSubscribers: 1000, minAgeDays: 365 };
-const STATS_EVERY_DAYS = 30;
+const STATS_EVERY_DAYS = 25;   // YouTube's 30-day storage limit with a 5-day margin (youtubeRefresh.js clears what is still older than 30)
 
 function saveChannelStats(item) {
   const st = item?.statistics || {}, sn = item?.snippet || {};
-  db.prepare(`UPDATE yt_channels SET subscribers = ?, subs_hidden = ?, started_at = ?, handle = ?, total = COALESCE(?, total), stats_at = datetime('now')
+  db.prepare(`UPDATE yt_channels SET subscribers = ?, subs_hidden = ?, started_at = ?, handle = ?, total = COALESCE(?, total),
+      title = COALESCE(NULLIF(?, ''), title), thumb = COALESCE(?, thumb), stats_at = datetime('now')
     WHERE channel_id = ?`).run(st.hiddenSubscriberCount ? null : (Number(st.subscriberCount) || 0), st.hiddenSubscriberCount ? 1 : 0,
-    sn.publishedAt || null, sn.customUrl || null, Number(st.videoCount) || null, item.id);
+    sn.publishedAt || null, sn.customUrl || null, Number(st.videoCount) || null, sn.title || '', sn.thumbnails?.default?.url || null, item.id);
 }
 
 // Channels without numbers (or numbers older than STATS_EVERY_DAYS) get
@@ -245,8 +246,15 @@ export async function refreshChannelStats() {
     .all(`-${STATS_EVERY_DAYS} days`).map(r => r.channel_id);
   for (let i = 0; i < ids.length; i += 50) {
     if (!spendQuota(1)) return;
-    const ch = await ytApi('channels', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: '50' });
+    const batch = ids.slice(i, i + 50);
+    const ch = await ytApi('channels', { part: 'snippet,statistics', id: batch.join(','), maxResults: '50' });
     for (const item of ch.items || []) saveChannelStats(item);
+    // A channel the API no longer returns is gone (deleted or terminated): its stored details and uploads go too. Not when the answer was empty:
+    // that is more likely a hiccup than fifty channels vanishing at once.
+    if ((ch.items || []).length) {
+      const back = new Set(ch.items.map(it => it.id));
+      for (const id of batch) if (!back.has(id)) { db.prepare('DELETE FROM yt_channel_videos WHERE channel_id = ?').run(id); db.prepare('DELETE FROM yt_channels WHERE channel_id = ?').run(id); }
+    }
   }
 }
 
