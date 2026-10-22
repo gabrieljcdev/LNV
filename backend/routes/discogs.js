@@ -125,16 +125,16 @@ router.get('/label/:id', async (req, res, next) => {
 // when they have no prior LNV posts. Summary only — no tracklist/videos;
 // the frontend fetches a specific release's full detail via
 // GET /discogs/release/:id, lazily, only once the user clicks one.
-// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=
+// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=   (+ decade=1990|unknown or year=1994 to jump there, decades=1 for the counts per decade)
 // The WHOLE catalogue, crawled in the background (getCataloguePage) and
 // served from the DB in pages, newest year first; q filters title / artist
 // / catno. `crawl` says how much has been collected so far.
 for (const kind of ['artist', 'label']) {
   router.get(`/${kind}/:id/releases`, async (req, res, next) => {
     try {
-      const { offset, limit, q } = req.query;
+      const { offset, limit, q, decade, year, decades } = req.query;
       combSoon(kind, Number(req.params.id)); // someone's looking: comb this one first
-      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q }));
+      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q, decade, year, decades: decades === '1' }));
     } catch (err) {
       next(err);
     }

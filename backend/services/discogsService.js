@@ -677,7 +677,11 @@ export function catalogueCandidates(title, limit = 25) {
  * isn't empty. Same row shape as getArtistReleases/getLabelReleases, plus
  * `crawl` progress.
  */
-export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = '' } = {}) {
+// Jump to a decade or a year (2026-10-22): the list is newest year first with undated releases last, so the first release of a
+// decade is the row after every release newer than it. `decade` (1990 = the 1990s), `year` (the first release of that year or,
+// when there is none, the nearest older one) or decade 'unknown' (the undated ones at the end) replace `offset`; the answer says
+// where it landed (jump) so the screen can scroll there. `decades` asks for the count per decade, for a row of chips.
+export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = '', decade = null, year = null, decades = false } = {}) {
   // A negative id is a label added from Bandcamp (services/customLabels.js): its rows are already complete, nothing to ask Discogs.
   const own = id < 0;
   if (!own && !crawlRow(kind, id)) db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)').run(kind, id);
@@ -692,7 +696,6 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
   if (!own) crawlCatalogue(kind, id); // not awaited
 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 200);
-  const off = Math.max(Number(offset) || 0, 0);
   const term = String(q || '').trim().toLowerCase();
   // Pressings the duplicate comber folded under another row aren't listed;
   // the row they're folded under says how many versions it has (2026-10-06).
@@ -701,6 +704,21 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
     : 'c.kind = ? AND c.entity_id = ? AND c.dup_of IS NULL';
   const args = term ? [kind, id, term] : [kind, id];
   const matched = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where}`).get(...args).n;
+  let off = Math.max(Number(offset) || 0, 0), jump = null;
+  const asked = decade === 'unknown' ? 'unknown' : Number(decade) || null, askedYear = Number(year) || null;
+  if (asked === 'unknown') {
+    off = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year IS NOT NULL`).get(...args).n;
+    jump = { decade: 'unknown', offset: off, found: off < matched };
+  } else if (asked || askedYear) {
+    const first = askedYear || Math.floor(asked / 10) * 10;      // the oldest year the span reaches
+    const last = askedYear || first + 9;                          // and the newest
+    off = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year > ?`).get(...args, last).n;
+    const inSpan = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year BETWEEN ? AND ?`).get(...args, first, last).n;
+    jump = { ...(askedYear ? { year: askedYear } : { decade: first }), offset: off, found: inSpan > 0, inSpan };
+  }
+  const decadeCounts = decades
+    ? db.prepare(`SELECT CASE WHEN c.year IS NULL THEN NULL ELSE (c.year / 10) * 10 END AS decade, COUNT(*) AS n FROM discogs_catalogue c WHERE ${where} GROUP BY decade ORDER BY (decade IS NULL), decade DESC`).all(...args)
+    : null;
   const rows = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM discogs_catalogue d WHERE d.kind = c.kind AND d.entity_id = c.entity_id AND d.dup_of = c.item_type || ':' || c.item_id) AS folded
     FROM discogs_catalogue c WHERE ${where} ORDER BY (c.year IS NULL), c.year DESC, c.title LIMIT ? OFFSET ?`).all(...args, lim, off);
   const crawl = crawlRow(kind, id);
@@ -717,6 +735,8 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
     })),
     // items = Discogs' own count (it counts a release once per role).
     pagination: { items: crawl?.total || have, offset: off, limit: lim, matched },
+    ...(jump ? { jump } : {}),
+    ...(decadeCounts ? { decades: decadeCounts } : {}),
     crawl: { have, total: crawl?.total || have, done: !!crawl?.done, running: catalogueCrawling.has(`${kind}:${id}`) },
   };
 }
