@@ -133,6 +133,50 @@ function FlowSection() {
   )
 }
 
+// Memory (2026-10-22, backend services/memoryWatch.js): what the server holds and whether any of it grows. Resident memory includes the memory-mapped
+// database file (reclaimable by the kernel), so the number to watch is "program memory" (anonymous) and its trend per day.
+function MemorySection() {
+  const [hours, setHours] = useState(72)
+  const { data, error } = useQuery({ queryKey: ['admin-memory', hours], queryFn: () => getJson(`/memory?hours=${hours}`), staleTime: 60_000 })
+  const mb = v => (v == null ? '—' : `${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })} MB`)
+  const slope = v => (v == null ? 'not enough data yet' : `${v > 0 ? '+' : ''}${v.toLocaleString('en-GB', { maximumFractionDigits: 1 })} MB a day`)
+  const trendTone = v => (v == null ? TER : v > 8 ? LEVEL.error : v > 2 ? LEVEL.warn : SEC)
+  const pts = data?.series?.filter(p => p.anonMB != null) || []
+  const spark = (() => {
+    if (pts.length < 2) return null
+    const lo = Math.min(...pts.map(p => p.anonMB)), hi = Math.max(...pts.map(p => p.anonMB)), span = Math.max(1, hi - lo)
+    const d = pts.map((p, i) => `${(i / (pts.length - 1) * 300).toFixed(1)},${(38 - (p.anonMB - lo) / span * 34).toFixed(1)}`).join(' ')
+    return <svg viewBox="0 0 300 42" width="100%" height="42" role="img" aria-label="Program memory over time" style={{ display: 'block', marginTop: 8 }}><polyline points={d} fill="none" stroke="var(--theme-accent)" strokeWidth="1.5" /></svg>
+  })()
+  return (
+    <Section title="Memory" right={data?.now ? `up ${data.uptimeHours} h · ${n(data.samples)} samples` : ''}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {[24, 72, 168].map(h => (
+          <button key={h} onClick={() => setHours(h)} aria-pressed={hours === h}
+            style={{ border: `1px solid ${hours === h ? PRI : LINE}`, background: hours === h ? PRI : 'none', color: hours === h ? 'var(--theme-bg)' : SEC, borderRadius: 99, padding: '2px 10px', fontFamily: SANS, fontSize: 13, cursor: 'pointer' }}>{h < 48 ? `${h} h` : `${h / 24} days`}</button>
+        ))}
+      </div>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && !data.now && <Note>No samples yet. One is taken every 10 minutes, starting 30 seconds after the server starts.</Note>}
+      {data?.now && <>
+        <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, lineHeight: 1.6 }}>
+          <b style={{ color: PRI }}>Program memory {mb(data.now.anonMB)}</b> (peak {mb(data.peak.anonMB)}), of which V8 heap {mb(data.now.heapUsedMB)}.
+          {' '}Resident {mb(data.now.rssMB)} in all, but {mb(data.now.fileMB)} of that is the database file mapped into memory, which the system can drop at any time.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: '4px 14px', margin: '10px 0 2px', fontFamily: SANS, fontSize: 14, color: SEC }}>
+          <span>Trend, program memory</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: trendTone(data.trendMBPerDay.anon) }}>{slope(data.trendMBPerDay.anon)}</span>
+          <span>Trend, V8 heap</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: trendTone(data.trendMBPerDay.heapUsed) }}>{slope(data.trendMBPerDay.heapUsed)}</span>
+        </div>
+        <div style={{ fontFamily: SANS, fontSize: 13, color: TER }}>Flat is healthy. A steady climb over several days is a leak; it needs about a day of samples to show.</div>
+        {spark}
+        {Object.keys(data.now.caches || {}).length > 0 && <div style={{ fontFamily: MONO, fontSize: 12, color: TER, marginTop: 8, lineHeight: 1.7 }}>
+          {Object.entries(data.now.caches).map(([k, v]) => <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}><span>{k}</span><span>{n(v)}</span></div>)}
+        </div>}
+      </>}
+    </Section>
+  )
+}
+
 function ServicesSection({ s }) {
   const rows = [
     ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
@@ -300,6 +344,7 @@ function StatusTab({ onShowLogs }) {
 
     {data.services && <ServicesSection s={data.services} />}
     <FlowSection />
+    <MemorySection />
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>

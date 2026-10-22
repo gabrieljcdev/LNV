@@ -31,6 +31,7 @@ import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
 import customLabelRoutes from './routes/customLabels.js';
 import notificationRoutes from './routes/notifications.js';
+import { startMemoryWatch } from './services/memoryWatch.js';
 import activityRoutes from './routes/activity.js';
 import { startLinkHealth } from './services/linkHealth.js';
 import { startSpareQuota } from './services/spareQuota.js';
@@ -104,6 +105,8 @@ const server = app.listen(PORT, () => {
   startGapSweeper();
   // In the last hours of YouTube's quota day, spend the units the day did not use on links people want.
   startSpareQuota();
+  // Memory over time (resident, anonymous vs file-backed, heap, cache sizes), every 10 minutes: Admin → Status.
+  startMemoryWatch();
   startYoutubeRefresh();
 });
 

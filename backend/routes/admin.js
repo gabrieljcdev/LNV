@@ -12,6 +12,7 @@ import { runSpareQuota } from '../services/spareQuota.js';
 import { runYoutubeRefresh, refreshStatus } from '../services/youtubeRefresh.js';
 import { adminBadLinks, adminRevert } from '../services/badLinks.js';
 import { flowSummary } from '../services/flow.js';
+import { memoryReport, takeSample } from '../services/memoryWatch.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
@@ -177,6 +178,14 @@ router.post('/youtube-refresh', async (req, res, next) => {
 // How people move through the site, for the accounts that have recording on (services/flow.js). Aggregates only.
 router.get('/flow', (req, res, next) => {
   try { res.json(flowSummary(null, req.query.days)); } catch (err) { next(err); }
+});
+
+// Memory over time (services/memoryWatch.js): ?hours=48. POST takes a sample now.
+router.get('/memory', (req, res, next) => {
+  try { res.json(memoryReport(req.query.hours)); } catch (err) { next(err); }
+});
+router.post('/memory/sample', (req, res, next) => {
+  try { takeSample(); res.json(memoryReport(1)); } catch (err) { next(err); }
 });
 
 router.get('/channels', (req, res, next) => {

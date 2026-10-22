@@ -1,4 +1,5 @@
 import express from 'express';
+import { watchCache } from '../services/memoryWatch.js';
 import fetch from 'node-fetch';
 import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl, catalogueCandidates } from '../services/discogsService.js';
 import { getChannelUploads, extractVideoId, channelsWithVerdicts } from '../services/youtubeService.js';
@@ -948,6 +949,7 @@ const FALLBACK_TIMEOUT_MS = 6000;
 // Small in-process memo: the same link is often pasted twice in a row
 // (fetch, edit, fetch again). Discogs calls have their own SQLite cache.
 const memo = new Map();
+watchCache('link lookups memo', () => memo.size);
 async function memoised(key, fn, ttlMs = 6 * 3600e3) {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.t < ttlMs) return hit.v;

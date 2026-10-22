@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { searchDiscogs, getLabel } from './discogsService.js';
+import { watchCache } from './memoryWatch.js';
 
 // Labels that are not (or not only) on Discogs (2026-10-22): a person pastes a label's Bandcamp page,
 // sees what we read from it plus any similar labels we already know, and confirms before anything is saved.
@@ -27,6 +28,7 @@ for (const col of ['link TEXT', 'combed_at TEXT']) { try { db.exec(`ALTER TABLE 
 const UA = { 'User-Agent': 'LNV/0.1 (+https://github.com/gabrieljcdev/LNV)' };
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
 const previews = new Map(); // previewId -> { userId, at, data }
+watchCache('label previews', () => previews.size);
 
 const decodeHtml = s => (s || '').replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const metaTag = (html, prop) => decodeHtml(html.match(new RegExp(`<meta[^>]+property="${prop}"[^>]+content="([^"]*)"`, 'i'))?.[1] || '');

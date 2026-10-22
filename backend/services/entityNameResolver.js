@@ -1,4 +1,5 @@
 import db from '../db/database.js';
+import { watchCache } from './memoryWatch.js';
 import { getArtist, getLabel } from './discogsService.js';
 import { setName, syncNamesFromPosts } from './entityNames.js';
 import { logEvent } from './logService.js';
@@ -9,6 +10,7 @@ import { seedNamesFromImports } from './discogsAccount.js';
 const GAP_MS = 3500;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const gaveUp = new Set(); // this run only: ids Discogs would not give us
+watchCache('names given up on', () => gaveUp.size);
 
 let running = false;
 async function drain() {

@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { watchCache } from './memoryWatch.js';
 import dotenv from 'dotenv';
 import db from '../db/database.js';
 import { setupCatalogueIndex, catalogueSearchReady, searchCatalogueRowids } from './catalogueIndex.js';
@@ -409,6 +410,7 @@ const CATALOGUE_TIMEOUT_MS = 60000;   // Discogs' own limit is ~30 s; a hung req
 const CATALOGUE_QUIET_MS = 4000;
 const CATALOGUE_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const catalogueCrawling = new Set();
+watchCache('catalogues crawling', () => catalogueCrawling.size);
 // A page Discogs keeps refusing (Columbia's page 44 answers 502 every time —
 // 2026-10-07) used to hold its crawl on that page for good. A page that fails
 // PAGE_RETRIES times is skipped and noted (discogs_catalogue_crawl.skipped);
@@ -418,6 +420,7 @@ try { db.exec('ALTER TABLE discogs_catalogue_crawl ADD COLUMN skipped TEXT'); } 
 const PAGE_RETRIES = 3, PAGE_RETRY_WAIT_MS = 15000, OUTAGE_WAIT_MS = 10 * 60 * 1000;
 const pageFails = new Map();   // 'kind:id:page' -> failures this run
 const skipRun = new Map();     // 'kind:id' -> pages skipped in a row
+watchCache('crawl page failures', () => pageFails.size + skipRun.size);
 
 const crawlRow = (kind, id) => db.prepare('SELECT * FROM discogs_catalogue_crawl WHERE kind = ? AND entity_id = ?').get(kind, id);
 const catalogueCount = (kind, id) => db.prepare('SELECT COUNT(*) c FROM discogs_catalogue WHERE kind = ? AND entity_id = ?').get(kind, id).c;
@@ -753,6 +756,7 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
 const COVER_GAP_MS = 2000;
 const coverQueue = [];
 const coverQueued = new Set();
+watchCache('covers queued', () => coverQueued.size);
 let coverWorking = false;
 
 function cachedCover(key) {

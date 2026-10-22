@@ -6,6 +6,7 @@
 // Strict on purpose: the video title must carry the whole track title AND the artist (linkVerdict 'strong').
 // Never touches a link someone added by hand, or one already found.
 import db from '../db/database.js';
+import { watchCache } from './memoryWatch.js';
 import { getRelease } from './discogsService.js';
 import { videoAlive, linkVerdict, extractVideoId } from './youtubeService.js';
 import { linkKeysOf } from './releaseSpotify.js';
@@ -33,6 +34,7 @@ export function keyedTracks(rel) {
 }
 
 const inFlight = new Map();
+watchCache('discogs-videos in flight', () => inFlight.size);
 // -> { matched, videos, skipped? }. Safe to call often: one check per release per 30 days (force overrides).
 export function linkFromDiscogsVideos(releaseId, { force = false } = {}) {
   const id = Number(releaseId);

@@ -15,6 +15,7 @@ import { linkKeysOf } from './releaseSpotify.js';
 import { linkFromDiscogsVideos } from './discogsVideos.js';
 import { logEvent } from './logService.js';
 import { quotaDay, minutesToQuotaReset } from './quotaDay.js';
+import { watchCache } from './memoryWatch.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS spare_quota_tried (
   kind TEXT NOT NULL, ref TEXT NOT NULL, tried_at TEXT NOT NULL DEFAULT (datetime('now')), found INTEGER NOT NULL DEFAULT 0,
@@ -43,6 +44,7 @@ const saveLink = db.prepare(`INSERT INTO release_track_links (release_id, positi
 // module-level Map that never shrank, so a server left up for days kept every release the nightly job had touched (tracklists and all) in memory.
 const RELCACHE_MAX = 200;
 const relCache = new Map();
+watchCache('spare-quota releases', () => relCache.size);
 async function release(id) {
   if (!relCache.has(id)) {
     const rel = await getRelease(id, { background: true }).catch(() => null);
