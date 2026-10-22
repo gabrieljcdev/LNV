@@ -161,14 +161,19 @@ router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
 });
 
 // A wall's header: whose it is, how many posts, whether you follow it.
+// Also how /u/<name> (the wall's address, 2026-10-22) is resolved: the name is matched without regard to case, `username` is the real
+// spelling and `path` the address to show, so /u/AMY can be tidied to /u/amy; an unknown name is a 404 for the page to say "no such person".
 router.get('/:username', (req, res, next) => {
   try {
     const owner = userByName(req.params.username);
     if (!owner) return res.status(404).json({ error: 'No such person.' });
     const me = req.user?.id || null;
     const isOwner = me === owner.id;
+    const profile = db.prepare('SELECT display_name, avatar_url FROM users WHERE id = ?').get(owner.id);
     res.json({
       user_id: owner.id, username: owner.username,
+      path: `/u/${encodeURIComponent(owner.username)}`, exact: owner.username === req.params.username,
+      display_name: profile?.display_name || null, avatar_url: profile?.avatar_url || null,
       post_count: wallStats(owner.id).post_count,
       is_owner: isOwner,
       following: !!(me && db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(me, owner.id)),
