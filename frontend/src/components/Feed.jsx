@@ -5449,7 +5449,8 @@ export default function Feed() {
     const io = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) fetchNextPage() }, { root, threshold: 0 })
     io.observe(el)
     return () => io.disconnect()
-  }, [loadTriggerId, feedRef, postRefs, fetchNextPage])
+  // mountCap: cards come onto the page a few at a time (smooth start), so the trigger card may not exist yet when this first runs; look again as they arrive.
+  }, [loadTriggerId, feedRef, postRefs, fetchNextPage, mountCap])
 
   // 2026-09-25: when the SEARCH changes (never on the 30 s background
   // refresh), move the shelf once that search's results have landed — to the
