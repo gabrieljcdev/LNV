@@ -9,6 +9,7 @@ import { quotaUsed, channelsWithVerdicts, setChannelOfficial, PROPER_CHANNEL } f
 import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import { runSpareQuota } from '../services/spareQuota.js';
+import { runYoutubeRefresh, refreshStatus } from '../services/youtubeRefresh.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
@@ -105,6 +106,7 @@ router.get('/status', (req, res, next) => {
       // Each outside service's load today (2026-10-06) — cache hits don't count.
       services: {
         youtube: { used: quotaUsed(), cap: Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000 },
+        youtubeRefresh: refreshStatus(),
         discogs: { calls: callsToday('discogs') },
         spotify: { calls: callsToday('spotify'), on: spotifyConfigured() },
         lastfm: { calls: callsToday('lastfm'), on: lastfmConfigured() },
@@ -152,6 +154,11 @@ router.post('/gaps/sweep', async (req, res, next) => {
 // Run the spare-units search by hand: { dry: true } only counts what it would search; { force: true } ignores "already ran today".
 router.post('/spare-quota', async (req, res, next) => {
   try { res.json(await runSpareQuota({ force: !!req.body?.force, dry: !!req.body?.dry })); } catch (err) { next(err); }
+});
+
+// The 30-day YouTube data refresh by hand: { dry: true } only counts what is due (services/youtubeRefresh.js).
+router.post('/youtube-refresh', async (req, res, next) => {
+  try { res.json(await runYoutubeRefresh({ dry: !!req.body?.dry })); } catch (err) { next(err); }
 });
 
 router.get('/channels', (req, res, next) => {

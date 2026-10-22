@@ -3,6 +3,10 @@ import db from '../db/database.js';
 import { logEvent } from './logService.js';
 import { quotaDay } from './quotaDay.js';
 
+// When each piece of stored YouTube API data was last fetched or confirmed (2026-10-22). YouTube's policy (III.E.4) lets
+// non-authorized API data be stored for 30 days, then it must be deleted or refreshed — services/youtubeRefresh.js does that.
+for (const t of ['release_track_links', 'youtube_cache', 'yt_channel_videos']) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN yt_refreshed_at TEXT`); } catch { /* already there */ } }
+
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
@@ -163,7 +167,7 @@ function setChannelCache(key, data) {
   } catch { /* ignore cache write errors */ }
 }
 
-async function ytApi(path, params) {
+export async function ytApi(path, params) {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) throw new Error('YOUTUBE_API_KEY is not set');
   const qs = new URLSearchParams({ ...params, key }).toString();
@@ -300,7 +304,7 @@ async function crawlPage(row, pageToken, { background = true } = {}) {
   const params = { part: 'snippet,contentDetails', playlistId: row.uploads_id, maxResults: '50' };
   if (pageToken) params.pageToken = pageToken;
   const pl = await ytApi('playlistItems', params);
-  const ins = db.prepare('INSERT OR IGNORE INTO yt_channel_videos (video_id, channel_id, title, published_at, thumb) VALUES (?, ?, ?, ?, ?)');
+  const ins = db.prepare("INSERT OR IGNORE INTO yt_channel_videos (video_id, channel_id, title, published_at, thumb, yt_refreshed_at) VALUES (?, ?, ?, ?, ?, datetime('now'))");
   let added = 0, known = 0;
   for (const it of pl.items || []) {
     const s = it.snippet || {};
@@ -528,7 +532,7 @@ export async function adoptChannelUrl(url) {
 const SEARCH_COST = 100;
 const SEARCH_HIT_RECHECK = 90 * 24 * 60 * 60 * 1000; // a hit this old is re-checked (free), not re-searched
 const SEARCH_MISS_TTL = 30 * 24 * 60 * 60 * 1000;
-const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+export const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
 const today = () => quotaDay();   // Google's quota day is Pacific, not UTC (services/quotaDay.js)
 
 export function quotaUsed(provider = 'youtube') {
@@ -536,7 +540,7 @@ export function quotaUsed(provider = 'youtube') {
 }
 
 // Reserve units up front; false if that would cross the cap.
-function spendQuota(units, provider = 'youtube') {
+export function spendQuota(units, provider = 'youtube') {
   if (quotaUsed(provider) + units > dailyCap()) return false;
   db.prepare(`INSERT INTO api_quota (provider, day, units) VALUES (?, ?, ?)
               ON CONFLICT(provider, day) DO UPDATE SET units = units + excluded.units`)

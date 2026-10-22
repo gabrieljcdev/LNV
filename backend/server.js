@@ -32,6 +32,7 @@ import trackLinkRoutes from './routes/trackLinks.js';
 import customLabelRoutes from './routes/customLabels.js';
 import { startLinkHealth } from './services/linkHealth.js';
 import { startSpareQuota } from './services/spareQuota.js';
+import { startYoutubeRefresh } from './services/youtubeRefresh.js';
 import db from './db/database.js';
 
 dotenv.config();
@@ -99,6 +100,7 @@ const server = app.listen(PORT, () => {
   startGapSweeper();
   // In the last hours of YouTube's quota day, spend the units the day did not use on links people want.
   startSpareQuota();
+  startYoutubeRefresh();
 });
 
 // A stop (deploy, reboot, `systemctl restart`) closes the database cleanly so the WAL is checkpointed.

@@ -85,6 +85,7 @@ function Bar({ value, max, mark }) {
 function ServicesSection({ s }) {
   const rows = [
     ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
+    ...(s.youtubeRefresh ? [['YouTube 30 days', `${n(s.youtubeRefresh.due)} due · ${n(s.youtubeRefresh.overdue)} overdue`, s.youtubeRefresh.last ? `last run: ${n(s.youtubeRefresh.last.refreshed)} confirmed, ${n(s.youtubeRefresh.last.cleared)} cleared, ${n(s.youtubeRefresh.last.expired)} expired; ${n(s.youtubeRefresh.unitsToday)} of ${n(s.youtubeRefresh.unitsPerDay)} refresh units today` : `stored YouTube data is refreshed at 25 days; ${n(s.youtubeRefresh.unitsToday)} of ${n(s.youtubeRefresh.unitsPerDay)} refresh units today`]] : []),
     ['Discogs', `${n(s.discogs.calls)} requests`, 'limit 60 a minute'],
     ['Spotify', s.spotify.on ? `${n(s.spotify.calls)} requests` : 'not connected', s.spotify.on ? 'barcodes, tracklists; player when YouTube is busy' : 'add SPOTIFY_CLIENT_ID / SECRET to backend/.env'],
     ...(s.deezer ? [['Deezer', `${n(s.deezer.calls)} requests`, 'free link search for new posts, no key'], ['Apple', `${n(s.apple.calls)} requests`, 'iTunes search, free link search for new posts'], ['MusicBrainz', `${n(s.musicbrainz.calls)} requests`, 'filed YouTube / SoundCloud / Bandcamp links; 1 a second']] : []),
