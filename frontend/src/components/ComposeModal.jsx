@@ -5,6 +5,7 @@ import { joinApi } from '../lib/collections'
 import { usePhone } from '../lib/usePhone'
 import { isHeadingRow, linkKeys, withoutHeadings } from '../lib/tracklist'
 import { SOURCE_SHORT, SOURCE_NAME, platformOf } from '../lib/sources'
+import { MentionSuggest } from './UserPicker'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
@@ -679,10 +680,12 @@ Click to edit`}
 
  <div style={zlabel}><span>Description</span><span>optional</span></div>
  <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={isLiveMix ? 'Lineup, venue, date, set notes…' : 'What makes this record special…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 13, lineHeight: 1.5 }} />
+ <MentionSuggest text={comment} onChange={setComment} />
  <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(false)}>← back to short post</button>
  </>) : (<>
  <div style={zlabel}><span>Say something{editPost ? '' : ' · needed to post'}</span><span>{comment.length} / 300</span></div>
  <textarea value={comment} onChange={e => { setComment(e.target.value.slice(0, 300)); if (postTitle) setPostTitle('') }} maxLength={300} placeholder={isLiveMix ? 'A line about the set…' : 'A line about it…'} rows={3} style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'none', borderRadius: 10, padding: '12px 14px', background: CARD_FIELD, color: 'var(--theme-text-pri)', fontFamily: 'Barlow, sans-serif', fontSize: 15, lineHeight: 1.45 }} />
+ <MentionSuggest text={comment} onChange={setComment} />
  <button className="lnvc-q" style={{ marginTop: 8, fontSize: 10 }} onClick={() => setFullPost(true)}>write a full post</button>
  </>)}
  </div>

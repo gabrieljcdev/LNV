@@ -9,6 +9,7 @@ import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/c
 import { queue } from '../lib/queue';
 import { MODULE_CARDS } from '../lib/moduleKit';
 import { isFeedPath } from '../lib/routes';
+import { useUnread } from '../lib/unread';
 
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
@@ -165,6 +166,7 @@ export default function Strip({ activeView }) {
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+  const unread = useUnread();
 
   // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
   // sliders (BrandScaleTool.jsx) win over these.
@@ -351,6 +353,19 @@ export default function Strip({ activeView }) {
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
         <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        {/* Notifications bell (2026-10-22): signed in only, with the unread number. */}
+        {user && (() => {
+          const active = d3Content === 'notifications';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('notifications'))} title={unread ? `Notifications (${unread} new)` : 'Notifications'} aria-label={unread ? `Notifications, ${unread} new` : 'Notifications'}
+              style={{ position:'relative', color: active ? '#fff' : 'var(--theme-accent)', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+              {unread > 0 && <span style={{ position:'absolute', top:-4, right:-4, minWidth:15, height:15, borderRadius:99, background:'var(--theme-accent)', color:'#fff', fontFamily:"'IBM Plex Mono', monospace", fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px' }}>{unread > 9 ? '9+' : unread}</span>}
+            </button>
+          );
+        })()}
         {/* Playlists and walls (2026-10-03, CollectionDrawers.jsx). Signed in only;
             a round button like ▶ for the same height reason as admin below. */}
         {user && (() => {
