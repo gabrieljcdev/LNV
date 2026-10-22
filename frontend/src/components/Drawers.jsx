@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
-import { FavHeart } from './Collect'
+import { FavHeart, LaterButton } from './Collect'
 import ReleasePreview from './ReleasePreview'
 import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
 import { browseQueryOptions } from '../lib/drawerPrefetch'
@@ -434,7 +434,7 @@ export function ArtistsDrawer({ filter: initial, _n }) {
     const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <span style={{ display: 'flex', gap: 10, alignSelf: 'center' }}><FavHeart kind="artist" name={selected} size={24} style={{ color: SEC }} /><LaterButton kind="artist" name={selected} size={22} style={{ color: SEC }} /></span>} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -697,7 +697,7 @@ export function LabelsDrawer({ filter: initial, _n }) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
     const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     return <>
-      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<span style={{ display: 'flex', gap: 10, alignSelf: 'center' }}><FavHeart kind="label" name={selected} size={24} style={{ color: SEC }} /><LaterButton kind="label" name={selected} size={22} style={{ color: SEC }} /></span>} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />

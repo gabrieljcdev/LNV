@@ -12,7 +12,7 @@ import { getUserId, isAdmin, authHeaders, isLoggedIn, getUser } from '../lib/aut
 import { useFeedMode, setFeedMode, homeMode, setHomeFriends, openWall, openPlaylistFeed, playlistsApi, trackFrom, useIntroductions, usePlaylists, playableTracks } from '../lib/collections'
 import { askText } from './Dialogs'
 import Login from '../pages/Login'
-import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, FoundVia, TagChips, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
+import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, FoundVia, TagChips, LaterButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
 import { AddLinkRow, UserLinkNote, WrongLinkRow } from './TrackLinkAdd'
@@ -4167,6 +4167,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
         {name}<sup style={{ fontFamily: T.monoFf, fontSize: T.metalineSize, fontWeight: 400, letterSpacing: `${T.metalineLs}em`, marginLeft: 6, verticalAlign: 'super', color: textSec }}>[{count}]</sup>
         {/* ♥ to favourite (2026-10-06) */}
         {!subject.isPlaceholder && <FavHeart kind={type} name={name} size={Math.round(T.artistSize * 0.6)} style={{ marginLeft: 10, color: textSec, verticalAlign: 'middle' }} />}
+        {!subject.isPlaceholder && <LaterButton kind={type} name={name} size={Math.round(T.artistSize * 0.55)} style={{ marginLeft: 8, color: textSec, verticalAlign: 'middle' }} />}
       </div>
       <div style={{ flexShrink: 0, marginTop: T.metalineMt, fontFamily: T.monoFf, fontSize: T.metalineSize, lineHeight: T.metalineLh, letterSpacing: `${T.metalineLs}em`, textTransform: 'uppercase', color: textSec }}>
         {hasCatalogue
@@ -5085,7 +5086,7 @@ function PhoneSpotlight({ subject, onJump }) {
       <div>
         <div style={pZlabel}>{SPOTLIGHT_NAME[subject.type]} spotlight</div>
         <div style={{ fontFamily: D.artistFf, fontSize: 34, fontWeight: 800, lineHeight: 1.02, letterSpacing: '-0.025em', color: 'var(--theme-text-pri)', overflowWrap: 'anywhere' }}>
-          {subject.name} <FavHeart kind={subject.type} name={subject.name} size={24} style={{ color: 'var(--theme-text-sec)', verticalAlign: 'middle' }} />
+          {subject.name} <FavHeart kind={subject.type} name={subject.name} size={24} style={{ color: 'var(--theme-text-sec)', verticalAlign: 'middle' }} /> <LaterButton kind={subject.type} name={subject.name} size={22} style={{ color: 'var(--theme-text-sec)', verticalAlign: 'middle' }} />
         </div>
         <div style={{ marginTop: 8, fontFamily: P_MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--theme-text-ter)' }}>
           {subject.posts.length} {subject.posts.length === 1 ? 'post' : 'posts'} here

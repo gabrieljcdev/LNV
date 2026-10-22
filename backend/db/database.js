@@ -413,6 +413,15 @@ const migrations = [
     created_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, kind, name_key)
   )`,
+  // "For later" (2026-10-22): a private bookmark on an artist, label or channel spotlight, to come back to. Not a favourite: it feeds nothing.
+  `CREATE TABLE IF NOT EXISTS saved_for_later (
+    user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, kind, name_key)
+  )`,
   "INSERT OR IGNORE INTO favourite_names (user_id, kind, name, name_key) SELECT user_id, 'label', label_name, lower(trim(label_name)) FROM profile_pins",
   'DELETE FROM profile_pins',
   // Reposts (2026-10-05): a join is either "also posted" (you have the

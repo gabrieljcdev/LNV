@@ -140,6 +140,17 @@ export function useProperChannels() {
   const q = useQuery({ queryKey: ['channels', 'proper'], queryFn: () => call('GET', '/media/channels/proper'), staleTime: 10 * 60_000 })
   return new Set((q.data?.names || []).map(n => n.toLowerCase()))
 }
+// "For later" (2026-10-22): a private bookmark on an artist, label or channel spotlight. Signed in only; nobody else sees it.
+export function useLater() {
+  const signedIn = isLoggedIn()
+  const q = useQuery({ queryKey: ['later'], queryFn: () => call('GET', '/walls/me/later'), enabled: signedIn, staleTime: 60_000 })
+  const items = (signedIn && q.data?.items) || []
+  const has = (kind, name) => items.some(i => i.kind === kind && i.name.toLowerCase() === String(name || '').toLowerCase())
+  return { items, has }
+}
+export const laterApi = {
+  set: (kind, name, on) => call('PUT', '/walls/me/later', { kind, name, on }),
+}
 export const favouritesApi = {
   set: (kind, name, on) => call('PUT', '/walls/me/favourites', { kind, name, on }),
 }

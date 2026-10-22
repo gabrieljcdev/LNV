@@ -3,7 +3,7 @@ import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
 import { firstFriend } from '../services/authService.js';
 import { notify } from '../services/notifications.js';
-import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, introductionsFor, introReason } from '../services/collectionsService.js';
+import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, laterOf, setLater, introductionsFor, introReason } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -137,6 +137,18 @@ router.patch('/me/profile', requireAuth, (req, res, next) => {
 // Your favourites (2026-10-06): ♥ by an artist's, label's or channel's name.
 router.get('/me/favourites', requireAuth, (req, res, next) => {
   try { res.json(favouritesOf(req.user.id)); } catch (err) { next(err); }
+});
+// For later (2026-10-22): a private bookmark list (artists, labels, channels), newest first.
+// GET /me/later -> { items: [{ kind, name, created_at }] };  PUT /me/later { kind, name, on } -> the same list.
+router.get('/me/later', requireAuth, (req, res, next) => {
+  try { res.json({ items: laterOf(req.user.id) }); } catch (err) { next(err); }
+});
+router.put('/me/later', requireAuth, (req, res, next) => {
+  try {
+    const { kind, name, on } = req.body || {};
+    if (!setLater(req.user.id, kind, name, !!on)) return res.status(400).json({ error: 'Save an artist, label or channel for later.' });
+    res.json({ items: laterOf(req.user.id) });
+  } catch (err) { next(err); }
 });
 router.put('/me/favourites', requireAuth, (req, res, next) => {
   try {

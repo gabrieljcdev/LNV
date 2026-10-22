@@ -244,6 +244,17 @@ export function setFavourite(userId, kind, name, on) {
   else db.prepare('DELETE FROM favourite_names WHERE user_id = ? AND kind = ? AND name_key = ?').run(userId, kind, clean.toLowerCase());
   return true;
 }
+// "For later" (2026-10-22): private bookmarks on artists, labels and channels, newest first. Only ever read for the person who made them.
+export function laterOf(userId) {
+  return db.prepare('SELECT kind, name, created_at FROM saved_for_later WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 500').all(userId);
+}
+export function setLater(userId, kind, name, on) {
+  const clean = String(name || '').trim().slice(0, 200);
+  if (!FAVOURITE_KINDS.includes(kind) || !clean) return false;
+  if (on) db.prepare('INSERT OR IGNORE INTO saved_for_later (user_id, kind, name, name_key) VALUES (?, ?, ?, ?)').run(userId, kind, clean, clean.toLowerCase());
+  else db.prepare('DELETE FROM saved_for_later WHERE user_id = ? AND kind = ? AND name_key = ?').run(userId, kind, clean.toLowerCase());
+  return true;
+}
 export const postedLabels = userId => tally('post_labels', 'label_name', userId, 500);
 export function profileOf(ownerId, viewerId) {
   const u = db.prepare('SELECT id, username, bio, created_at FROM users WHERE id = ?').get(ownerId);

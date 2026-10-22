@@ -15,7 +15,7 @@ function ModFrame({ on, children, style, compact }) {
 import { isLoggedIn, getUser, authHeaders } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
-  usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, hideApi, useInCommon,
+  usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, hideApi, useLater, laterApi, useInCommon,
   useProfile, profileApi, wallLink, useFavourites, favouritesApi, useIntroSettings, introApi, useProperChannels, useFrontPageOwner, communityApi,
 } from '../lib/collections'
 
@@ -305,6 +305,30 @@ export function FavHeart({ kind, name, size, onChange, onColor = 'var(--theme-ac
   )
 }
 
+// "For later" (2026-10-22): a bookmark beside the ♥ on an artist, label or channel spotlight, to come back to. Private; it is not a favourite and feeds nothing.
+// Saved ones are listed on your own profile ("For later") and in no one else's.
+export function LaterButton({ kind, name, size, style }) {
+  const qc = useQueryClient()
+  const { has } = useLater()
+  const [busy, setBusy] = useState(false)
+  if (!name) return null
+  const on = has(kind, name)
+  async function click(e) {
+    e.stopPropagation()
+    if (!isLoggedIn()) return askToSignIn('save things for later')
+    setBusy(true)
+    try { qc.setQueryData(['later'], await laterApi.set(kind, name, !on)) } catch (err) { window.alert(err.message) }
+    setBusy(false)
+  }
+  return (
+    <button onClick={click} disabled={busy} aria-pressed={on} aria-label={on ? `Take ${name} off your for-later list` : `Save ${name} for later`}
+      title={on ? 'Saved for later — tap to remove' : 'Save for later'}
+      style={{ ...plain, lineHeight: 1, opacity: busy ? 0.5 : 1, fontSize: size, ...style, ...(on ? { color: 'var(--theme-accent)' } : null) }}>
+      <svg width="1em" height="1em" viewBox="0 0 24 24" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: '-0.12em' }}><path d="M6 3h12v18l-6-4.5L6 21z" /></svg>
+    </button>
+  )
+}
+
 // A username on a card: opens their wall.
 export function WallLink({ name, style }) {
   if (!name) return null
@@ -416,6 +440,7 @@ export function FollowButton({ username }) {
 // Everything about someone's taste comes from what they chose to post.
 // `compact` stacks it for phones.
 export function WallCard({ username, compact = false, friends }) {
+  const later = useLater() // "For later": private, shown on your own profile only
   const qc = useQueryClient()
   const { openD3, jumpToPost } = useLayout() || {}
   const { data: p } = useProfile(username)
@@ -719,7 +744,23 @@ export function WallCard({ username, compact = false, friends }) {
       )}
     </section>
   )
-  const favourites = labelsSection || artistsSection || channelsSection
+  // For later (2026-10-22): what you bookmarked on spotlights, newest first; each opens its drawer, x takes it off. Yours only: never shown on anyone else's profile.
+  const LATER_DRAWER = { artist: 'artists', label: 'labels', channel: 'live' }
+  const laterSection = owner && later.items.length > 0 && (
+    <section>
+      <h3 style={head}>For later <span style={{ fontWeight: 400, letterSpacing: 0 }}>· {later.items.length}</span></h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {later.items.slice(0, 40).map(x => (
+          <span key={x.kind + ':' + x.name} style={{ ...chip, padding: 0, gap: 0, overflow: 'hidden', background: fill(12) }}>
+            <button onClick={() => openD3?.(LATER_DRAWER[x.kind], { filter: x.name })} title={`Open ${x.name} (${x.kind})`} style={{ ...plain, color: pri, padding: compact ? '8px 4px 8px 13px' : '6px 4px 6px 12px' }}>{x.name}</button>
+            <button onClick={async () => { try { qc.setQueryData(['later'], await laterApi.set(x.kind, x.name, false)) } catch (err) { window.alert(err.message) } }} title="Done with it — take it off" aria-label={`Take ${x.name} off your for-later list`}
+              style={{ ...plain, color: ter, padding: compact ? '8px 12px 8px 4px' : '6px 11px 6px 4px' }}>×</button>
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+  const favourites = labelsSection || artistsSection || channelsSection || laterSection
   const top = compact || MOD ? 0 : 60 // the first block of each column runs up to the top of the page; its content starts below the search bar
   const identityBlock = <Blk bg={tone('showcase')} cut={cut('br')} style={{ padding: compact ? '22px 18px 26px' : `${top + 20}px 26px 32px`, height: compact ? undefined : '100%' }}>{identity}</Blk>
   const extrasBlock = ownerExtras && <Blk bg={tone('light1')} cut={cut('bl')} style={{ padding: compact ? '18px 18px 20px' : '22px 24px 24px' }}>{ownerExtras}</Blk>
@@ -727,7 +768,7 @@ export function WallCard({ username, compact = false, friends }) {
   const flexKey = playlistsSection ? 'pl' : 'fol'
   const parts = [
     ['sound', <Blk key="sound" bg={tone('accent')} cut={cut('tr')} style={{ padding: compact ? pad : `${top + 14}px 28px 26px` }}>{soundSection}</Blk>],
-    favourites && ['fav', <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}</Blk>],
+    favourites && ['fav', <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}{laterSection}</Blk>],
     playlistsSection && ['pl', <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: compact ? pad : '24px 28px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact ? null : { flex: 1, overflowY: 'auto', paddingBottom: 24, scrollbarWidth: 'none' }) }}>{playlistsSection}</div></Blk>],
     ['fol', <Blk key="fol" bg={tone('light1')} style={{ padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact || flexKey !== 'fol' ? null : { flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }) }}>{followsSection}</div></Blk>],
     commonSection && ['com', <Blk key="com" bg={MOD ? solidBg(ML.base) : (c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>],
