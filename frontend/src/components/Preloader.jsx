@@ -22,8 +22,8 @@ import { SECONDARY_STRIP_WIDTH, STRIP_RADIUS } from './Strip'; // round 17: move
 // so a slow network can never leave it stuck open.
 //
 // 2026-10-22 (gabriel): (1) the 0–100 counter in the bottom left is gone — it also re-rendered this component on every frame just to
-// change a number; (2) scrolling is locked until the reveal has finished: a transparent shield sits over the feed (above it, below the
-// nav strip, so the strip still works) and scroll keys are ignored, so wheel, touch, drag and keys cannot move the feed early. The lock is
+// change a number; (2) scrolling is locked until the reveal has finished: a transparent shield sits over the whole page (z-index 50; the nav
+// strip is still invisible during the reveal, so it is not clickable either) and scroll keys are ignored, so wheel, touch, drag and keys cannot move the feed early. The lock is
 // released when the reveal ends, and by a plain timer as well, so a hidden tab (no animation frames) or a slow device can never leave it on.
 const DURATION_MS = 1800; // the one duration constant recovered from avantt's
                            // own bundle (a Tween.js reveal used elsewhere in
@@ -106,7 +106,7 @@ export default function Preloader({ onDone }) {
   return (
     <>
       {locked && (
-        // The scroll lock: over the feed, under the strip (z-index 100) — nothing underneath receives wheel, touch or drag.
+        // The scroll lock: nothing underneath receives wheel, touch or drag until the reveal is over.
         <div aria-hidden="true" data-launch-lock="" style={{ position: 'fixed', inset: 0, zIndex: 50, touchAction: 'none', overscrollBehavior: 'contain' }}
           onWheel={e => e.preventDefault()} onTouchMove={e => e.preventDefault()} />
       )}
