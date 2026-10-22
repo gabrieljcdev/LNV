@@ -10,6 +10,7 @@ import { INTRO_WEEK_CAP } from '../services/collectionsService.js';
 import { gapCounts, sweepGaps } from '../services/gapSweeper.js';
 import { runSpareQuota } from '../services/spareQuota.js';
 import { runYoutubeRefresh, refreshStatus } from '../services/youtubeRefresh.js';
+import { adminBadLinks, adminRevert } from '../services/badLinks.js';
 import { callsToday } from '../services/usageService.js';
 import { spotifyConfigured } from '../services/spotifyService.js';
 import { adminList, adminDecide } from '../services/trackLinks.js';
@@ -30,6 +31,17 @@ const DB_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'vinyl
 // ── Links people added by hand: the ones waiting, and what was decided lately ──
 router.get('/link-submissions', (req, res, next) => {
   try { res.json({ submissions: adminList() }); } catch (err) { next(err); }
+});
+// Links flagged as the wrong track, and a way to put one back (services/badLinks.js).
+router.get('/bad-links', (req, res, next) => {
+  try { res.json({ badLinks: adminBadLinks() }); } catch (err) { next(err); }
+});
+router.post('/bad-links/:id/revert', (req, res, next) => {
+  try {
+    const r = adminRevert(req.params.id, req.user);
+    if (!r) return res.status(404).json({ error: 'No such flag.' });
+    res.json(r);
+  } catch (err) { next(err); }
 });
 router.post('/link-submissions/:id/:decision', (req, res, next) => {
   try {

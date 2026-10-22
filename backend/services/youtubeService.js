@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { logEvent } from './logService.js';
 import { quotaDay } from './quotaDay.js';
+import { flaggedForSearch } from './badLinkStore.js';   // videos people flagged as the wrong track for a search
 
 // When each piece of stored YouTube API data was last fetched or confirmed (2026-10-22). YouTube's policy (III.E.4) lets
 // non-authorized API data be stored for 30 days, then it must be deleted or refreshed — services/youtubeRefresh.js does that.
@@ -654,7 +655,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
   const row = getRow.get(cacheKey)
     || getRow.get(`search|${trackKey(a)}|${trackKey(rawTitle)}`)   // yesterday's key
     || getRow.get(`search|${a}|${rawTitle}`.toLowerCase());        // the original key
-  if (row) {
+  if (row && !(row.youtube_url && flaggedForSearch(cacheKey, row.youtube_url))) {
     const age = Date.now() - new Date(row.fetched_at).getTime();
     if (row.youtube_url) {
       // A found link is for keeping: only an old one is looked at again, for
@@ -683,6 +684,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
                             LIMIT 50`).all(title.toLowerCase(), near, near, byLabel);
   let localBest = null, localScore = -Infinity;
   for (const v of local) {
+    if (flaggedForSearch(cacheKey, `https://www.youtube.com/watch?v=${v.video_id}`)) continue;
     const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a, extras);
     if (sc > localScore) { localScore = sc; localBest = v; }
   }
@@ -709,6 +711,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
 
   let best = null, bestScore = -Infinity;
   for (const item of data.items || []) {
+    if (flaggedForSearch(cacheKey, `https://www.youtube.com/watch?v=${item.id?.videoId}`)) continue;
     const s = searchScore(item, title, a, extras);
     if (s > bestScore) { bestScore = s; best = item; }
   }
