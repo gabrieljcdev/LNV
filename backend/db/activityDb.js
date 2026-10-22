@@ -65,10 +65,12 @@ export function cleanOrigin(origin, ref) {
 }
 
 const insert = activity.prepare('INSERT INTO events (user_id, kind, post_id, track_id, origin, origin_ref, meta) VALUES (?, ?, ?, ?, ?, ?, ?)');
-/** Append one act. Never throws: losing an event must not lose the post, keep or reply it was about. */
+const optedIn = activity.prepare('SELECT keep_listening k FROM user_prefs WHERE user_id = ?');
+/** Append one act, but only for an account that has switched activity recording on (user_prefs.keep_listening: one switch for
+ *  everything recorded about a person, off by default, 2026-10-22). Never throws: losing an event must not lose the post, keep or reply it was about. */
 export function recordEvent(kind, { userId, postId = null, trackId = null, origin = null, originRef = null, meta = null }) {
   try {
-    if (!userId) return;
+    if (!userId || !optedIn.get(userId)?.k) return;
     insert.run(userId, kind, postId, trackId, origin, originRef, meta ? JSON.stringify(meta) : null);
   } catch (err) { console.warn('[activity] could not record', kind, err.message); }
 }
