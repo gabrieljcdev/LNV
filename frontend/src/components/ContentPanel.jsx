@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { prefetchDrawers } from '../lib/drawerPrefetch';
 import { isLoggedIn } from '../lib/auth';
@@ -6,7 +6,8 @@ import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
 import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, PostListDrawer, DrawerHead, DrawerBody } from './Drawers';
-import { AdminDrawer } from './AdminDrawer';
+// Admin accounts only: loaded when an admin first opens it.
+const AdminDrawer = lazy(() => import('./AdminDrawer').then(m => ({ default: m.AdminDrawer })));
 import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 import { usePhone } from '../lib/usePhone';
 import { PHONE_NAV_H } from './PhoneNav';
@@ -27,7 +28,7 @@ const COMPONENTS = {
   community: (props) => <CommunityDrawer {...props} />,
   // Admin accounts only (the strip's admin button); every call it makes is
   // checked server-side too.
-  admin:   (props) => <AdminDrawer {...props} />,
+  admin:   (props) => <Suspense fallback={null}><AdminDrawer {...props} /></Suspense>,
   // Walls and playlists (2026-10-03): the strip's ♥.
   walls:   (props) => <WallsDrawer {...props} />,
   playlists: (props) => <PlaylistsDrawer {...props} />,

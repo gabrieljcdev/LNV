@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
-import ComposeModal from './ComposeModal'
+// The post window is loaded when first needed (it is mounted only while open), and warmed up a few seconds after load so the first click is not slower.
+const ComposeModal = lazy(() => import('./ComposeModal'))
+if (typeof window !== 'undefined') setTimeout(() => { import('./ComposeModal') }, 4000)
 import Clock from './Clock'
 import SearchBox from './SearchBox'
 import { RAIL_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from './Strip'
@@ -5646,7 +5648,7 @@ export default function Feed() {
     />
   )
 
-  const modals = (<>
+  const modals = (<Suspense fallback={null}>
     {editingPost && (
       <ComposeModal
         key={`edit-${editingPost.id}`}
@@ -5664,7 +5666,7 @@ export default function Feed() {
     )}
     {/* Once, after signing in: add your Discogs collection and wantlist (2026-10-08) */}
     <DiscogsPrompt />
-  </>)
+  </Suspense>)
 
   if (phone) return (
     <>
