@@ -1,6 +1,30 @@
 import crypto from 'crypto';
 import db from '../db/database.js';
 
+// Posts a person has hidden from their own view (2026-10-22): silent: no notice, nothing changes on the post, its poster's
+// wall or any count, and nobody else's view. Only the hider's feeds and walls drop it.
+db.exec(`CREATE TABLE IF NOT EXISTS post_hides (
+  user_id INTEGER NOT NULL,
+  post_id INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, post_id)
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_post_hides_post ON post_hides(post_id)');
+export const hiddenIds = userId => (userId ? new Set(db.prepare('SELECT post_id FROM post_hides WHERE user_id = ?').all(userId).map(r => r.post_id)) : new Set());
+export function hidePost(userId, postId) {
+  const p = db.prepare('SELECT id, user_id FROM posts WHERE id = ? AND is_spotlight = 0').get(postId);
+  if (!p) return { error: 'Post not found.', status: 404 };
+  if (p.user_id === userId) return { error: 'That is your own post. Delete it instead if you do not want it.', status: 400 };
+  db.prepare('INSERT OR IGNORE INTO post_hides (user_id, post_id) VALUES (?, ?)').run(userId, postId);
+  return { hidden: true };
+}
+export const unhidePost = (userId, postId) => { db.prepare('DELETE FROM post_hides WHERE user_id = ? AND post_id = ?').run(userId, postId); return { hidden: false }; };
+// What you have hidden, newest hide first, for the "unhide" list.
+export const hiddenPosts = userId => db.prepare(`
+  SELECT p.id, p.title, p.post_title, p.cover_image, p.thumb_image, u.username AS poster, h.created_at AS hidden_at
+  FROM post_hides h JOIN posts p ON p.id = h.post_id JOIN users u ON u.id = p.user_id
+  WHERE h.user_id = ? ORDER BY h.created_at DESC, h.post_id DESC`).all(userId);
+
 // Walls, my feed, playlists and shared feeds (2026-10-03) — the queries the posts route
 // needs for those feeds, kept beside the routes that own
 // those tables (routes/walls.js, routes/playlists.js, routes/feeds.js).
@@ -58,7 +82,8 @@ const ENTRIES = `
   SELECT wall_user_id AS owner, id AS post_id, created_at AS at, 'post' AS kind FROM posts WHERE is_spotlight = 0
   UNION ALL
   SELECT j.user_id, j.post_id, j.created_at, j.kind FROM post_joins j JOIN posts p ON p.id = j.post_id AND p.is_spotlight = 0`;
-function entryPage(ownerFilter, params, { before = null, limit = 20 } = {}) {
+// `viewer`: whose hides apply. Numbers are counted BEFORE hides are dropped, so hiding a post never renumbers a wall.
+function entryPage(ownerFilter, params, { before = null, limit = 20, viewer = null } = {}) {
   const [bAt, bId] = before ? String(before).split('|') : [null, null];
   const rows = db.prepare(`
     WITH e AS (${ENTRIES}),
@@ -67,9 +92,10 @@ function entryPage(ownerFilter, params, { before = null, limit = 20 } = {}) {
       FROM e WHERE ${ownerFilter}),
     feed AS (SELECT owner, post_id, at, kind, ROW_NUMBER() OVER (ORDER BY at, post_id) AS num FROM seen WHERE rn = 1)
     SELECT post_id AS id, owner AS wall_user_id, at, kind, num FROM feed
-    WHERE @bAt IS NULL OR at < @bAt OR (at = @bAt AND post_id < @bId)
+    WHERE (@bAt IS NULL OR at < @bAt OR (at = @bAt AND post_id < @bId))
+      AND (@viewer IS NULL OR post_id NOT IN (SELECT post_id FROM post_hides WHERE user_id = @viewer))
     ORDER BY at DESC, post_id DESC LIMIT @limit
-  `).all({ me: null, ...params, bAt: bAt || null, bId: Number(bId) || 0, limit });
+  `).all({ me: null, ...params, bAt: bAt || null, bId: Number(bId) || 0, limit, viewer });
   return rows.map(r => ({ ...r, cursor: `${r.at}|${r.id}` }));
 }
 
@@ -80,7 +106,7 @@ export const wallPage = (wallUserId, opts) => entryPage('owner = @wall', { wall:
 // the posts of everyone you follow (and what they joined), newest first.
 // Followed posts are labelled on the cards (followedFrom).
 export const homePage = (userId, opts) => entryPage(
-  'owner = @me OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me)', { me: userId }, opts);
+  'owner = @me OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me)', { me: userId }, { viewer: userId, ...opts });
 
 // In common (alpha, 2026-10-05): what two people both post — the same
 // records, artists and labels — from what they chose to post themselves

@@ -9,7 +9,7 @@ import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
 import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
-import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
+import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage, hiddenIds, hidePost, unhidePost, hiddenPosts } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
 import { remixersOf } from '../services/trackArtistNames.js';
 import { resolvedArtistIds, nameKey, learnFromRelease } from '../services/artistLookup.js';
@@ -155,7 +155,7 @@ router.get('/', (req, res, next) => {
     if (req.query.wall) {
       const owner = userByName(req.query.wall);
       if (!owner) return res.status(404).json({ error: 'No such person.' });
-      const rows = wallPage(owner.id, { before: entryBefore, limit: lim });
+      const rows = wallPage(owner.id, { before: entryBefore, limit: lim, viewer: req.user?.id });
       const posts = rows.map(entryPost).filter(Boolean);
       return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
     }
@@ -171,7 +171,7 @@ router.get('/', (req, res, next) => {
       }
       // Friends' posts off (the profile's switch, 2026-10-06): just yours.
       if (req.query.friends === '0') {
-        const rows = wallPage(req.user.id, { before: entryBefore, limit: lim });
+        const rows = wallPage(req.user.id, { before: entryBefore, limit: lim, viewer: req.user.id });
         const posts = rows.map(entryPost).filter(Boolean);
         return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
       }
@@ -234,10 +234,12 @@ router.get('/', (req, res, next) => {
         ? db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 AND id < ? ORDER BY id DESC LIMIT ?').all(before, Number(limit)).map(r => r.id)
         : db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 ORDER BY id DESC LIMIT ? OFFSET ?').all(Number(limit), offset).map(r => r.id);
     }
-    const posts = postIds.map(id => getFullPost(id)).filter(Boolean);
+    // A full page means there may be more; the feed asks for the next one (counted before hidden posts are dropped).
+    const full = postIds.length === Number(limit);
+    const hidden = hiddenIds(req.user?.id);
+    const posts = postIds.filter(id => !hidden.has(id)).map(id => getFullPost(id)).filter(Boolean);
     const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE is_spotlight = 0').get().count;
-    // A full page means there may be more; the feed asks for the next one.
-    res.json({ posts, total, page: Number(page), limit: Number(limit), hasMore: postIds.length === Number(limit) });
+    res.json({ posts, total, page: Number(page), limit: Number(limit), hasMore: full });
   } catch (err) { next(err); }
 });
 
@@ -296,6 +298,20 @@ router.get('/browse', (req, res, next) => {
       track_count: tracks.get(p.id) || 0,
     })));
   } catch (err) { next(err); }
+});
+
+// Hide a post from your own view, silently (2026-10-22). Above /:id.
+//   GET    /api/posts/hidden        what you have hidden, for the unhide list
+//   POST   /api/posts/:id/hide      hide it (not your own)
+//   DELETE /api/posts/:id/hide      bring it back
+router.get('/hidden', requireAuth, (req, res, next) => {
+  try { res.json({ posts: hiddenPosts(req.user.id) }); } catch (err) { next(err); }
+});
+router.post('/:id/hide', requireAuth, (req, res, next) => {
+  try { const r = hidePost(req.user.id, Number(req.params.id)); res.status(r.status || 200).json(r.error ? { error: r.error } : r); } catch (err) { next(err); }
+});
+router.delete('/:id/hide', requireAuth, (req, res, next) => {
+  try { res.json(unhidePost(req.user.id, Number(req.params.id))); } catch (err) { next(err); }
 });
 
 router.get('/suggest', (req, res, next) => {
