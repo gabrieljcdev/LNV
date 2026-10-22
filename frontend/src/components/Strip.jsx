@@ -8,6 +8,7 @@ import { getUser, logout, isAdmin } from '../lib/auth';
 import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
 import { MODULE_CARDS } from '../lib/moduleKit';
+import { isFeedPath } from '../lib/routes';
 
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
@@ -147,7 +148,7 @@ export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 
 export const STRIP_RADIUS = 40;
 
 export default function Strip({ activeView }) {
-  const onFeed = useLocation().pathname === '/' && activeView === 'feed';
+  const onFeed = isFeedPath(useLocation().pathname) && activeView === 'feed';
   const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
 
   // Non-panel tabs (main feed / readme / about) swap the feed-zone content

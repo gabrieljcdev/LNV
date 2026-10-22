@@ -165,7 +165,8 @@ export const wallsApi = {
   follow: username => call('POST', `/walls/${encodeURIComponent(username)}/follow`),
   unfollow: username => call('DELETE', `/walls/${encodeURIComponent(username)}/follow`),
 }
-export const wallLink = username => `${window.location.origin}/?feed=${encodeURIComponent(username)}`
+// A person's address (2026-10-22). Older links (?feed=name, ?wall=name) still open their feed: Feed.jsx reads them.
+export const wallLink = username => `${window.location.origin}/u/${encodeURIComponent(username)}`
 
 // Introductions (alpha, 2026-10-05): people my feed suggests you follow,
 // with the reasons (backend collectionsService introductionsFor). Fetched

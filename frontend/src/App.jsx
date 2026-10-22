@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PlayerProvider } from './context/PlayerContext';
 import Layout from './components/Layout';
 import Home from './pages/Home';
+import Profile from './pages/Profile';
 import Artists from './pages/Artists';
 import Labels from './pages/Labels';
 import Genres from './pages/Genres';
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Layout />}>
               <Route index                    element={<Home />} />
+              <Route path="u/:username"        element={<Profile />} />
               <Route path="artists"           element={<Artists />} />
               <Route path="artists/:name"     element={<Artists />} />
               <Route path="labels"            element={<Labels />} />

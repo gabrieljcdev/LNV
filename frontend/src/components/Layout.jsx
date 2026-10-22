@@ -9,6 +9,7 @@ import { LayoutProvider } from '../context/LayoutProvider';
 import PhoneNav from './PhoneNav';
 import { usePhone } from '../lib/usePhone';
 import { setBase } from '../lib/flow';
+import { isFeedPath } from '../lib/routes';
 
 function LayoutInner() {
   const [view, setView] = useState('feed'); // feed | readme | about
@@ -17,7 +18,7 @@ function LayoutInner() {
   // beneath its rounded corners instead of being cut at a straight edge.
   // gabriel, 2026-09-30. Other pages keep the plain edge.
   const pathname = useLocation().pathname;
-  const under = pathname === '/' ? STRIP_RADIUS : 0;
+  const under = isFeedPath(pathname) ? STRIP_RADIUS : 0;
   useEffect(() => { setBase(pathname) }, [pathname]);   // flow tracking: which page (the first part of the path only)
   const phone = usePhone();
 

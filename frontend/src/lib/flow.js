@@ -71,7 +71,8 @@ function change(next, prev) {
 }
 // The page's own place (feed, or the first part of a route: "artists", never the name after it).
 export function setBase(v) {
-  const prev = currentView(); base = v === '/' || !v ? 'feed' : `route:${slug(String(v).split('/').filter(Boolean)[0])}`
+  const prev = currentView(); const first = String(v || '').split('/').filter(Boolean)[0]
+  base = !first || first === 'u' ? 'feed' : `route:${slug(first)}`   // a person's address (/u/name) is the feed page too
   change(currentView(), prev)
 }
 // A drawer is open (its kind: artists, labels...), or closed (null). Never the name inside it.
