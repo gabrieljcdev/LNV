@@ -329,7 +329,7 @@ export default function Strip({ activeView }) {
           column, not something to size up the way the drawer pills did.
           Not verified live — worth checking the tab stack doesn't run past
           100vh on a shorter screen now that each tab is taller. */}
-      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, ...(MODULE_CARDS ? { bottom:0 } : null), width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
+      <div id="lnv-tabs" ref={navTabsRef} data-region="nav" data-chrome="" style={{ position:'absolute', left:0, top:0, ...(MODULE_CARDS ? { bottom:0 } : null), width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
           const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);

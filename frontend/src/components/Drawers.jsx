@@ -77,7 +77,7 @@ function useDrawerNav() {
 export function DrawerHead({ title, count, crumb, onBack, filter, setFilter, action, children }) {
   const { close } = useDrawerNav()
   return (
-    <div style={{ padding: `28px 30px 6px ${PADX}px`, display: 'grid', gap: 14, flexShrink: 0 }}>
+    <div data-region="drawer-head" data-chrome="" style={{ padding: `28px 30px 6px ${PADX}px`, display: 'grid', gap: 14, flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
         {crumb && (
           <button onClick={onBack} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: MONO, fontSize: 12.5, color: SEC, cursor: 'pointer', flexShrink: 0 }}>← {crumb}</button>

@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { claimPlayback, registerSpotify } from '../lib/playerGuard'
 import { recordPlayback } from '../lib/listening'
+import { listenStart } from '../lib/flow'
 
 // ── TrackPlayer (2026-09-25) ─────────────────────────────────────────────────
 // An embed iframe that can say when its track has finished, so an album
@@ -55,13 +56,25 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
     : src
   // A player started by a click (autoplay) stops every other one on the page.
   useEffect(() => { if (autoplay) claimPlayback(isSp ? spHolder.current : ref.current) }, [finalSrc, autoplay, isSp])
+  // Flow tracking (lib/flow.js): how long this player really played. YouTube and Spotify say when they play and pause; the others do not,
+  // so those count from when they were started and are marked approx. Only the platform and the video / track id are kept, never the title.
+  const listen = useRef(null)
+  useEffect(() => {
+    const platform = isYT ? 'youtube' : isSp ? 'spotify' : /soundcloud\.com/.test(src) ? 'soundcloud' : /bandcamp\.com/.test(src) ? 'bandcamp' : 'other'
+    const ref = isYT ? src.match(/embed\/([A-Za-z0-9_-]{6,20})/)?.[1] : isSp ? spMatch?.[2] : undefined
+    listen.current = listenStart({ platform, ref, signals: isYT || isSp, autoplay })
+    return () => { listen.current?.end(false); listen.current = null }
+  }, [finalSrc]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isYT) return
     let cancelled = false
     loadYouTubeApi().then(YT => {
       if (cancelled || !ref.current) return
       new YT.Player(ref.current, {
-        events: { onStateChange: e => { if (e.data === YT.PlayerState.ENDED) endedRef.current?.() } },
+        events: { onStateChange: e => {
+          listen.current?.state(e.data === YT.PlayerState.PLAYING)
+          if (e.data === YT.PlayerState.ENDED) { listen.current?.end(true); endedRef.current?.() }
+        } },
       })
     })
     return () => { cancelled = true }
@@ -83,11 +96,13 @@ export default function TrackPlayer({ src, onEnded, title, autoplay = false }) {
           const nowPlaying = !!d && !d.isPaused
           if (nowPlaying && !wasPlaying) claimPlayback(spHolder.current, c)
           wasPlaying = nowPlaying
+          listen.current?.state(nowPlaying)
           // The track finished: it stops by itself with the position at (or reset from) the very end.
           if (d && !ended && d.duration) {
             const nearEnd = lastDur > 0 && lastPos >= lastDur - 2500
             if ((d.isPaused && nearEnd && d.position < lastPos - 1000) || (d.position >= d.duration - 400 && d.position > 0)) {
               ended = true
+              listen.current?.end(true)
               endedRef.current?.()
             }
             if (!ended) { lastPos = d.position; lastDur = d.duration }

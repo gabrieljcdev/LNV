@@ -8,6 +8,7 @@ import QueueBar from './QueueBar';
 import { LayoutProvider } from '../context/LayoutProvider';
 import PhoneNav from './PhoneNav';
 import { usePhone } from '../lib/usePhone';
+import { setBase } from '../lib/flow';
 
 function LayoutInner() {
   const [view, setView] = useState('feed'); // feed | readme | about
@@ -15,7 +16,9 @@ function LayoutInner() {
   // paints on top, zIndex 100) — the intro, the clock and the cards roll in
   // beneath its rounded corners instead of being cut at a straight edge.
   // gabriel, 2026-09-30. Other pages keep the plain edge.
-  const under = useLocation().pathname === '/' ? STRIP_RADIUS : 0;
+  const pathname = useLocation().pathname;
+  const under = pathname === '/' ? STRIP_RADIUS : 0;
+  useEffect(() => { setBase(pathname) }, [pathname]);   // flow tracking: which page (the first part of the path only)
   const phone = usePhone();
 
   function navigate(v) {

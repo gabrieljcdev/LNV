@@ -31,6 +31,7 @@ const postJson = async (path, body = {}) => {
 }
 
 const n = v => Number(v || 0).toLocaleString('en-GB')
+const durMs = ms => { const s = Math.round((ms || 0) / 1000); return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s` }
 const ago = iso => {
   if (!iso) return '—'
   const t = new Date(/Z$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z').getTime()
@@ -82,6 +83,56 @@ function Bar({ value, max, mark }) {
 // Services today (2026-10-06): how hard each outside service is being
 // asked — real requests only, cache hits don't count. LNV tries the
 // cheapest source first for each job, so the load spreads between them.
+// Flow (2026-10-22): how the accounts that switched activity recording on move through the site and listen (backend services/flow.js).
+// Research only: aggregates, shown to admins; nothing here steers what anyone hears.
+const FlowList = ({ rows, left, right }) => rows?.length ? rows.slice(0, 6).map((r, i) => (
+  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', fontFamily: SANS, fontSize: 14, color: SEC }}>
+    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{left(r)}</span>
+    <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, whiteSpace: 'nowrap' }}>{right(r)}</span>
+  </div>
+)) : <div style={{ fontFamily: SANS, fontSize: 14, color: TER }}>Nothing yet.</div>
+const FlowSub = ({ children }) => <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: TER, margin: '14px 0 4px' }}>{children}</div>
+
+function FlowSection() {
+  const [days, setDays] = useState(30)
+  const { data, error } = useQuery({ queryKey: ['admin-flow', days], queryFn: () => getJson(`/flow?days=${days}`), staleTime: 30_000 })
+  return (
+    <Section title="How people move" right={data ? `${n(data.people)} ${data.people === 1 ? 'person' : 'people'} · ${n(data.sessions)} visits · last ${data.days} days` : ''}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {[7, 30, 90].map(d => (
+          <button key={d} onClick={() => setDays(d)} aria-pressed={days === d}
+            style={{ border: `1px solid ${days === d ? PRI : LINE}`, background: days === d ? PRI : 'none', color: days === d ? 'var(--theme-bg)' : SEC, borderRadius: 99, padding: '2px 10px', fontFamily: SANS, fontSize: 13, cursor: 'pointer' }}>{d} days</button>
+        ))}
+      </div>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && (data.sessions === 0
+        ? <Note>No visits recorded yet. Only accounts with activity recording switched on appear here.</Note>
+        : <>
+          <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, lineHeight: 1.6 }}>
+            Visits last {durMs(data.session_ms.average)} on average (median {durMs(data.session_ms.median)}, longest {durMs(data.session_ms.longest)}).
+            {' '}{n(data.listening.listens)} listens, {durMs(data.listening.total_ms)} in all, {Math.round(data.listening.finish_rate * 100)}% played to the end.
+            {' '}{n(data.searches)} searches, {n(data.compose_opens)} times the post window was opened.
+          </div>
+          <FlowSub>Where the time goes</FlowSub>
+          <FlowList rows={data.time_in_views} left={r => r.view} right={r => durMs(r.ms)} />
+          <FlowSub>What leads where (click → view)</FlowSub>
+          <FlowList rows={data.what_led_where} left={r => r.lead} right={r => `${n(r.n)}×`} />
+          <FlowSub>Paths (view → view)</FlowSub>
+          <FlowList rows={data.paths} left={r => r.path} right={r => `${n(r.n)}×`} />
+          <FlowSub>Most clicked</FlowSub>
+          <FlowList rows={data.top_clicks} left={r => r.target} right={r => `${n(r.n)}×`} />
+          <FlowSub>Listening by player</FlowSub>
+          <FlowList rows={data.listening.by_platform} left={r => r.platform} right={r => `${n(r.listens)} · ${durMs(r.ms)}`} />
+          <FlowSub>Where visits start and end</FlowSub>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div><FlowList rows={data.first_view} left={r => `start: ${r.view}`} right={r => `${n(r.n)}`} /></div>
+            <div><FlowList rows={data.last_view} left={r => `end: ${r.view}`} right={r => `${n(r.n)}`} /></div>
+          </div>
+        </>)}
+    </Section>
+  )
+}
+
 function ServicesSection({ s }) {
   const rows = [
     ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
@@ -248,6 +299,7 @@ function StatusTab({ onShowLogs }) {
     <QuotaBalance y={youtube} />
 
     {data.services && <ServicesSection s={data.services} />}
+    <FlowSection />
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>

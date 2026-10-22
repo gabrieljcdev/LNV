@@ -3,6 +3,7 @@ import { LayoutContext } from './LayoutContext';
 import { applyPalette, getAutoIndex } from '../services/themeService';
 import { RAIL_WIDTH, RAIL_OPEN_WIDTH, STRIP_OPEN_WIDTH, STRIP_RADIUS } from '../components/Strip';
 import { applyFBarLayout, BARS_OUT_RANGE, TEXT_IN_RANGE } from '../lib/fbars';
+import { setDrawer } from '../lib/flow';
 
 // Horizontal feed px moved per vertical wheel/trackpad px that #scroll-outer
 // receives. #scroll-outer's scrollTop is the SINGLE source of truth for feed
@@ -195,6 +196,8 @@ export function LayoutProvider({ children }) {
  }, []);
 
  // A drawer opening folds the strip down to its rail (smoothly); closing it puts the strip back to match the feed.
+ // Flow tracking: which drawer is open (its kind only, never the name inside it).
+ useEffect(() => { setDrawer(typeof d3Content === 'string' ? d3Content : (d3Content ? 'drawer' : null)); }, [d3Content]);
  useEffect(() => {
    d3OpenRef.current = !!d3Content;
    const strip = stripRef.current, zone = railZoneRef.current;
