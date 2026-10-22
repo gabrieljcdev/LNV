@@ -158,15 +158,17 @@ not built):
 **LIVE, launch (all confirmed by gabriel by eye, 22 Oct):** scroll is locked until everything has loaded (lib/launch.js: the reveal animation, the fonts, the feed's first page and every card; opens once; an 8 s timer opens it whatever happens); the 0-100 counter is gone; the reveal is a compositor transform animation, 2.2 s with an ease-in-out curve (duration is one constant in Preloader.jsx); smooth start: the first feed page is 20 posts (was 60) and cards are mounted 6 then 4 per task, so load has no long tasks (was 529 ms of blocking, 339 ms worst). Desktop shelf only: the phone deck (PhoneFeed) was not changed.
 **LIVE, performance:** per-post lookups indexed (134 to 8 ms per feed page at 5,000 posts); prepared-statement cache (mean request 8.9 to 5.0 ms; LNV_STMT_CACHE=0 turns it off); relCache capped; 8 unused files removed.
 
-**A. Backend is built, the SCREEN is not (front-end work):**
-- Hide button on cards plus an unhide list (/api/posts/hidden). The filter does not apply to /posts/browse.
-- "Wrong link? Change it" box (report, replace, withdraw) and an admin screen for /api/admin/bad-links.
-- My feeds: the playlists UI must treat kind myfeeds as read-only and not offer it as an add-to-playlist target.
-- Where-it-came-from: send origin and origin_ref from the composer and the keep (heart): drawer "+ add to my feed" sends digging plus the drawer name; the heart on someone's wall sends user plus their username. Show the chip. Without this the sharing edge has no source (see the research write-up).
-- Decade jump: a chip row and scroll using jump.offset and decades.
-- Notifications: bell and list, the @-picker, tag chips, remove-my-tag; a user-search box in the Community tab (endpoint exists).
-- Wall by URL: the /u/:username route in App.jsx (Caddy already serves it) and a copy-link using path.
-- A settings screen for the recording switch (turn on, see, export, clear, delete). Today it can only be toggled through the API.
+**A. The screens for the backend features: BUILT 22 Oct (evening), committed on dedupe, NOT pushed or deployed yet** (commits fd270f4, de6e9a4, b649927, e32b5f1, c09220d, b241259, b9bc6fc). Tried in the browser against a throwaway test server; what could not be tried is said below.
+- DONE "Your data" screen (profile menu -> Your data): the recording switch (starts/stops the tracker at once), what is kept / never kept, what it holds now, download a copy, clear site-use, clear listening, delete everything. ActivityDrawer.jsx.
+- DONE /u/<username>: Profile.jsx opens that person's feed; unknown name gets a "No such person" page; your own name opens your home feed; copy-link (wallLink) now gives /u/<name>.
+- DONE Where-it-came-from is SENT: the heart sends origin 'user' + the wall owner (or the poster); the composer sends 'digging' + the drawer or spotlight name when opened from one, 'link' when the link was typed or pasted. Tried: the heart end to end (request body and what the server stored). Composer: opens pre-filled; the final post call was not run (the test server cannot look links up). NOT DONE: the small "found via" chip on the card.
+- DONE Notifications: bell on the strip with the unread number (polled every minute), a Notifications drawer (mark all read, tap a row to open that person's feed), "Remove my tag" on tag notifications. NotificationsDrawer.jsx, lib/unread.js.
+- DONE People search box at the top of the Community tab (UserPicker.jsx, with a follow button). The @-picker under the note box in the composer (offers people while the note ends in "@na"): lint-clean and uses the same search, but it was NOT tried in the composer because the note box only shows once a link has been looked up. NOT DONE: tag chips on the cards themselves (the post's mentions list is only in GET /posts/:id); removing a tag works from the notification.
+- DONE Hide on cards (next to "add to playlist" on the main card variants; not on every old variant), and a "Hidden from your feed" list with Unhide at the bottom of the Playlists drawer. The filter still does not apply to /posts/browse.
+- DONE My feeds in the playlists screens: shown as "yours, private, follows your posts, read-only", no share/invite/rename/delete, no move/remove, not offered by "+ list". Tried.
+- DONE "Wrong link? change it" under the playing track (report "this is the wrong track", or paste a better link, checked then replaced; undo of a report). TrackLinkAdd.jsx WrongLinkRow, in the release list and the preview. NOT TRIED in the browser (needs a playing release; the API and lint were checked). DONE Admin -> Status -> "Wrong links": every report and flag, with "Put back". Tried.
+- DONE Decade chips (All, 2020s ... Undated) in the artist discography and label catalogue drawers; tapping one starts the list at that decade and the rest pages on from there. Tried (2010s -> 2019, 1990s -> 1999). NOT DONE: the same chips in the spotlight cards' catalogue list (Feed.jsx).
+- Before deploying: frontend build + a look in a visible browser (the hidden pane here cannot show animation or real scrolling). Backend needs no restart for these screens.
 
 **B. Needs a decision or an input from gabriel:**
 - Group feeds: a visibility on posts (public or group) or lighter shared items?
