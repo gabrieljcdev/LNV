@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
 import { firstFriend } from '../services/authService.js';
+import { notify } from '../services/notifications.js';
 import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, introductionsFor, introReason } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
@@ -29,7 +30,8 @@ router.post('/:username/follow', requireAuth, (req, res, next) => {
     const u = userByName(req.params.username);
     if (!u) return res.status(404).json({ error: 'No such user.' });
     if (u.id === req.user.id) return res.status(400).json({ error: 'That’s you.' });
-    db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(req.user.id, u.id);
+    const made = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(req.user.id, u.id).changes;
+    if (made) notify(u.id, 'follow', { actorId: req.user.id });
     res.json({ following: true });
   } catch (err) { next(err); }
 });

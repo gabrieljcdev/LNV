@@ -30,6 +30,7 @@ import { startGapSweeper } from './services/gapSweeper.js';
 import { startProfileKeeper } from './services/profileLinks.js';
 import trackLinkRoutes from './routes/trackLinks.js';
 import customLabelRoutes from './routes/customLabels.js';
+import notificationRoutes from './routes/notifications.js';
 import { startLinkHealth } from './services/linkHealth.js';
 import { startSpareQuota } from './services/spareQuota.js';
 import { startYoutubeRefresh } from './services/youtubeRefresh.js';
@@ -58,6 +59,7 @@ app.use('/api', requestLogger); // writes, failures and slow requests -> admin l
 app.use('/api/auth',    authRoutes);
 app.use('/api/discogs', discogsRoutes);
 app.use('/api/custom-labels', customLabelRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/track-links', trackLinkRoutes);
 app.use('/api/media',   mediaRoutes);
 app.use('/api/posts',   postsRoutes);

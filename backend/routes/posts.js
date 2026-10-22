@@ -8,6 +8,7 @@ import { searchPostIds, suggest, parsePostNumber } from '../services/searchServi
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
 import { recordEvent, cleanOrigin } from '../db/activityDb.js';
+import { notify, recordMentions, mentionsOfPost, removeMyMention } from '../services/notifications.js';
 import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
 import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage, hiddenIds, hidePost, unhidePost, hiddenPosts } from '../services/collectionsService.js';
@@ -73,7 +74,7 @@ function getFullPost(postId) {
   const alsoPostedHow = joins.map(r => ({ username: r.username, origin: r.origin, origin_ref: r.origin_ref }));
   // The newest replies, oldest of them first, for the card's reply strip (it shows as many as fit).
   const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? AND c.private = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, alsoPostedHow, playlists, latestComments };
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, alsoPostedHow, mentions: mentionsOfPost(postId), playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -365,6 +366,7 @@ router.post('/', requireAuth, (req, res, next) => {
     const org = cleanOrigin(origin || 'link', origin_ref);
     db.prepare('UPDATE posts SET origin = ?, origin_ref = ? WHERE id = ?').run(org.origin, org.origin_ref, postId);
     recordEvent('post', { userId: user_id, postId, origin: org.origin, originRef: org.origin_ref });
+    recordMentions({ postId, byUserId: user_id, texts: [post_title, notes] });   // @username in the short note or description
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
     for (const a of artists) ia.run(postId, a.name, a.id || null);
     const il = db.prepare('INSERT INTO post_labels (post_id, label_name, catalogue_number, discogs_label_id) VALUES (?, ?, ?, ?)');
@@ -462,6 +464,7 @@ router.patch('/:id', requireAuth, (req, res, next) => {
         setTimeout(() => checkPostLinks(id).catch(() => {}), 1500);
       }
     })();
+    if (updates.length) { const now = db.prepare('SELECT post_title, notes FROM posts WHERE id = ?').get(id); recordMentions({ postId: id, byUserId: post.user_id, texts: [now?.post_title, now?.notes] }); }   // only people newly tagged are told
     logEvent('info', 'post', `Edited post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });
     res.json(getFullPost(id));
   } catch (err) { next(err); }
@@ -502,6 +505,7 @@ router.post('/:id/join', requireAuth, (req, res, next) => {
     if (added) {
       logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
       recordEvent('keep', { userId: req.user.id, postId: post.id, origin: org.origin, originRef: org.origin_ref });
+      notify(post.user_id, 'keep', { actorId: req.user.id, postId: post.id });
     }
     res.json(getFullPost(post.id));
   } catch (err) { next(err); }
@@ -571,6 +575,14 @@ router.delete('/:id/comments/:commentId', requireAuth, (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Take your own tag off a post, or off a reply (services/notifications.js). Yours only: nobody else's tag is touched.
+router.delete('/:id/mentions/me', requireAuth, (req, res, next) => {
+  try { res.json({ removed: removeMyMention(req.user.id, Number(req.params.id), 0) }); } catch (err) { next(err); }
+});
+router.delete('/:id/comments/:commentId/mentions/me', requireAuth, (req, res, next) => {
+  try { res.json({ removed: removeMyMention(req.user.id, Number(req.params.id), Number(req.params.commentId)) }); } catch (err) { next(err); }
+});
+
 router.post('/:id/comments', requireAuth, (req, res, next) => {
   try {
     const user_id = req.user.id;
@@ -583,6 +595,9 @@ router.post('/:id/comments', requireAuth, (req, res, next) => {
     const result = db.prepare('INSERT INTO comments (post_id, user_id, content, private) VALUES (?, ?, ?, ?)').run(post.id, user_id, content, priv);
     const comment = db.prepare('SELECT c.*, u.username, u.display_name FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?').get(result.lastInsertRowid);
     recordEvent('reply', { userId: user_id, postId: post.id, meta: priv ? { private: true } : null }); // ids only, never the text
+    notify(post.user_id, 'reply', { actorId: user_id, postId: post.id, commentId: result.lastInsertRowid });
+    // Replies can tag people too, public ones only: a private reply is between two people. The post's owner is told of the reply itself.
+    if (!priv) recordMentions({ postId: post.id, commentId: Number(result.lastInsertRowid), byUserId: user_id, texts: [content], skipUserIds: [post.user_id] });
     res.status(201).json(comment);
   } catch (err) { next(err); }
 });
