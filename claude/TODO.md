@@ -8,7 +8,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - **Live on waxopathy.com: `9e65a65`** (the links work below is committed after it, not yet deployed) (frontend rebuilt 22 Oct evening; backend restarted at `3d2e12a`). Nothing is waiting to be deployed.
 - Everything from the 22 Oct arc is live: research-only recording and "Your data", notifications, @tags, Hide, My feeds, found-via and tag chips, wrong-link flagging,
   decade chips, For later, /u/<name>, the launch scroll lock and smooth start, the feed-paging fix. What it is and how to undo it: `claude/2026-10-22-handover.md`.
-- **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips, and the feed now reaching all 71 posts. (The tool pane here cannot show real layout or scrolling.)
+- **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips. (The tool pane here cannot show real layout or scrolling.)
 - Your uncommitted `frontend/src/lib/moduleKit.js` ("heat vision" sweep) is yours: never commit or stash it. Never `git stash` here.
 - Rules in force: **research only** (nothing recorded ever picks what people hear or see), **opt-in** recording, **ids and slugs only**, **YouTube API data never kept past 30 days**,
   the site **connects people, it never recommends tracks**, and no word "wall" in the interface.
@@ -29,18 +29,16 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 | **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
 
 ## 2. Bugs to chase
-1. **Feed stopped at about 52**: fixed and live (`9e65a65`). Confirm you now reach all 71. If not, the phone deck has its own load-ahead check that was never changed.
-2. **Adding to the feed from an artist or label spotlight closes the spotlight** and breaks listening (18 Oct). It should stay open and keep playing, or at least reopen the drawer. Check phone too.
-3. **"My feed" jumps back to the start** of your profile instead of keeping your place (18 Oct).
-4. **Playlists** (14 Oct): opening one does not land on it; "View as feed" does not show the whole list; track titles are white on white. **(check)**
-5. **Highlighted tracks** (15 Oct): highlights set in compose do not show on the post in the feed; and highlights are too subtle. **(check)**
-6. **Drawer is blank the first time you click an artist's name** (10 Oct, high priority; reproduced in Chrome, nothing in our console). **(check)**
-7. **Spotify embed squashed in the media box** on Module cards (19 Oct). **(check)**
-8. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
-9. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
-10. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
-11. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
-12. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
+1. **Adding to the feed from an artist or label spotlight closes the spotlight** and breaks listening (18 Oct). It should stay open and keep playing, or at least reopen the drawer. Check phone too.
+2. **"My feed" jumps back to the start** of your profile instead of keeping your place (18 Oct).
+3. **Playlists** (14 Oct): opening one does not land on it; "View as feed" does not show the whole list; track titles are white on white. **(check)**
+4. **Highlighted tracks** (15 Oct): highlights set in compose do not show on the post in the feed; and highlights are too subtle. **(check)**
+5. **Spotify embed squashed in the media box** on Module cards (19 Oct). **(check)**
+6. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
+7. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
+8. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
+9. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
+10. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
 
 ## 3. Build next
 ### Player and listening
@@ -122,4 +120,4 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 ## 9. Done (kept short; the archive and handovers have the detail)
 Hosting live on UpCloud and waxopathy.com · duplicate comber · YouTube savings and the 30-day refresh · Add a link for tracks nobody found · infinite scroll in catalogues
 · share links (your feed `/u/<name>`, playlists) · Spotify one-at-a-time fix · replies, private replies, highlights · persistent drawers · Introductions and Community boards
-· Add a label from Bandcamp · 429s and crawler 404 loop · all of section 0.
+· Add a label from Bandcamp · 429s and crawler 404 loop · all of section 0 · feed reaching all 71 posts (confirmed by gabriel) · artist drawer blank on first click (confirmed fixed by gabriel).
