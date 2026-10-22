@@ -3695,6 +3695,12 @@ const SPOTLIGHT_PAD = 60
 // empty state than fake rows, and it can't mask a broken fetch the way the
 // placeholders could.
 
+// A spotlight's list shows this many rows at first and reveals more as it is scrolled (2026-10-22): every loaded row used to be in the page at once
+// (up to 100 a page), which made ten spotlights about half of the feed's 22,000 elements and 800 images. The open row is always shown.
+const SPOTLIGHT_ROWS_AT_FIRST = 30, SPOTLIGHT_ROWS_STEP = 30
+// The sleeve strip is a looping marquee of 2 x STRIP_SLEEVES images (it was 40, so 80 per spotlight). Offscreen it is skipped by the browser
+// (content-visibility: auto on the strip, whose height is fixed, so nothing shifts) and its animation does not run.
+const STRIP_SLEEVES = 24
 function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   const { registerPostRef, openD3 } = useLayout() || {}
   const { type, name, posts } = subject
@@ -3768,7 +3774,9 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
   // narrowed by the search box, and re-asked every 6s while the crawl is
   // still collecting.
   const [catalogueQuery, setCatalogueQuery] = useState('')
+  const [shownRows, setShownRows] = useState(SPOTLIGHT_ROWS_AT_FIRST)
   const [catalogueFilter, setCatalogueFilter] = useState('')
+  useEffect(() => { setShownRows(SPOTLIGHT_ROWS_AT_FIRST) }, [catalogueQuery])
   useEffect(() => {
     const t = setTimeout(() => setCatalogueFilter(catalogueQuery.trim()), 300)
     return () => clearTimeout(t)
@@ -3967,7 +3975,8 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
     // Newest year first; undated entries last.
     .sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0))
   const openRow = rows.find(r => r.key === openKey) || null
-  const stripItems = rows.filter(r => r.thumb).slice(0, 40)
+  const rowsToShow = Math.max(shownRows, rows.findIndex(r => r.key === openKey) + 1)
+  const stripItems = rows.filter(r => r.thumb).slice(0, STRIP_SLEEVES)
 
   // Full-size sleeves for the strip. Discogs list thumbs are 150px (and
   // signed, so no bigger size can be asked for); the backend returns the
@@ -4129,7 +4138,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       <div
         onMouseEnter={() => setStripPaused(true)}
         onMouseLeave={() => setStripPaused(false)}
-        style={{ flexShrink: 0, marginTop: 18, height: STRIP_H, overflow: 'hidden', marginLeft: -SPOTLIGHT_PAD, marginRight: -SPOTLIGHT_PAD, maskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)' }}
+        style={{ flexShrink: 0, marginTop: 18, height: STRIP_H, contentVisibility: 'auto', containIntrinsicSize: `auto 0px auto ${STRIP_H}px`, overflow: 'hidden', marginLeft: -SPOTLIGHT_PAD, marginRight: -SPOTLIGHT_PAD, maskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 6%, #000 94%, transparent)' }}
       >
         {stripItems.length > 0 ? (
           <div
@@ -4170,10 +4179,13 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
       {/* 10px of room each side so the rows' rounded hover isn't clipped.
           The next 100 entries load as the list nears the bottom. */}
       <div ref={listRef} data-inner-scroll=""
-        onScroll={hasCatalogue ? e => {
+        onScroll={e => {
           const el = e.currentTarget
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 400 && cataloguePages.hasNextPage && !cataloguePages.isFetchingNextPage) cataloguePages.fetchNextPage()
-        } : undefined}
+          if (el.scrollHeight - el.scrollTop - el.clientHeight >= 400) return
+          // Near the bottom: show more of what is already loaded; only when all of it is showing, ask for the next page.
+          if (rowsToShow < rows.length) setShownRows(rowsToShow + SPOTLIGHT_ROWS_STEP)
+          else if (hasCatalogue && cataloguePages.hasNextPage && !cataloguePages.isFetchingNextPage) cataloguePages.fetchNextPage()
+        }}
         style={{ flex: 1, minHeight: 0, margin: `${bigCatalogue ? 12 : 18}px -10px 0`, padding: '0 10px', overflowY: 'auto', overflowX: 'hidden', ...INNER_SCROLL_STYLE }}>
         {rows.length === 0 && (
           <div style={{ padding: '24px 0', textAlign: 'center', ...msgText }}>
@@ -4182,7 +4194,7 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
               : `nothing found on ${catalogueSource}`}
           </div>
         )}
-        {rows.map((r, idx) => {
+        {rows.slice(0, rowsToShow).map((r, idx) => {
           const open = r.key === openKey
           const newYear = idx === 0 || rows[idx - 1].year !== r.year
           const yearRows = newYear ? rows.filter(x => x.year === r.year) : null
