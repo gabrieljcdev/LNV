@@ -22,8 +22,34 @@ export function playlistRole(p, userId) {
   return db.prepare('SELECT 1 FROM playlist_members WHERE playlist_id = ? AND user_id = ?').get(p.id, userId) ? 'member' : null;
 }
 
-const tracksOf = id => db.prepare('SELECT * FROM playlist_tracks WHERE playlist_id = ? ORDER BY sort, id').all(id);
 const isReleaseList = p => p?.kind === 'collection' || p?.kind === 'wantlist';
+
+// "My feeds" (2026-10-22): every track of every post you have made, newest post first, so you can play your own additions quickly.
+// Not stored: it is read from your posts each time, so a new post is in it at once, a track's link appears when the post's links are
+// found, and existing posts need no backfill. Private (no share link, not on the profile) and read-only (it follows your posts).
+const MY_FEEDS = 'myfeeds';
+const isMyFeeds = p => p?.kind === MY_FEEDS;
+const MY_FEEDS_MAX = 2000;
+function myFeedsTracks(ownerId, limit = MY_FEEDS_MAX) {
+  const rows = db.prepare(`
+    SELECT t.id, t.post_id, t.position, t.title, COALESCE(NULLIF(t.artist, ''), (SELECT artist_name FROM post_artists a WHERE a.post_id = t.post_id ORDER BY a.id LIMIT 1)) AS artist,
+           COALESCE(NULLIF(t.stream_url, ''), NULLIF(t.youtube_url, '')) AS url, NULLIF(t.embed_url, '') AS embed_url, t.duration,
+           COALESCE(p.thumb_image, p.cover_image) AS cover
+    FROM post_tracks t JOIN posts p ON p.id = t.post_id
+    WHERE p.user_id = ? AND p.is_spotlight = 0 AND COALESCE(NULLIF(t.stream_url, ''), NULLIF(t.youtube_url, '')) IS NOT NULL
+    ORDER BY p.id DESC, t.id LIMIT ?`).all(ownerId, limit);
+  return rows.map((r, i) => ({ ...r, playlist_id: null, sort: i }));
+}
+export function ensureMyFeedsPlaylist(userId) {
+  const have = db.prepare('SELECT id FROM playlists WHERE owner_id = ? AND kind = ?').get(userId, MY_FEEDS);
+  if (have) return have.id;
+  return db.prepare("INSERT INTO playlists (owner_id, name, kind, is_default, on_profile) VALUES (?, 'My feeds', ?, 0, 0)").run(userId, MY_FEEDS).lastInsertRowid;
+}
+const tracksOf = id => {
+  const p = db.prepare('SELECT kind, owner_id FROM playlists WHERE id = ?').get(id);
+  if (isMyFeeds(p)) return myFeedsTracks(p.owner_id).map(t => ({ ...t, playlist_id: id }));
+  return db.prepare('SELECT * FROM playlist_tracks WHERE playlist_id = ? ORDER BY sort, id').all(id);
+};
 
 function summary(p, userId) {
   const role = playlistRole(p, userId);
@@ -33,11 +59,12 @@ function summary(p, userId) {
     role,
     share_token: role === 'owner' ? p.share_token : (role ? p.share_token : undefined),
     invite_token: role === 'owner' ? p.invite_token : undefined,
-    track_count: db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c,
+    track_count: isMyFeeds(p) ? myFeedsTracks(p.owner_id).length : db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE playlist_id = ?').get(p.id).c,
     member_count: db.prepare('SELECT COUNT(*) c FROM playlist_members WHERE playlist_id = ?').get(p.id).c,
     // Discogs collection / wantlist playlists hold releases, not tracks (services/discogsAccount.js).
     ...(isReleaseList(p) ? { release_count: db.prepare('SELECT COUNT(*) c FROM playlist_releases WHERE playlist_id = ?').get(p.id).c } : {}),
-    covers: isReleaseList(p)
+    covers: isMyFeeds(p) ? [...new Set(myFeedsTracks(p.owner_id, 60).map(t => t.cover).filter(Boolean))].slice(0, 3)
+      : isReleaseList(p)
       ? db.prepare('SELECT cover FROM playlist_releases WHERE playlist_id = ? AND cover IS NOT NULL ORDER BY added_at DESC LIMIT 3').all(p.id).map(r => r.cover)
       : db.prepare('SELECT cover FROM playlist_tracks WHERE playlist_id = ? AND cover IS NOT NULL ORDER BY sort LIMIT 3').all(p.id).map(r => r.cover),
   };
@@ -103,6 +130,7 @@ export function ensureDefaultPlaylist(userId) {
 router.get('/', (req, res, next) => {
   try {
     ensureDefaultPlaylist(req.user.id);
+    ensureMyFeedsPlaylist(req.user.id);
     // Your default first, then the newest.
     const rows = db.prepare(`SELECT p.* FROM playlists p
       WHERE p.owner_id = ? OR EXISTS (SELECT 1 FROM playlist_members m WHERE m.playlist_id = p.id AND m.user_id = ?)
@@ -163,6 +191,7 @@ router.get('/:id/releases', (req, res, next) => {
 router.patch('/:id', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds follows your posts, so it can’t be renamed.' });
     const name = cleanName(req.body?.name);
     if (!name) return res.status(400).json({ error: 'Give the playlist a name.' });
     db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(name, p.id);
@@ -173,6 +202,7 @@ router.patch('/:id', (req, res, next) => {
 router.delete('/:id', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds follows your posts, so it can’t be deleted.' });
     if (isReleaseList(p)) return res.status(400).json({ error: 'This list comes from your Discogs account — disconnect Discogs to remove it.' });
     if (p.is_default) return res.status(400).json({ error: 'Your default playlist can’t be deleted — rename it, or empty it, instead.' });
     db.transaction(() => {
@@ -188,6 +218,7 @@ router.delete('/:id', (req, res, next) => {
 router.post('/:id/share', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds is private to you.' });
     if (isReleaseList(p)) return res.status(400).json({ error: 'Your Discogs lists are private for now — sharing them isn’t switched on yet.' });
     const token = !p.share_token || req.body?.renew ? newShareToken() : p.share_token;
     db.prepare('UPDATE playlists SET share_token = ? WHERE id = ?').run(token, p.id);
@@ -199,6 +230,7 @@ router.post('/:id/share', (req, res, next) => {
 router.post('/:id/invite', (req, res, next) => {
   try {
     const p = load(req, res, 'owner'); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds is private to you.' });
     if (isReleaseList(p)) return res.status(400).json({ error: 'Your Discogs lists are private for now — sharing them isn’t switched on yet.' });
     const token = !p.invite_token || req.body?.renew ? newShareToken() : p.invite_token;
     db.prepare('UPDATE playlists SET invite_token = ? WHERE id = ?').run(token, p.id);
@@ -226,6 +258,7 @@ router.delete('/:id/members/:userId', (req, res, next) => {
 router.post('/:id/tracks', (req, res, next) => {
   try {
     const p = load(req, res); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds fills itself from your posts.' });
     if (isReleaseList(p)) return res.status(400).json({ error: 'This list comes from your Discogs account — its records can’t be edited here.' });
     const list = Array.isArray(req.body?.tracks) ? req.body.tracks : [];
     res.status(201).json(addTracks(p.id, list));
@@ -235,6 +268,7 @@ router.post('/:id/tracks', (req, res, next) => {
 router.delete('/:id/tracks/:trackId', (req, res, next) => {
   try {
     const p = load(req, res); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds follows your posts; delete the post to remove its tracks.' });
     db.prepare('DELETE FROM playlist_tracks WHERE id = ? AND playlist_id = ?').run(Number(req.params.trackId), p.id);
     res.json({ ok: true });
   } catch (err) { next(err); }
@@ -244,6 +278,7 @@ router.delete('/:id/tracks/:trackId', (req, res, next) => {
 router.post('/:id/tracks/:trackId/move', (req, res, next) => {
   try {
     const p = load(req, res); if (!p) return;
+    if (isMyFeeds(p)) return res.status(400).json({ error: 'My feeds is always newest post first.' });
     const rows = tracksOf(p.id).map(r => r.id);
     const i = rows.indexOf(Number(req.params.trackId));
     const j = i + (Number(req.body?.dir) < 0 ? -1 : 1);
