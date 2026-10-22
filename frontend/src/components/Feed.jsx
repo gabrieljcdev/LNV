@@ -21,6 +21,7 @@ import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
 import { MODULE_CARDS, MODULE_CSS, moduleLook, solid, startSweep } from '../lib/moduleKit'
 import { rightSizedCover } from '../lib/covers'
+import { holdLaunch, releaseLaunch } from '../lib/launch'
 import { Blk } from './Blocks'
 import { SPECTRUM_START, spectrumBg } from '../services/postSpectrum'
 import { installPlayerGuard, trackEmbedSrc } from '../lib/playerGuard'
@@ -5373,6 +5374,10 @@ export default function Feed() {
   const mountKey = `${feedSelKey}|${search || ''}`
   const [mounted, setMounted] = useState({ key: mountKey, cap: FEED_MOUNT_FIRST })
   const mountCap = mounted.key === mountKey ? mounted.cap : FEED_MOUNT_FIRST
+  // The launch lock (lib/launch.js) stays on until the first page has arrived and every card is on the page.
+  useEffect(() => { holdLaunch('feed'); return () => releaseLaunch('feed') }, [])
+  const feedReady = !isFetching && mountCap >= shelfList.length
+  useEffect(() => { if (feedReady) releaseLaunch('feed') }, [feedReady])
   useEffect(() => {
     if (mountCap >= shelfList.length) return undefined
     // A MessageChannel message is a task of its own that the browser does not throttle in a background tab (setTimeout(0) waits a second there).

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { SECONDARY_STRIP_WIDTH, STRIP_RADIUS } from './Strip'; // round 17: moved from SecondaryStrip.jsx (deprecated) to Strip.jsx (merged strip)
+import { SECONDARY_STRIP_WIDTH, STRIP_RADIUS } from './Strip';
+import { releaseLaunch, useLaunchLocked } from '../lib/launch'; // round 17: moved from SecondaryStrip.jsx (deprecated) to Strip.jsx (merged strip)
 
 // One-time load reveal, modeled on avantt.displaay.net's own preloader
 // (reverse-engineered from their production JS bundle — see
@@ -51,11 +52,10 @@ function easeOutCubic(t) {
 }
 
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-const LOCK_FAILSAFE_MS = DURATION_MS + 1500; // released by the clock even if the animation never ran
 
 export default function Preloader({ onDone }) {
   const [fading, setFading] = useState(false);
-  const [locked, setLocked] = useState(true);
+  const locked = useLaunchLocked(); // lib/launch.js: held until the animation, the fonts and the feed (its first page and every card) are all in
   const [mounted, setMounted] = useState(true);
   const startRef = useRef(null);
   const rafRef = useRef(null);
@@ -76,15 +76,14 @@ export default function Preloader({ onDone }) {
       } else {
         setFading(true);
         setTimeout(() => {
-          setLocked(false);
+          releaseLaunch('animation');
           setMounted(false);
           onDone?.();
         }, 220);
       }
     }
     rafRef.current = requestAnimationFrame(tick);
-    const failsafe = setTimeout(() => setLocked(false), LOCK_FAILSAFE_MS);
-    return () => { rafRef.current && cancelAnimationFrame(rafRef.current); clearTimeout(failsafe); };
+    return () => { rafRef.current && cancelAnimationFrame(rafRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
