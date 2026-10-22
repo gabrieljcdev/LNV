@@ -460,6 +460,16 @@ const migrations = [
   'ALTER TABLE posts ADD COLUMN origin_ref TEXT',
   'ALTER TABLE post_joins ADD COLUMN origin TEXT',
   'ALTER TABLE post_joins ADD COLUMN origin_ref TEXT',
+  // Indexes for what every feed page asks of every post (2026-10-22): the lists hung off a post. Without them each of these was a scan of the
+  // whole table, once per post per page (found with EXPLAIN QUERY PLAN), so the cost grew with posts x tracks. Small tables today; this is for when they are not.
+  'CREATE INDEX IF NOT EXISTS idx_post_artists_post ON post_artists(post_id)',
+  'CREATE INDEX IF NOT EXISTS idx_post_labels_post ON post_labels(post_id)',
+  'CREATE INDEX IF NOT EXISTS idx_post_genres_post ON post_genres(post_id)',
+  'CREATE INDEX IF NOT EXISTS idx_post_tracks_post ON post_tracks(post_id)',
+  'CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, private, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_playlist_tracks_post ON playlist_tracks(post_id)',
+  'CREATE INDEX IF NOT EXISTS idx_post_artists_discogs ON post_artists(discogs_artist_id)',
+  'CREATE INDEX IF NOT EXISTS idx_post_labels_discogs ON post_labels(discogs_label_id)',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (_) { /* column already exists — skip */ }
