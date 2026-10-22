@@ -39,10 +39,15 @@ const saveLink = db.prepare(`INSERT INTO release_track_links (release_id, positi
     source = excluded.source, fetched_at = excluded.fetched_at, paid = release_track_links.paid + excluded.paid
   WHERE release_track_links.youtube_url IS NULL`);
 
+// Releases looked up during one run, so the same record is not fetched twice in it. Capped, and emptied at the start of every run: this was a
+// module-level Map that never shrank, so a server left up for days kept every release the nightly job had touched (tracklists and all) in memory.
+const RELCACHE_MAX = 200;
 const relCache = new Map();
 async function release(id) {
   if (!relCache.has(id)) {
-    relCache.set(id, await getRelease(id, { background: true }).catch(() => null));
+    const rel = await getRelease(id, { background: true }).catch(() => null);
+    if (relCache.size >= RELCACHE_MAX) relCache.delete(relCache.keys().next().value);
+    relCache.set(id, rel);
     await sleep(1500);   // gentle on Discogs, alongside the other jobs
   }
   return relCache.get(id);
@@ -103,6 +108,7 @@ export async function runSpareQuota({ force = false, dry = false } = {}) {
   const units = () => cap() - reserve() - quotaUsed();
   if (units() < SEARCH_COST) return { skipped: `only ${Math.max(0, cap() - quotaUsed())} units left` };
   running = true;
+  relCache.clear();
   const out = { day, startUnits: quotaUsed(), searches: 0, found: 0, byGroup: {}, dry };
   try {
     if (!dry) db.prepare("INSERT OR REPLACE INTO api_quota (provider, day, units) VALUES ('spare-run', ?, 1)").run(day);
