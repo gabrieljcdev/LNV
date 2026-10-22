@@ -1,0 +1,121 @@
+# TODO: the one list (tidied 22 Oct 2026)
+
+This is the list to read and keep current. The old running notes (6 to 22 Oct, in date layers) are kept unchanged as the archive in
+`claude/2026-10-06-late-handover.md`; each item below says where its full detail lives ("archive: Added 10 Oct" = that heading in the archive file).
+Items marked **(check)** were written down earlier and I have not re-verified them against the code since.
+
+## 0. Where we are
+- **Live on waxopathy.com: `9e65a65`** (frontend rebuilt 22 Oct evening; backend restarted at `3d2e12a`). Nothing is waiting to be deployed.
+- Everything from the 22 Oct arc is live: research-only recording and "Your data", notifications, @tags, Hide, My feeds, found-via and tag chips, wrong-link flagging,
+  decade chips, For later, /u/<name>, the launch scroll lock and smooth start, the feed-paging fix. What it is and how to undo it: `claude/2026-10-22-handover.md`.
+- **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips, and the feed now reaching all 71 posts. (The tool pane here cannot show real layout or scrolling.)
+- Your uncommitted `frontend/src/lib/moduleKit.js` ("heat vision" sweep) is yours: never commit or stash it. Never `git stash` here.
+- Rules in force: **research only** (nothing recorded ever picks what people hear or see), **opt-in** recording, **ids and slugs only**, **YouTube API data never kept past 30 days**,
+  the site **connects people, it never recommends tracks**, and no word "wall" in the interface.
+
+## 1. Needs a decision from you (nothing moves until you answer)
+| Question | Why it matters |
+|---|---|
+| **Group feeds**: a visibility on posts (public or group), or lighter shared items? | Biggest social feature still unbuilt (archive: Added 10 Oct) |
+| **Discogs OAuth**: register the Discogs app, put `DISCOGS_CONSUMER_KEY` / `SECRET` in `.env` | Unlocks proper "Connect Discogs" instead of typing a username |
+| **Canary records**: which fake posts to seed | Catches bulk copying of the data |
+| **Page `/posts/browse`** | It returns 46 KB at 69 posts, about 100 times that at 7,000; changing it changes what the drawers receive |
+| **Remove the rejected card variants** (about 1,200 to 1,500 lines, 25% of `Feed.jsx`) | Module is the default; blocks, notes, paired, shelf/old are flag-only. They stay in git history and the `pre-shelf-stack` tag |
+| **Research wording**: "the defining factor" or "a strong distinct signal"? Which acts count as labels? First opted-in group? | `claude/2026-10-22-research-programme.md` section 7 |
+| **Which label header** did you mean by "not sure we need this larger track header"? (label drawer top?) | Then add label genre tags, website, profile (archive: Next session list 6 Oct, item 8) |
+| **Make the Module card the default?** | Waiting on your say-so (archive: Added 14 Oct) |
+| **Brand**: Chewing the Ceiling is chosen; the wordmark box on sign-in pages is blank until you give the wordmark | Do not invent the brand |
+| **Hide**: just the post, or also mute the person? Should hiding a ♥'d entry leave your public feed? | Small; the current build hides the post only |
+| **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
+
+## 2. Bugs to chase
+1. **Feed stopped at about 52**: fixed and live (`9e65a65`). Confirm you now reach all 71. If not, the phone deck has its own load-ahead check that was never changed.
+2. **Adding to the feed from an artist or label spotlight closes the spotlight** and breaks listening (18 Oct). It should stay open and keep playing, or at least reopen the drawer. Check phone too.
+3. **"My feed" jumps back to the start** of your profile instead of keeping your place (18 Oct).
+4. **Playlists** (14 Oct): opening one does not land on it; "View as feed" does not show the whole list; track titles are white on white. **(check)**
+5. **Highlighted tracks** (15 Oct): highlights set in compose do not show on the post in the feed; and highlights are too subtle. **(check)**
+6. **Drawer is blank the first time you click an artist's name** (10 Oct, high priority; reproduced in Chrome, nothing in our console). **(check)**
+7. **Spotify embed squashed in the media box** on Module cards (19 Oct). **(check)**
+8. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
+9. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
+10. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
+11. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
+12. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
+
+## 3. Build next
+### Player and listening
+- **One global player** that pops out and never stops; queue from anywhere ("add to queue / play next"); playlists open in it; play-through to the next record; jump back to the playing post; pocket mode (10 Oct, archive: NEXT WEEK item 1, and "Player" in Added 9 Oct).
+- "Play all / shuffle" for Discogs lists (resolve each record only on its turn, free sources first).
+- Starting a track anywhere closes every other open player (Spotify was fixed; re-check everything).
+- **"Listening to now"** box on someone's profile, with a play-it-too button (10 Oct). It needs the opt-in rules first.
+### Links and playback
+- Compose: **preview each track's link before posting** and ask the poster to confirm (6 Oct item 6).
+- Compilations: use each track's own artist in the gap sweep and compose (the release preview already does) (6 Oct item 4).
+- Nightly job swapping Spotify placeholders for YouTube links using only spare budget; "playable coverage" numbers in Admin; refresh `yt_channels` and channel-cache rows under the 30-day rule.
+- Tidal links in cards; Last.fm as a free match check (minor).
+### Feed and cards
+- **Add to a playlist from the compose window**, applied only when the post succeeds (15 Oct).
+- **A whole playlist as one card** in your feed (10 Oct).
+- **Post format**: one-line (about 300 characters) by default is built; the full post is optional. Decide what is left (9 Oct).
+- Card text tidy-ups: take the poster's name/date out of "The post" header etc. (10 Oct); post number as a solid circle (12 Oct).
+- Hide button on the one card variant whose heart is a pill. Phone feed: everything done today was desktop only.
+### Catalogues and search
+- Make artist/label names clickable everywhere; "+N" genre pill opens the genres drawer.
+- Label pages: genre tags, website, profile (after you answer the header question).
+- Add-a-label leftovers: labels on their own domain (only `*.bandcamp.com` works), a year for Bandcamp releases, a missing cover.
+### People and community
+- **Send a track to a friend**, controlled by the receiver (10 Oct).
+- **Group feeds** (after your decision), **feedback / "bluepost" button** for testers (10 Oct).
+- **Edit-profile review**: the profile screens grew piece by piece (10 Oct). Profile pictures later.
+- More Community boards (DJs, labels, shops). Notifications: more kinds as needed.
+- Privacy check end to end with two accounts: visitors see only your posts, not your friends' (14 Oct).
+### Accounts and imports ("Connect your accounts", 15 Oct)
+- One connection framework (read-only, on request, disconnect deletes tokens), then one platform at a time: **Discogs first, then Spotify**, YouTube, SoundCloud, Apple, Last.fm, Bandcamp by pasted URL. Details: archive Added 15 Oct.
+- Import a Spotify playlist (10 Oct); Discogs list loose ends (playable check is slow, imports queue crawls).
+### Phone
+- The phone front end needs a lot of work (10 Oct, archive: "Keep developing the phone front end"). Real-phone testing is a launch blocker.
+
+## 4. Before anyone but you is switched on, and before launch
+- **Words**: rewrite the About, the welcome and a privacy notice (they still say "Nothing learns from you"). Merge the `legal` branch (`01a7b3c`; you fill the [blanks]).
+- **Legal**: solicitor reads the notice; a DPIA (profiling); ICO fee; an age limit; register as a company (10 Oct, archive: Register as a company).
+- **Data safety**: off-server backup (backups sit on the same server today), UpCloud panel firewall (22/80/443), SSH hardening, encryption at rest for `activity.db` and backups, access log, breach plan (72 hours).
+- **IP**: stop the repo being copied (it is public on GitHub: private with a deploy key), notices, trademark search for the name.
+- **API applications** after the site is steady: **YouTube quota** (50,000 a day; needs legal pages and the 30-day refresh, which is done), Bandcamp (draft email ready; you are waiting on a better working version first), SoundCloud (Artist Pro), Apple. Re-read Spotify's developer policy (reported ban on ML training) and Discogs' stored-data terms.
+- **Rotate the API keys** (9 Oct: `.env` was visible in a screenshot).
+- Email provider and domain mail (sign-ups cannot confirm without it). Error monitoring and rollback plan.
+- Merge PR #9 / `dedupe` to `master` when you say so (nothing from 7 Oct on is on `master`). Open a PR only when asked.
+- Server `.env`: `RATE_LIMIT_MAX=1000000` overrides the new 6000 read limit (remove the line to use the default); a stray `backend/.env.bak-ratelimit` is on the server.
+- Before the launch purge, keep `youtube_cache`, `release_track_links`, `yt_channels`, `yt_channel_videos`, `yt_channel_urls`, `profile_links`, `profile_checked`, `release_spotify`, `track_link_submissions` (archive: 7 Oct).
+
+## 5. Performance and memory (details: `2026-10-22-performance-audit.md`, `2026-10-22-memory-report.md`)
+- All cards are mounted for about one on screen (about 14,700 elements): **window the feed** using remembered widths. Never `content-visibility` on whole slots.
+- Check real scrolling and loading in Chrome DevTools in a visible browser (the pane here cannot).
+- Discogs covers are about 85 MB of the 88 MB decoded at start: a **server-side resize-and-cache proxy** (check Discogs image terms first).
+- Sweep (`?sweep=1`, your `moduleKit.js`): only touch boxes near the viewport, skip for reduced motion, one custom property per box. Do not commit your edits for you.
+- Batch per-post lookups (`getFullPost` is about 10 queries each); trim the 7 KB per-post payload.
+- Comber: read in slices past about 1M rows. One shared MutationObserver instead of 77. 9 old lint problems (BrandScaleTool, Dialogs, `Feed.jsx` escapes). No tests for the scroll lock, progressive mount or indexes.
+- Server unit edits (need a go-ahead): systemd `MemoryHigh` well above 1.5 GB; `--heapsnapshot-signal=SIGUSR2`.
+
+## 6. Check back on
+- **Admin Status, Memory, after 2 to 3 days**: flat program memory = no leak; a steady climb = a leak (the cache counters say whether it is ours).
+- **Admin Status, "YouTube 30 days"**: first runs are a catch-up (up to 2,500 units a day).
+- **Admin, "How people move"**, after using the site as `lnv_admin`.
+- The comber's duplicate folding (log "Duplicate comber: folded N") and whether any list still shows a pair of the same release.
+
+## 7. Ideas, not started
+- Spotlights as a crate of vinyl spines (11 Oct); the vertical-bands and cascading-drawers card ideas (12 Oct; bookmarked).
+- Genre/style connection graph in the taste database (11 Oct); the research programme (`2026-10-22-research-programme.md`).
+- **Record scanner for the phone app** (9 Oct): barcode first, then catalogue number, then our own cover fingerprints. First read Discogs' image terms; collect nothing until then.
+- Player on the go, a phone app, "fewer ads" (several links per track).
+- Label "not on Discogs/Spotify" signal; a Community board per record shop.
+
+## 8. Loose ends (small)
+- Placeholder introductions (`PLACEHOLDER_INTROS`, `Feed.jsx`) to delete when real ones exist. Channel ♥ thresholds (50 uploads, 1,000 subscribers, 1 year) to confirm.
+- Spotify search in the composer's cross-platform search. Playlist privacy (all public for now). Unused `.lnv-compose-btn` rule and `mockup4.html` layouts.
+- Mockup files and `claude/2026-10-11-card-round2.md` and `2026-10-12-notes-card.patch` are untracked on purpose.
+- Working notes (hard-won): lint with `npx eslint` in `frontend/`; edit CRLF files with CRLF-aware tools; write edit scripts with the Write tool, not shell heredocs; Vite can miss a quick double save on Windows; the hidden browser pane has no animation frames or `IntersectionObserver`.
+
+## 9. Done (kept short; the archive and handovers have the detail)
+Hosting live on UpCloud and waxopathy.com · duplicate comber · YouTube savings and the 30-day refresh · Add a link for tracks nobody found · infinite scroll in catalogues
+· share links (your feed `/u/<name>`, playlists) · Spotify one-at-a-time fix · replies, private replies, highlights · persistent drawers · Introductions and Community boards
+· Add a label from Bandcamp · 429s and crawler 404 loop · all of section 0.

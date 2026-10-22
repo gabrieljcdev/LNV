@@ -1,3 +1,5 @@
+> **ARCHIVE (from 22 Oct 2026).** The live, tidied to-do list is now **claude/TODO.md**. This file is kept as the detailed history of 6 to 22 Oct; do not add new items here.
+
 # LNV — handover for the next Claude Code session (6 Oct, late)
 
 Read this first. It replaces `claude/2026-10-06-handover.md` for anything
