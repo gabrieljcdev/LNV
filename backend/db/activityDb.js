@@ -41,6 +41,21 @@ activity.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, at);
 `);
 
+// Listening history (2026-10-22): what a person played, finished or skipped, and where from. Private to the account, recorded only
+// for people who turned "keep my listening history" on (user_prefs, off by default), and theirs to see, export and clear.
+for (const col of ['source TEXT', 'place TEXT', 'ms_played INTEGER']) { try { activity.exec(`ALTER TABLE events ADD COLUMN ${col}`); } catch { /* already there */ } }
+activity.exec(`
+  CREATE TABLE IF NOT EXISTS user_prefs (
+    user_id INTEGER PRIMARY KEY,
+    keep_listening INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+export const LISTEN_KINDS = ['play', 'finish', 'skip'];
+// Old listening rows are rolled off after this long (the other acts are kept: they are on the posts anyway).
+export const LISTENING_KEEP_DAYS = 400;
+activity.prepare(`DELETE FROM events WHERE kind IN ('play', 'finish', 'skip') AND at < datetime('now', '-${LISTENING_KEEP_DAYS} days')`).run();
+
 const ORIGINS = new Set(['digging', 'user', 'link']);
 /** Tidy an origin pair from a request body: a known origin (default 'link') and a short reference, or nulls. */
 export function cleanOrigin(origin, ref) {
