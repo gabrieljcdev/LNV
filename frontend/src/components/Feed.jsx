@@ -15,7 +15,7 @@ import Login from '../pages/Login'
 import { FeedSwitcher, WallLink, MainNumber, AddToPlaylistButton, FollowedTag, AlsoPosted, CommentAuthor, HeartButton, HideButton, WallCard, FavHeart, IntroCard, WelcomeCard } from './Collect'
 import { usePhone } from '../lib/usePhone'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
-import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
+import { AddLinkRow, UserLinkNote, WrongLinkRow } from './TrackLinkAdd'
 import { PALETTES, getAutoIndex, applyPalette, getActivePaletteName } from '../services/themeService'
 import { BLOCK_SPECTRUM } from '../services/blockSpectrum'
 import { INK_DARK_BG, INK_LIGHT_BG, bgIsDark, inkOnHex, BLOCK_CP, BLOCK_CSS, themeHex, useThemeTick } from '../lib/blocksKit'
@@ -4322,6 +4322,11 @@ function SpotlightCard({ subject, cardBg, cardKey, onCreateFromDiscogs }) {
                           )}
                           {url && t.added && (
                             <UserLinkNote by={t.added.by} submissionId={t.added.id}
+                              onDone={() => queryClient.invalidateQueries({ queryKey: ['release-track-links', trackReleaseId] })} />
+                          )}
+                          {isPlaying && url && !t.added && t.linkKey && trackReleaseId && (
+                            <WrongLinkRow releaseId={trackReleaseId} linkKey={t.linkKey} url={url} title={t.title}
+                              artist={(t.artists || []).map(a => a.name).join(', ') || (type === 'artist' ? name : type === 'label' ? openRow?.artist : '') || ''}
                               onDone={() => queryClient.invalidateQueries({ queryKey: ['release-track-links', trackReleaseId] })} />
                           )}
                           {/* The player opens right under the track that was clicked. */}

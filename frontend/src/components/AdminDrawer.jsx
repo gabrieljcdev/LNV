@@ -177,6 +177,39 @@ function MemorySection() {
   )
 }
 
+// Wrong links (2026-10-22, backend services/badLinks.js): links people said play the wrong track. A flagged link is out of play; Put back deletes the flag
+// (the link is not restored by itself, a finder or a person can add it again).
+function BadLinksSection() {
+  const qc = useQueryClient()
+  const { data, error } = useQuery({ queryKey: ['admin-bad-links'], queryFn: () => getJson('/bad-links'), staleTime: 30_000 })
+  const [busy, setBusy] = useState(null)
+  const list = data?.badLinks || []
+  const flagged = list.filter(b => b.status !== 'reported').length
+  const putBack = async id => {
+    setBusy(id)
+    try { await postJson(`/bad-links/${id}/revert`); qc.invalidateQueries({ queryKey: ['admin-bad-links'] }) } catch (err) { window.alert(err.message) }
+    setBusy(null)
+  }
+  return (
+    <Section title="Wrong links" right={data ? `${n(flagged)} flagged · ${n(list.length - flagged)} reported` : ''}>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && list.length === 0 && <Note>None. Listeners can report a link from the track that is playing ("wrong link? change it").</Note>}
+      {list.map(b => (
+        <div key={b.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '7px 0', borderTop: `1px solid ${LINE}` }}>
+          <div style={{ minWidth: 0, fontFamily: SANS, fontSize: 14, color: SEC }}>
+            <a href={b.url} target="_blank" rel="noopener noreferrer" style={{ color: PRI, wordBreak: 'break-all' }}>{b.url}</a>
+            <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER }}>
+              {b.status === 'reported' ? 'reported' : 'flagged'} · release {b.releaseId} · track {b.position} · {n(b.reports)} {b.reports === 1 ? 'report' : 'reports'} · {ago(b.at)}{b.flaggedBy ? ` · by ${b.flaggedBy}` : ''}
+            </div>
+            {b.reporters?.filter(r => r.reason).map((r, i) => <div key={i} style={{ fontSize: 13, color: TER }}>{r.by}: {r.reason}</div>)}
+          </div>
+          <button disabled={busy === b.id} onClick={() => putBack(b.id)} style={{ border: `1px solid ${LINE}`, background: 'none', color: PRI, borderRadius: 99, padding: '4px 12px', fontFamily: SANS, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: busy === b.id ? 0.5 : 1 }}>Put back</button>
+        </div>
+      ))}
+    </Section>
+  )
+}
+
 function ServicesSection({ s }) {
   const rows = [
     ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
@@ -345,6 +378,7 @@ function StatusTab({ onShowLogs }) {
     {data.services && <ServicesSection s={data.services} />}
     <FlowSection />
     <MemorySection />
+    <BadLinksSection />
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>

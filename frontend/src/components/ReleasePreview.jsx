@@ -4,7 +4,7 @@ import TrackPlayer from './TrackPlayer'
 import { AddToPlaylistButton } from './Collect'
 import { toEmbedSrc } from '../lib/embeds'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
-import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
+import { AddLinkRow, UserLinkNote, WrongLinkRow } from './TrackLinkAdd'
 
 // A Discogs release opened in place (2026-10-06, gabriel: "like on the
 // spotlights, see the release tracklist and embeds here to keep traffic on
@@ -152,6 +152,11 @@ export default function ReleasePreview({ release, artistName = '', digRef = '' }
                 )}
                 {url && t.added && (
                   <UserLinkNote by={t.added.by} submissionId={t.added.id} onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
+                )}
+                {isPlaying && url && !t.added && t.linkKey && (
+                  <WrongLinkRow releaseId={releaseId} linkKey={t.linkKey} url={url} title={t.title}
+                    artist={(t.artists || []).map(a => a.name).join(', ') || (full.artists || []).map(a => a.name).join(', ') || artistName}
+                    onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
                 )}
                 {isPlaying && toEmbedSrc(playing.url) && (
                   <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260, margin: '8px 0 10px', borderRadius: 12, overflow: 'hidden' }}>
