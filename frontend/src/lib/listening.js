@@ -82,8 +82,21 @@ export function useListening() {
     writeListening({ ...cur, have: cur.have.includes(id) ? cur.have.filter(x => x !== id) : [...cur.have, id] })
   }, [])
   const clear = useCallback(() => writeListening({ have: [], signals: {} }), [])
-  return [v, { toggle, clear }]
+  // Move a ticked service up (-1) or down (+1) the priority list (2026-10-23: the sign-in window asks for the order).
+  const move = useCallback((id, dir) => {
+    const cur = readListening(), i = cur.have.indexOf(id), j = i + dir
+    if (i < 0 || j < 0 || j >= cur.have.length) return
+    const have = [...cur.have];
+    [have[i], have[j]] = [have[j], have[i]]
+    writeListening({ ...cur, have })
+  }, [])
+  return [v, { toggle, clear, move }]
 }
+
+// Whether the person has been asked "how do you listen?" (the window after signing in), so it is asked once per browser.
+const ASKED_KEY = 'lnv-listen-asked'
+export const listenAsked = () => { try { return localStorage.getItem(ASKED_KEY) === '1' } catch { return true } }
+export const markListenAsked = () => { try { localStorage.setItem(ASKED_KEY, '1') } catch { /* private mode */ } }
 
 /** What a player showed: 'full' or 'preview' (Spotify). Called from TrackPlayer, no hook needed. */
 export function recordPlayback(service, kind) {

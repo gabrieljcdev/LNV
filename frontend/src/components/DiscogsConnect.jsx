@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn } from '../lib/auth'
 import { discogsAccountApi, useDiscogsAccount, discogsPromptSeen, markDiscogsPromptSeen } from '../lib/discogsAccount'
+import { listenAsked, markListenAsked } from '../lib/listening'
+import { ListenPrompt } from './ListenPrompt'
 
 // Connecting your Discogs account (2026-10-08, gabriel): a dialog (after sign-in, from the Playlists
 // drawer, and from your profile) that takes your username, imports your public collection / wantlist
@@ -117,9 +119,14 @@ export function DiscogsPrompt() {
   const { data: st, isSuccess } = useDiscogsAccount()
   // Once it has appeared it stays until closed — linking the account mid-way mustn't make it vanish.
   const [opened, setOpened] = useState(false)
-  const eligible = isLoggedIn() && isSuccess && !!st && !st.linked && !discogsPromptSeen()
-  if (eligible && !opened) setOpened(true)
+  // After signing in, first "where do you listen?" (the play order), once per browser; then the Discogs step, as before (2026-10-23).
+  const [askListen, setAskListen] = useState(false)
+  const needDiscogs = isLoggedIn() && isSuccess && !!st && !st.linked && !discogsPromptSeen()
+  const needListen = isLoggedIn() && isSuccess && !listenAsked()
+  if ((needDiscogs || needListen) && !opened) { setOpened(true); setAskListen(needListen) }
   if (!opened) return null
+  if (askListen) return <ListenPrompt onDone={() => { markListenAsked(); setAskListen(false); if (!needDiscogs && discogsPromptSeen()) setOpened(false) }} />
+  if (!needDiscogs && (!st || st.linked || discogsPromptSeen())) return null
   return <DiscogsConnect intro onClose={() => { markDiscogsPromptSeen(); setOpened(false) }} />
 }
 

@@ -58,7 +58,8 @@ export function firstFriend() {
 export function befriend(userId) {
   const friend = firstFriend();
   if (!friend) return; // no admin yet: caught up once there is one
-  if (friend.id !== userId) db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(userId, friend.id);
+  // from_now: a new account starts with an empty feed and sees the first friend's NEW posts, not the whole history (23 Oct 2026, gabriel).
+  if (friend.id !== userId) db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, from_now) VALUES (?, ?, 1)').run(userId, friend.id);
   db.prepare("UPDATE users SET befriended_at = datetime('now') WHERE id = ?").run(userId);
 }
 try { for (const { id } of db.prepare('SELECT id FROM users WHERE befriended_at IS NULL').all()) befriend(id); } catch { /* ignore */ }

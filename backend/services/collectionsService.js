@@ -106,7 +106,10 @@ export const wallPage = (wallUserId, opts) => entryPage('owner = @wall', { wall:
 // the posts of everyone you follow (and what they joined), newest first.
 // Followed posts are labelled on the cards (followedFrom).
 export const homePage = (userId, opts) => entryPage(
-  'owner = @me OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me)', { me: userId }, { viewer: userId, ...opts });
+  // A "from now" follow shows only entries made at or after the follow (follows.from_now, 23 Oct 2026); an ordinary follow shows the whole history.
+  `owner = @me
+   OR owner IN (SELECT followee_id FROM follows WHERE follower_id = @me AND from_now = 0)
+   OR EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = @me AND f.followee_id = owner AND f.from_now = 1 AND at >= f.created_at)`, { me: userId }, { viewer: userId, ...opts });
 
 // In common (alpha, 2026-10-05): what two people both post — the same
 // records, artists and labels — from what they chose to post themselves

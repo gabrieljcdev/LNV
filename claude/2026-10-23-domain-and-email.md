@@ -60,3 +60,12 @@ inbox) or a paid mailbox (Zoho Mail Lite about US$1 a month, or similar).
 - The legal pages need an operator name, address and contact email: `privacy@chewingtheceiling.com` once step 4 is done.
 - The server's SSH, firewall and backups are unchanged by all this.
 - Trademark search for Chewing the Ceiling is still undone.
+
+## Email lands in junk (23 Oct): what to check
+A brand-new domain has no sending reputation, so the first emails often go to junk even when everything is set up correctly. Check in this order:
+1. **The message headers** (Outlook.com: open the email, ... menu, View, View message source). Look at the line starting Authentication-Results: it should say spf=pass, dkim=pass and dmarc=pass. If any says fail or none, that is the cause (send the lines to Claude).
+2. **Resend, Domains, the domain, Configuration:** turn OFF open tracking and click tracking (tracked links are rewritten to another domain, which filters dislike on account emails).
+3. **Mark it Not junk and add no-reply@chewingtheceiling.com to your safe senders**, and reply to it once; this trains your own mailbox, and the first people who do the same build the domain's reputation.
+4. **After the mailbox exists:** add a Reply-To of hello@chewingtheceiling.com, a root SPF record (Zoho's), and move DMARC from p=none to p=quarantine once a week of mail passes.
+5. **Content:** the emails already have a plain-text part, one button link on the same domain, and a plain footer. Keep them short and do not use words like free, win, urgent.
+6. Give it a few days of normal use; the junk rate usually falls as real people open and keep the mail.

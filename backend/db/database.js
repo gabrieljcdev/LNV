@@ -355,6 +355,9 @@ const migrations = [
     created_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (follower_id, followee_id)
   )`,
+  // A follow can be "from now" (2026-10-23): only what the person posts or keeps after the follow shows in your feed, nothing from before (no backfill). New
+  // accounts' automatic follow of the first friend is like that, so a new account starts with an empty feed and sees new posts arrive.
+  'ALTER TABLE follows ADD COLUMN from_now INTEGER NOT NULL DEFAULT 0',
   // Shared playlists (2026-10-03): readable by anyone with the share link,
   // editable by friends who joined with the invite link (playlist_members).
   // kind 'hearted' was the list track hearts went into, until hearts moved
