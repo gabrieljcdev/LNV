@@ -149,6 +149,50 @@ export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 
 // show the feed passing beneath — never the page background.
 export const STRIP_RADIUS = 40;
 
+// "More" (2026-10-23, gabriel): the tools that were icon-only chips (search, choose a feed, listen, theme) behind one ⋯ chip, with names. Each does what its chip did:
+// Feed.jsx listens for 'lnv-tool'. Drawn in a portal beside the button, as the profile menu is (the strip clips what overflows it).
+const MORE_TOOLS = [
+  ['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>],
+  ['feeds', 'Choose a feed', '≡'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐'],
+];
+function MoreMenu() {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = e => { if (!menuRef.current?.contains(e.target) && !btnRef.current?.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  function toggle() {
+    const r = btnRef.current.getBoundingClientRect();
+    setAt({ left: r.right + 12, top: r.top });
+    setOpen(v => !v);
+  }
+  return <>
+    <button ref={btnRef} onClick={toggle} title="More: search, choose a feed, listen, theme" aria-label="More: search, choose a feed, listen, theme" aria-haspopup="menu" aria-expanded={open}
+      style={{ color: open ? '#fff' : 'var(--theme-accent)', fontSize:'16px', background: open ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>⋯</button>
+    {open && at && createPortal(
+      <div ref={menuRef} role="menu" aria-label="More"
+        style={{ position:'fixed', left: at.left, top: at.top, zIndex: 400, width: 210, padding: 6, background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', borderRadius: 16, boxShadow:'0 16px 40px rgba(0,0,0,0.45)' }}>
+        {MORE_TOOLS.map(([id, title, glyph]) => (
+          <button key={id} role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('lnv-tool', { detail: id })); }}
+            style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'9px 12px', border:0, borderRadius:10, background:'transparent', color:'var(--theme-text-pri)', fontFamily:"'Barlow', sans-serif", fontWeight:600, fontSize:14, textAlign:'left', cursor:'pointer' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 16%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+            <span aria-hidden="true" style={{ width:20, textAlign:'center', color:'var(--theme-accent)', display:'inline-flex', justifyContent:'center' }}>{glyph}</span>{title}
+          </button>
+        ))}
+      </div>,
+      document.body
+    )}
+  </>;
+}
+
 export default function Strip({ activeView }) {
   const onFeed = isFeedPath(useLocation().pathname) && activeView === 'feed';
   const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
@@ -172,8 +216,25 @@ export default function Strip({ activeView }) {
   // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
   // sliders (BrandScaleTool.jsx) win over these.
   useEffect(() => {
-    if (railWordmarkRef.current) applyBrandScale(railWordmarkRef.current, readBrandScale() || { chewing: 72, ceiling: 20, left: 46, bottom: 10 }); // clear of the nav chips (they end at x=39), still inside the 108px rail (15 Oct)
-  }, [railWordmarkRef]);
+    // Flush left at the same 5px as the pills (23 Oct, gabriel), as big as the room under the last tab allows (CHEWING THE CEILING is about 5.7 times as tall as CHEWING's size).
+    // Sizes set with the ?brandtool sliders still win.
+    const fit = () => {
+      const brand = railWordmarkRef.current, tabs = navTabsRef.current, strip = stripRef.current
+      if (!brand || !tabs || !strip) return
+      const saved = readBrandScale()
+      if (saved) { applyBrandScale(brand, { ...saved, left: 5 }); return }
+      const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
+      const room = strip.clientHeight - (last ? last.offsetTop + last.offsetHeight : 0) - 10 - 14
+      const cw = Math.min(72, Math.floor(room / 5.72))   // 72 is the size it always had
+      brand.style.visibility = cw < 24 ? 'hidden' : ''   // a screen too short to fit it under the tabs: leave it out rather than run it into them
+      applyBrandScale(brand, { chewing: Math.max(24, cw), ceiling: Math.round(Math.max(24, cw) * 0.278), left: 5, bottom: 10 })
+    }
+    fit()
+    const t1 = setTimeout(fit, 300), t2 = setTimeout(fit, 1500) // after the fonts have arrived
+    window.addEventListener('resize', fit)
+    return () => { clearTimeout(t1); clearTimeout(t2); window.removeEventListener('resize', fit) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railWordmarkRef, navTabsRef, stripRef, getUser()]);
   const feedMode = useFeedMode();
 
   async function handleLogout() {
@@ -341,19 +402,19 @@ export default function Strip({ activeView }) {
           return (
             <button key={tab.id} data-tab={tab.id}
               onClick={() => handleTabClick(tab)}
-              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
+              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'11px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
             >{tab.id === 'feed' && user ? 'my feed' : tab.label}</button>
           );
         })}
-        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        {/* The round buttons (2026-10-23, gabriel): a second column to the right of the pills, so the wordmark can sit flush left under the pills with the same small gap. */}
+        <div id="lnv-chips" style={{ position:'absolute', left:62, top:14, width:32, display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
         <button onClick={handleRandom} title="Play random track"
           style={{ color:'var(--theme-accent)', fontSize:'16px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', transition:'background 0.2s, border-color 0.8s' }}
           onMouseEnter={e => e.currentTarget.style.background='var(--theme-dark3)'}
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
-        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
         {/* Notifications bell (2026-10-22): signed in only, with the unread number. */}
         {user && (() => {
           const active = d3Content === 'notifications';
@@ -393,6 +454,10 @@ export default function Strip({ activeView }) {
             >⚙</button>
           );
         })()}
+        {/* New post and the "more" menu sit with the other chips (the tools that used to be a stack at the bottom, in the wordmark's way). Feed.jsx listens for 'lnv-tool'. */}
+        {MODULE_CARDS && <button onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: 'compose' }))} title="New post" aria-label="New post"
+          style={{ color:'#fff', fontSize:'15px', background:'var(--theme-accent)', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>✎</button>}
+        {MODULE_CARDS && <MoreMenu />}
         {/* Identity — your initial when signed in (a menu: your profile,
             its link, sign out — ProfileMenu above); otherwise a link to
             /login (see lib/auth.js). */}
@@ -405,16 +470,7 @@ export default function Strip({ activeView }) {
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}
-        {/* The Module look (14 Oct): the search, the feed switch, new post, listen and theme live here, so nothing sits over a post. Feed.jsx listens for 'lnv-tool'. */}
-        {MODULE_CARDS && (<div style={{ position:'absolute', left:0, right:0, bottom:14, display:'flex', flexDirection:'column', alignItems:'center' }}>
-          {[['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>], ['feeds', 'Choose a feed', '≡'], ['compose', 'New post', '✎'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐']].map(([id, title, glyph]) => (
-            <button key={id} onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: id }))} title={title} aria-label={title}
-              style={{ color: id === 'compose' ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: id === 'compose' ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', flexShrink:0, transition:'background 0.2s, border-color 0.8s' }}
-              onMouseEnter={e => { if (id !== 'compose') e.currentTarget.style.background='var(--theme-dark3)'; }}
-              onMouseLeave={e => { if (id !== 'compose') e.currentTarget.style.background='transparent'; }}
-            >{glyph}</button>
-          ))}
-        </div>)}
+        </div>
       </div>
     </div>
   );
