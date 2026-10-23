@@ -12,7 +12,7 @@ import { MODULE_CARDS, MODULE_CSS, moduleLook, modFrameFor, solid as solidBg } f
 function ModFrame({ on, children, style, compact }) {
   return on ? <div className={`lnv-mod${compact ? ' lnv-modp' : ''}`} style={{ ...modFrameFor(moduleLook(0)), ...style }}>{children}</div> : <>{children}</>
 }
-import { isLoggedIn, getUser, authHeaders } from '../lib/auth'
+import { isLoggedIn, getUser, authHeaders, logout } from '../lib/auth'
 import {
   useFeedMode, setFeedMode, feedModeLabel, openWall, openPlaylistFeed, homeMode,
   usePlaylists, playlistsApi, playableTracks, useFollowing, useWall, wallsApi, joinApi, hideApi, useLater, laterApi, useInCommon,
@@ -570,6 +570,15 @@ export function WallCard({ username, compact = false, friends }) {
       {owner && friends && <IntroSettings pri={pri} ter={ter} fill={fill} />}
       {owner && friends && <BoardsSetting pri={pri} ter={ter} fill={fill} />}
       {owner && friends && <DiscogsSetting pri={pri} ter={ter} fill={fill} />}
+      {owner && friends && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: fill(10) }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>Signed in as {username}</span>
+            <span style={{ display: 'block', fontSize: 12, color: ter, marginTop: 2 }}>Sign out on this device</span>
+          </span>
+          <button onClick={async () => { await logout(); window.location.href = '/' }} style={{ border: `1px solid ${fill(30)}`, borderRadius: 99, padding: '8px 16px', background: 'none', color: pri, fontFamily: SANS, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Sign out</button>
+        </div>
+      )}
 
       {owner && p.private && (
         <div style={{ marginTop: 6, padding: 14, borderRadius: 16, border: `1px dashed ${fill(35)}` }}>
