@@ -381,9 +381,11 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
           const onSite = r.type !== 'master' ? postByRelease.get(r.id) : null
           // "· 609 versions": pressings the duplicate comber folded into this row.
           const versions = r.versions > 1 ? `${r.versions.toLocaleString('en-GB')} versions` : ''
-          const sub = kind === 'label'
-            ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : '', versions].filter(Boolean).join(' · ')
-            : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || ''), versions].filter(Boolean).join(' · ')
+          // The artist and label names in the sub-line open their own drawers (2026-10-23).
+          const subParts = kind === 'label'
+            ? [r.artist && <NameLinks key="a" kind="artist" names={r.artist} />, r.catno && !/^none$/i.test(r.catno) ? r.catno : '', versions]
+            : [group !== 'main' && r.artist && <NameLinks key="a" kind="artist" names={r.artist} />, cleanLabelName(r.label || mi?.label || '') && <NameLinks key="l" kind="label" names={[cleanLabelName(r.label || mi?.label || '')]} />, versions]
+          const sub = subParts.filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))
           // On LNV: go to the post. Otherwise open it here — tracklist and
           // players, like the spotlights (2026-10-06; it used to open Discogs).
           const rk = `${r.type}:${r.id}`, isOpen = openRel === rk
@@ -396,7 +398,7 @@ function Discography({ kind, id: idFromPosts, name, allPosts }) {
                   {onSite && <span title={`On LNV as ${pad(onSite.id)}`} style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
                   {r.title}
                 </span>
-                {sub && <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>}
+                {sub.length > 0 && <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.map((x, i) => <span key={i}>{x}</span>)}</span>}
               </span>
               {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
               <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
@@ -958,4 +960,20 @@ export function PostListDrawer({ kind, title, post, lists = [], people = [] }) {
 }
 
 // Shared with the walls and playlists drawers (CollectionDrawers.jsx).
-export { Chips, SectionHead, Row, Cover, Empty, Loading, ExtLink }
+// Names in a drawer row that open their own drawer (2026-10-23, "artist and label names must be clickable everywhere"): artist names to the artists drawer,
+// label names to the labels drawer. `names` is a list, or one string with several names split at commas. Not for "Various".
+function NameLinks({ kind, names, sep = ', ', style }) {
+  const { openD3 } = useLayout() || {}
+  const list = (Array.isArray(names) ? names : String(names || '').split(/\s*,\s+/)).map(n => String(n).trim()).filter(Boolean)
+  const drawer = kind === 'label' ? 'labels' : 'artists'
+  return list.map((n, i) => (
+    <span key={n + i}>{i > 0 && sep}
+      {/^various( artists)?$/i.test(n) ? n : (
+        <span role="link" tabIndex={0} title={`Open ${n} in the ${drawer} drawer`}
+          onClick={e => { e.stopPropagation(); openD3?.(drawer, { filter: n }) }} onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openD3?.(drawer, { filter: n }) } }}
+          style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3, ...style }}>{n}</span>)}
+    </span>
+  ))
+}
+
+export { Chips, SectionHead, Row, Cover, Empty, Loading, ExtLink, NameLinks }

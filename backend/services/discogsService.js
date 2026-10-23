@@ -111,10 +111,18 @@ export async function getRelease(releaseId, { background = false } = {}) {
 
   const url = `${DISCOGS_BASE}/releases/${releaseId}`;
   const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error(`Failed to fetch release ${releaseId}: ${res.status}`);
+  if (!res.ok) throw httpError(`Failed to fetch release ${releaseId}: ${res.status}`, res.status);
   const data = normaliseRelease(await res.json());
   setCache(key, data);
   return data;
+}
+
+// An error that says which HTTP status it came from, so callers can tell "gone" (404) from "slow down" (429) from a real fault.
+function httpError(message, status) {
+  const e = new Error(message);
+  e.status = status;
+  if (status === 429) e.rateLimited = true;
+  return e;
 }
 
 // The master a release belongs to (0 = none), for the duplicate comber
@@ -141,7 +149,7 @@ export async function getMaster(masterId, { background = false } = {}) {
 
   const url = `${DISCOGS_BASE}/masters/${masterId}`;
   const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error(`Failed to fetch master ${masterId}: ${res.status}`);
+  if (!res.ok) throw httpError(`Failed to fetch master ${masterId}: ${res.status}`, res.status);
   const data = normaliseMaster(await res.json());
   setCache(key, data);
   return data;

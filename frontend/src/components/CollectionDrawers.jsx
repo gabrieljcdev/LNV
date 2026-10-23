@@ -4,7 +4,7 @@ import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn } from '../lib/auth'
 import { useFeedMode, useFollowing, wallsApi, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
 import { queue, useQueue, currentTrack } from '../lib/queue'
-import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
+import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading, NameLinks } from './Drawers'
 import { ReleaseListView } from './DiscogsLists'
 import { DiscogsStrip } from './DiscogsConnect'
 import { askText } from './Dialogs'
@@ -194,7 +194,7 @@ function PlaylistView({ id, token, onBack }) {
             <Cover src={t.cover} size={34} radius={8} />
             <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-              <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist}</span>
+              <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><NameLinks kind="artist" names={t.artist} /></span>
             </span>
             <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{t.duration || ''}</span>
           </Row>

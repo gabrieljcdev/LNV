@@ -29,12 +29,14 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 | **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
 
 ## 2. Bugs to chase
-0. **Admin drawer opens black the first time** (23 Oct): the lazy-loaded admin drawer was the only one not pre-built at idle. Fixed in code (built at idle for admin accounts, and a "Loading…" line while it loads), committed, NOT deployed; confirm after deploy.
-1. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
-2. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
-3. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
-4. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
-5. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
+0. **Admin drawer opens black the first time** (23 Oct): fixed in code and LIVE (`0afb4f5`: built at idle for admins, "Loading…" line). Confirm by opening Admin right after a fresh page load.
+1. **Theme palettes: problem times of day** (11 Oct). Measured 23 Oct (contrast ratios; 4.5 is the usual minimum for text, 3 for large text). Worst: **Evening**: text on its orange `dark3` is 1.7, the showcase colour on the background is 1.7, the accent on the background 2.6. **Deep Night** and **Pre-dawn**: the showcase colour on the background is 1.5 and 1.3 (near invisible when used for text or outlines), Pre-dawn accent on background 2.3. **Late Evening**: white on accent 4.0, showcase on background 2.0. **Midday**: text on `dark3` 4.0. First Light, Morning and Afternoon are fine. The faint "tertiary" text is about 1.6 to 2 everywhere, by design. Waiting on you: which times looked wrong to you, and whether to change colours (they are your design choices); Evening is the obvious one.
+
+**Fixed 23 Oct, committed on `dedupe`, NOT deployed yet (backend restart + frontend build):**
+- **Comber 404 loop**: a release that has gone from Discogs (404) is now settled on its own instead of failing the turn every minute (Discogs errors now carry their status; a 429 is marked rate-limited). Tried: a 404 from the real Discogs API carries its status. Check the server log stops showing "[comber] Failed to fetch release … 404".
+- **Hide on `/posts/browse`**: your hidden posts are left out of the artist, label and genre drawer lists too (not tried against a live hidden post).
+- **Short-title YouTube matches**: a track title under 5 characters must appear as a whole word in the video title, and a video that is plainly not music (goals, highlights, football, news, interview, trailer, tutorial, podcast…) never matches unless the track or artist is called that. Applies to the search and to pasted links ("That looks like a sport, news or other non-music video"). Tried on "Meftah - 7": the football highlight is rejected, the real track passes, normal tracks are unaffected. Links already saved before this are not re-checked.
+- **Artist and label names open their drawers** in the discography and catalogue rows, playlist track rows and Discogs-list rows (dotted underline; "Various" is not a link). Other places (collections on a profile) already linked.
 
 **Fixed 22/23 Oct and LIVE (`cf2ee22`, `b72a4ff`):** please look at each in a real browser.
 - Adding a record from an artist/label spotlight no longer makes the spotlight vanish: new posts arriving at the front (yours, or the 30-second refresh) are put on the front and the rest of the shelf stays as it was (it used to rebuild and reshuffle everything). Tried on desktop (spotlights identical before/after a new post). **Phone not tried.** The shelf shifts one card to the right when a post is added at the front (the same as before); not compensated.

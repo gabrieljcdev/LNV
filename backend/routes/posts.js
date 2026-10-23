@@ -264,8 +264,10 @@ router.get('/', anonList, (req, res, next) => {
 // genres, live sets) — they group and filter on the client. Newest first.
 router.get('/browse', anonBrowse, (req, res, next) => {
   try {
+    // What you have hidden (Hide on a card) is left out here too, so a hidden post does not turn up in the artist, label and genre lists (2026-10-23).
+    const hidden = hiddenIds(req.user?.id);
     const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at, discogs_id
-      FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all();
+      FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all().filter(p => !hidden.has(p.id));
     const by = (sql) => { const m = new Map(); for (const r of db.prepare(sql).all()) { if (!m.has(r.post_id)) m.set(r.post_id, []); m.get(r.post_id).push(r); } return m; };
     const artists = by('SELECT post_id, artist_name, discogs_artist_id FROM post_artists ORDER BY id');
     const labels = by('SELECT post_id, label_name, catalogue_number, discogs_label_id FROM post_labels ORDER BY id');

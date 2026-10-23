@@ -4,7 +4,7 @@ import { authHeaders } from '../lib/auth'
 import { playlistsApi } from '../lib/collections'
 import { discogsAccountApi, useDiscogsAccount } from '../lib/discogsAccount'
 import { releaseTag } from '../lib/catalogue'
-import { DrawerHead, DrawerBody, Row, Cover, Empty, Loading } from './Drawers'
+import { DrawerHead, DrawerBody, Row, Cover, Empty, Loading, NameLinks } from './Drawers'
 import ReleasePreview from './ReleasePreview'
 import { DiscogsConnect } from './DiscogsConnect'
 
@@ -70,13 +70,13 @@ export function ReleaseListView({ id, onBack }) {
         : rows.map(r => {
           const dead = r.playable === 0
           const isOpen = openId === r.discogs_id
-          const sub = [r.artist, r.label, r.catno && !/^none$/i.test(r.catno) ? r.catno : ''].filter(Boolean).join(' · ')
+          const sub = [r.artist && <NameLinks key="a" kind="artist" names={r.artist} />, r.label && <NameLinks key="l" kind="label" names={[r.label]} />, r.catno && !/^none$/i.test(r.catno) ? r.catno : ''].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))
           return (<div key={r.discogs_id}>
             <Row onClick={() => setOpenId(isOpen ? null : r.discogs_id)} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '7px 10px', opacity: dead && !isOpen ? 0.45 : 1, ...(isOpen ? { background: 'color-mix(in srgb, var(--theme-text-pri) 7%, transparent)' } : null) }}>
               <Cover src={r.cover} size={40} radius={8} />
               <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-                <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>
+                <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.map((x, i) => <span key={i}>{x}</span>)}</span>
               </span>
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, fontFamily: MONO, fontSize: 12, color: TER, fontVariantNumeric: 'tabular-nums' }}>
                 <span>{r.year || ''}{r.format ? ` · ${releaseTag(r.format, r.title)}` : ''}</span>

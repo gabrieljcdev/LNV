@@ -43,12 +43,21 @@ function normalize(str) {
   return (str || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// Very short track titles ("7", "Go") are inside almost every video title ("2017", "Goal"): they only count as a whole word (2026-10-23, "Meftah - 7" played a
+// football highlight). And a video that is plainly not music (sport, news, a trailer...) never fits a track, unless the track or artist is called that.
+// (Titles are normalised first, so they hold only letters, digits, underscores and spaces: no escaping is needed in the pattern.)
+const SHORT_TITLE = 5;
+const containsWord = (hay, needle) => (needle.length < SHORT_TITLE ? new RegExp('(^| )' + needle + '( |$)').test(hay) : hay.includes(needle));
+const NOT_MUSIC = /\b(goals?|highlights?|football|soccer|premier league|champions league|la liga|serie a|bundesliga|full match|match report|press conference|post match|breaking news|news report|interview|trailer|teaser|gameplay|walkthrough|tutorial|unboxing|reaction|podcast|lecture|vlog|speedrun|nba|nfl|ufc|wwe|boxing|cricket|tennis|golf)\b/;
+const looksLikeNotMusic = (videoTitle, ...own) => NOT_MUSIC.test(String(videoTitle || '').toLowerCase()) && !own.some(o => NOT_MUSIC.test(String(o || '').toLowerCase()));
+
 function matchScore(videoTitle, trackTitle, artist) {
   const vt = normalize(videoTitle);
   const tt = normalize(trackTitle);
   const ar = normalize(artist);
   let score = 0;
-  if (vt.includes(tt)) score += 50;
+  if (looksLikeNotMusic(videoTitle, trackTitle, artist)) return -100;
+  if (containsWord(vt, tt)) score += 50;
   else {
     const words = tt.split(' ').filter(w => w.length > 2);
     const matched = words.filter(w => vt.includes(w));
@@ -605,7 +614,8 @@ export function linkVerdict({ fetchedTitle = '', author = '', trackTitle = '', a
   const tt = trackKey(coreTitle(trackTitle)), vt = trackKey(fetchedTitle), au = trackKey(author);
   if (!tt || !vt) return { verdict: 'rejected', reason: "We couldn't read that link's title." };
   const words = tt.split(' ').filter(w => w.length > 2);
-  const full = vt.includes(tt);
+  if (looksLikeNotMusic(fetchedTitle, trackTitle, artist)) return { verdict: 'rejected', reason: "That looks like a sport, news or other non-music video, not this track." };
+  const full = containsWord(vt, tt);
   const partial = !full && words.length > 0 && words.filter(w => vt.includes(w)).length / words.length >= 0.7;
   if (!full && !partial) return { verdict: 'rejected', reason: "That doesn't look like this track — its title is different." };
   const names = [...new Set([artist, ...String(artist || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with|and|x)\s+|\s*[&+]\s*/i)].map(trackKey).filter(n => n.length > 2))];
