@@ -24,7 +24,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 | **Research wording**: "the defining factor" or "a strong distinct signal"? Which acts count as labels? First opted-in group? | `claude/2026-10-22-research-programme.md` section 7 |
 | **Which label header** did you mean by "not sure we need this larger track header"? (label drawer top?) | Then add label genre tags, website, profile (archive: Next session list 6 Oct, item 8) |
 | **Make the Module card the default?** | Waiting on your say-so (archive: Added 14 Oct) |
-| **Brand**: Chewing the Ceiling is chosen; the wordmark box on sign-in pages is blank until you give the wordmark | Do not invent the brand |
+| **Brand**: Chewing the Ceiling is chosen, and **chewingtheceiling.com (and .co.uk) were bought 23 Oct for about £2 (the correct spelling; an earlier message had a typo)**. Nothing is pointed at them yet (no site answers). To do: point DNS at the server (94.237.56.224) and add the names to Caddy when you say; trademark search still undone;  the wordmark box on sign-in pages is blank until you give the wordmark | Do not invent the brand |
 | **Hide**: just the post, or also mute the person? Should hiding a ♥'d entry leave your public feed? | Small; the current build hides the post only |
 | **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
 
