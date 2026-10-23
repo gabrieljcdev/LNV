@@ -52,6 +52,7 @@ function ProfileMenu({ user, onProfile, onData, onSignOut }) {
         </div>
         <button role="menuitem" autoFocus style={item} {...hover} onClick={() => { setOpen(false); onProfile(); }}>My profile</button>
         <button role="menuitem" style={item} {...hover} onClick={() => { navigator.clipboard?.writeText(wallLink(user)).then(() => setCopied(true)).catch(() => {}); }}>{copied ? '✓ Link copied' : 'Copy a link to my profile'}</button>
+        <button role="menuitem" style={item} {...hover} onClick={() => { setOpen(false); window.dispatchEvent(new Event('lnv-tour')); }}>How it works</button>
         <button role="menuitem" style={item} {...hover} onClick={() => { setOpen(false); onData(); }}>Your data</button>
         <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 8px' }} />
         <button role="menuitem" style={{ ...item, color: 'var(--theme-text-sec)' }} {...hover} onClick={onSignOut}>Sign out</button>

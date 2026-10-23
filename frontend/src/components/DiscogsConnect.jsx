@@ -3,8 +3,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn } from '../lib/auth'
 import { discogsAccountApi, useDiscogsAccount, discogsPromptSeen, markDiscogsPromptSeen } from '../lib/discogsAccount'
-import { listenAsked, markListenAsked } from '../lib/listening'
+import { listenAsked, markListenAsked, tourSeen, markTourSeen } from '../lib/listening'
 import { ListenPrompt } from './ListenPrompt'
+import { WelcomeTour, TourOnDemand } from './WelcomeTour'
 
 // Connecting your Discogs account (2026-10-08, gabriel): a dialog (after sign-in, from the Playlists
 // drawer, and from your profile) that takes your username, imports your public collection / wantlist
@@ -121,13 +122,19 @@ export function DiscogsPrompt() {
   const [opened, setOpened] = useState(false)
   // After signing in, first "where do you listen?" (the play order), once per browser; then the Discogs step, as before (2026-10-23).
   const [askListen, setAskListen] = useState(false)
+  // And before both, a short "how it works" tour, once per browser (2026-10-23).
+  const [askTour, setAskTour] = useState(false)
   const needDiscogs = isLoggedIn() && isSuccess && !!st && !st.linked && !discogsPromptSeen()
   const needListen = isLoggedIn() && isSuccess && !listenAsked()
-  if ((needDiscogs || needListen) && !opened) { setOpened(true); setAskListen(needListen) }
-  if (!opened) return null
-  if (askListen) return <ListenPrompt onDone={() => { markListenAsked(); setAskListen(false); if (!needDiscogs && discogsPromptSeen()) setOpened(false) }} />
-  if (!needDiscogs && (!st || st.linked || discogsPromptSeen())) return null
-  return <DiscogsConnect intro onClose={() => { markDiscogsPromptSeen(); setOpened(false) }} />
+  const needTour = isLoggedIn() && isSuccess && !tourSeen()
+  if ((needDiscogs || needListen || needTour) && !opened) { setOpened(true); setAskListen(needListen); setAskTour(needTour) }
+  let body = null
+  if (opened) {
+    if (askTour) body = <WelcomeTour onDone={() => { markTourSeen(); setAskTour(false); if (!askListen && !needDiscogs) setOpened(false) }} />
+    else if (askListen) body = <ListenPrompt onDone={() => { markListenAsked(); setAskListen(false); if (!needDiscogs && discogsPromptSeen()) setOpened(false) }} />
+    else if (needDiscogs || (st && !st.linked && !discogsPromptSeen())) body = <DiscogsConnect intro onClose={() => { markDiscogsPromptSeen(); setOpened(false) }} />
+  }
+  return <>{body}<TourOnDemand /></>
 }
 
 // The line at the top of the Playlists drawer.

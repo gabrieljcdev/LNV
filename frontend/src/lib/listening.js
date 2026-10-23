@@ -98,6 +98,11 @@ const ASKED_KEY = 'lnv-listen-asked'
 export const listenAsked = () => { try { return localStorage.getItem(ASKED_KEY) === '1' } catch { return true } }
 export const markListenAsked = () => { try { localStorage.setItem(ASKED_KEY, '1') } catch { /* private mode */ } }
 
+// Whether the "how it works" tour has been shown in this browser (components/WelcomeTour.jsx).
+const TOUR_KEY = 'lnv-tour-seen'
+export const tourSeen = () => { try { return localStorage.getItem(TOUR_KEY) === '1' } catch { return true } }
+export const markTourSeen = () => { try { localStorage.setItem(TOUR_KEY, '1') } catch { /* private mode */ } }
+
 /** What a player showed: 'full' or 'preview' (Spotify). Called from TrackPlayer, no hook needed. */
 export function recordPlayback(service, kind) {
   if (!['full', 'preview'].includes(kind)) return
