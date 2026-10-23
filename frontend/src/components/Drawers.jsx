@@ -866,7 +866,7 @@ export function AboutDrawer() {
   return <>
     <DrawerHead title="About" count="est. 2026" />
     <DrawerBody>
-      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways, and the best way to see what other people are digging. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Chewing the Ceiling is a record shelf you scroll sideways, and the best way to see what other people are digging. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
       <h3 style={h3}>Discover users and listen to their collections</h3>
       <p style={p}>Open anyone’s name to see their whole shelf: what they’ve posted, kept and highlighted, and the playlists they’ve made. Follow the people whose taste you trust and their records turn up in your feed. Friends’ shelves are the quickest way to find something you didn’t know you wanted, and the big catalogue is there for when you want to go deep.</p>
       <p style={p}>Make playlists, share them, and connect your Discogs name: your collection and wantlist come in as playlists you can dig through (private to you for now; sharing them with friends is next).</p>
@@ -916,7 +916,7 @@ export function AboutDrawer() {
         {COMMUNITY_RULES.map(([b, rest]) => <li key={b}><b style={{ color: PRI }}>{b}</b> {rest}</li>)}
       </ol>
       <h3 style={h3}>Contact</h3>
-      <p style={p}>hello@latenightvibes.com · @latenightvibes</p>
+      <p style={p}>hello@chewingtheceiling.com</p>
       <h3 style={h3}>Built with</h3>
       <p style={{ ...p, fontFamily: MONO, fontSize: 14 }}>React · Node · SQLite · Discogs API · YouTube Data API</p>
     </DrawerBody>

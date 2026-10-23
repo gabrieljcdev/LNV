@@ -361,7 +361,7 @@ function StatusTab({ onShowLogs }) {
       {email.configured ? (
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ fontFamily: MONO, fontSize: 12.5, color: SEC, lineHeight: 1.7 }}>
-            {email.host}:{email.port || 587}<br />from {email.from || 'Late Night Vibes <no-reply@latenightvibes.com>'}
+            {email.host}:{email.port || 587}<br />from {email.from || 'Chewing the Ceiling <no-reply@chewingtheceiling.com>'}
           </div>
           {email.lastError && <Note tone="error">Last failure {ago(email.lastError.ts)}: {email.lastError.message}</Note>}
         </div>

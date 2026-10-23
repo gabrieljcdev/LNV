@@ -27,7 +27,7 @@ function getHeaders() {
   countCall('discogs');
   return {
     'Authorization': `Discogs token=${process.env.DISCOGS_TOKEN}`,
-    'User-Agent': 'LateNightVibes/1.0',
+    'User-Agent': 'ChewingTheCeiling/1.0 +https://chewingtheceiling.com',
   };
 }
 

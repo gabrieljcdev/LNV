@@ -118,7 +118,7 @@ db.exec(`
   );
 
   INSERT OR IGNORE INTO users (id, username, display_name, bio)
-  VALUES (1, 'lnv_admin', 'Late Night Vibes', 'Curator of the late night crate.');
+  VALUES (1, 'lnv_admin', 'Chewing the Ceiling', 'Curator of the late night crate.');
 `);
 
 

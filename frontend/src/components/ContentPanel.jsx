@@ -47,10 +47,10 @@ const PANEL_WIDTH = `min(640px, calc(100vw - ${RAIL_WIDTH}px))`;
 
 function FilesPage() {
   const files = [
-    { key: 'readme',  lines: ['WELCOME TO LATE NIGHT VIBES', '────────────────────────────────', 'A blog for serious music lovers.', 'Dig deep. Post what you\'re playing.', '', '> Browse the feed', '> Post a record', '> Discover what others are digging', '> Click ▶ for a random track'] },
-    { key: 'about',   lines: ['ABOUT LATE NIGHT VIBES', '────────────────────────────────', 'A sophisticated music community', 'for serious collectors.', '', 'Built with React, Node.js,', 'Discogs API and YouTube API.', '', 'EST. 2024'] },
-    { key: 'donate',  lines: ['DONATE', '────────────────────────────────', 'LNV is free and always will be.', 'If you enjoy it, consider', 'supporting the project.', '', '> hello@latenightvibes.com'] },
-    { key: 'contact', lines: ['CONTACT', '────────────────────────────────', '> hello@latenightvibes.com', '> @latenightvibes', '', 'WE DIG DEEP'] },
+    { key: 'readme',  lines: ['WELCOME TO CHEWING THE CEILING', '────────────────────────────────', 'A blog for serious music lovers.', 'Dig deep. Post what you\'re playing.', '', '> Browse the feed', '> Post a record', '> Discover what others are digging', '> Click ▶ for a random track'] },
+    { key: 'about',   lines: ['ABOUT CHEWING THE CEILING', '────────────────────────────────', 'A sophisticated music community', 'for serious collectors.', '', 'Built with React, Node.js,', 'Discogs API and YouTube API.', '', 'EST. 2024'] },
+    { key: 'donate',  lines: ['DONATE', '────────────────────────────────', 'Chewing the Ceiling is free and always will be.', 'If you enjoy it, consider', 'supporting the project.', '', '> hello@chewingtheceiling.com'] },
+    { key: 'contact', lines: ['CONTACT', '────────────────────────────────', '> hello@chewingtheceiling.com', '', 'WE DIG DEEP'] },
   ];
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', padding: '24px' }}>

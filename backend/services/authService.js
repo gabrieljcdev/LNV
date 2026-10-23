@@ -84,7 +84,7 @@ export function checkPassword(password, stored) {
 // ── validation ──
 export const USERNAME_RE = /^[A-Za-z0-9_.-]{3,24}$/;
 // Names nobody can register: they'd read as staff or the site itself.
-const RESERVED = /^(admin|administrator|root|lnv|lnv_admin|lnvadmin|support|help|moderator|mod|staff|system|official|latenightvibes|no-?reply)$/i;
+const RESERVED = /^(admin|administrator|root|lnv|lnv_admin|lnvadmin|support|help|moderator|mod|staff|system|official|latenightvibes|chewingtheceiling|chewing|no-?reply)$/i;
 export const isReservedUsername = name => RESERVED.test(String(name || '').trim());
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const PASSWORD_MIN = 8;

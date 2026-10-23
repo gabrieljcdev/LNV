@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 // In-app replacements for window.prompt / confirm / alert (2026-10-09, gabriel: the browser's own
-// "waxopathy.com says" box looked out of place). Call them from anywhere and await the answer:
+// the browser's own "this site says" box looked out of place). Call them from anywhere and await the answer:
 //   const name = await askText({ title: 'Name the new playlist', placeholder: 'e.g. Techno', ok: 'Create' })   // string, or null if cancelled
 //   if (await askConfirm({ title: 'Delete this post?', body: "This can't be undone.", ok: 'Delete', danger: true })) …   // true / false
 //   await tell({ title: 'Something went wrong', body: err.message })

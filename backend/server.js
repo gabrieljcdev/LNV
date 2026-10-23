@@ -80,13 +80,13 @@ app.use('/api/discogs-account', discogsAccountRoutes);
 app.use('/api/community', communityRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Late Night Vibes API is running 🌙' });
+  res.json({ status: 'ok', message: 'Chewing the Ceiling API is running 🌙' });
 });
 
 app.use(errorHandler);
 
 const server = app.listen(PORT, () => {
-  console.log(`🌙 Late Night Vibes backend running at http://localhost:${PORT}`);
+  console.log(`🌙 Chewing the Ceiling backend running at http://localhost:${PORT}`);
   logEvent('info', 'system', 'Backend started');
   startLogPruning();
   startDiscogsMatcher();
