@@ -73,6 +73,10 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - Make artist/label names clickable everywhere; "+N" genre pill opens the genres drawer.
 - Label pages: genre tags, website, profile (after you answer the header question).
 - Add-a-label leftovers: labels on their own domain (only `*.bandcamp.com` works), a year for Bandcamp releases, a missing cover.
+### Passwords and sign-in (added 23 Oct)
+- **Show / hide button on the password boxes** (sign in, create account, reset password): an eye or "show" toggle at the right of the field, off by default, field returns to hidden when the page is left. Login page: frontend/src/pages/Login.jsx.
+- **Protect passwords** (gabriel said "also protect it"; meaning to confirm, this is my reading): what is already there: passwords stored as salted scrypt hashes (never plain), session tokens stored hashed, a strict limit of 20 tries per 15 minutes per address on the sign-in routes. To add: a minimum length (at least 8, 10+ better) and a check against very common passwords (and, if wanted, the free Pwned Passwords range check, which sends only a hash prefix); a slow-down or short lock after repeated failures on one account (not only per address); reset links that expire (about 1 hour) and work once; a message that does not reveal whether an email has an account; sign-in alert email on a new device (optional); a clear way to change the password when signed in; never log passwords or reset links in production. Also: two-step sign-in later, once email works.
+
 ### People and community
 - **Send a track to a friend**, controlled by the receiver (10 Oct).
 - **Group feeds** (after your decision), **feedback / "bluepost" button** for testers (10 Oct).
