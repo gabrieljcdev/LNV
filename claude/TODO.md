@@ -1,14 +1,14 @@
-# TODO: the one list (tidied 22 Oct 2026)
+# TODO: the one list (tidied 22 Oct 2026, updated 23 Oct)
 
 This is the list to read and keep current. The old running notes (6 to 22 Oct, in date layers) are kept unchanged as the archive in
 `claude/2026-10-06-late-handover.md`; each item below says where its full detail lives ("archive: Added 10 Oct" = that heading in the archive file).
 Items marked **(check)** were written down earlier and I have not re-verified them against the code since.
 
 ## 0. Where we are
-- **Live on waxopathy.com: `9e65a65`** (the links work below is committed after it, not yet deployed) (frontend rebuilt 22 Oct evening; backend restarted at `3d2e12a`). Nothing is waiting to be deployed.
-- Everything from the 22 Oct arc is live: research-only recording and "Your data", notifications, @tags, Hide, My feeds, found-via and tag chips, wrong-link flagging,
+- **Live on waxopathy.com: `b72a4ff`** (23 Oct; frontend rebuilt, backend last restarted 22 Oct evening at `c91d4e2`). Nothing is waiting to be deployed.
+- Everything from the 22 Oct arc and the 22/23 Oct links, bug-fix and Spotify work is live: research-only recording and "Your data", notifications, @tags, Hide, My feeds, found-via and tag chips, wrong-link flagging,
   decade chips, For later, /u/<name>, the launch scroll lock and smooth start, the feed-paging fix. What it is and how to undo it: `claude/2026-10-22-handover.md`.
-- **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips. (The tool pane here cannot show real layout or scrolling.)
+- **Not yet looked at by eye on the live site, signed in:** the bell, Your data, Hide, For later, the chips, compose's link check and "Playable coverage" in Admin; and the five fixes below (spotlight survives a new post, "my feed" keeps your place, playlist rows readable, obvious highlights, Spotify fill). (The tool pane here cannot show real layout or scrolling.)
 - Your uncommitted `frontend/src/lib/moduleKit.js` ("heat vision" sweep) is yours: never commit or stash it. Never `git stash` here.
 - Rules in force: **research only** (nothing recorded ever picks what people hear or see), **opt-in** recording, **ids and slugs only**, **YouTube API data never kept past 30 days**,
   the site **connects people, it never recommends tracks**, and no word "wall" in the interface.
@@ -35,12 +35,12 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 4. Theme palettes: fix the problem times of day (Deep Night etc.) (11 Oct). **(check)**
 5. Artist and label names should open their drawer everywhere (collections, drawers) (11 Oct). **(check)**
 
-**Fixed 22 Oct, committed on `dedupe`, NOT deployed yet (frontend build only):** please look at each in a real browser.
+**Fixed 22/23 Oct and LIVE (`cf2ee22`, `b72a4ff`):** please look at each in a real browser.
 - Adding a record from an artist/label spotlight no longer makes the spotlight vanish: new posts arriving at the front (yours, or the 30-second refresh) are put on the front and the rest of the shelf stays as it was (it used to rebuild and reshuffle everything). Tried on desktop (spotlights identical before/after a new post). **Phone not tried.** The shelf shifts one card to the right when a post is added at the front (the same as before); not compensated.
 - "My feed" keeps your place: where you were in each feed is remembered, and returning to it (from a friend's feed, a playlist) puts you back there instead of on your profile card. The mechanism was tried with simulated positions only (the test pane has no animation frames, so real scrolling is unseen).
 - Playlists: a playlist opened from a card, the queue bar or a link now opens (a shared one used to never open; a stale one could stay on top). **Track titles white on white fixed**: the playlist and Following rows were buttons whose background was set to "undefined", so the browser's light grey showed behind white text in dark themes (fixed in the shared Row). Tried across all 8 palettes (dark ones now 19.9:1). "View as feed" shows only tracks that came from posts: that is how it is built (see Build next); the paging problem that cut it short was the feed bug fixed earlier.
 - Highlights: a highlight set in compose does show on the card (checked: saved by the server, returned, drawn); it is now obvious: the whole row glows in the accent colour with a bar on the left, bold title and a big accent star (it was a slightly brighter star).
-- Spotify embed in the Module card's square media box: it was cut off between its two real sizes. In a box 152 to 351 px tall it now uses the compact 152 px player, centred; at 352 or more the full one. Tried with the player mounted on its own in boxes of 120/330/352/400 px; not tried with a real Spotify track playing.
+- Spotify embed in the Module card's square media box: it was cut off between its two real sizes. In a box 152 to 351 px tall it now uses the compact 152 px player, centred; at 352 or more the full one. First fixed with a compact 152 px player, which left black bars (gabriel, 23 Oct); now the full 352 px layout is scaled to fit the box exactly so it fills the space (`b72a4ff`). The size is measured in the browser; not seen rendering, not tried with a real Spotify track playing.
 
 ## 3. Build next
 ### Player and listening
@@ -49,7 +49,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - Starting a track anywhere closes every other open player (Spotify was fixed; re-check everything).
 - **"Listening to now"** box on someone's profile, with a play-it-too button (10 Oct). It needs the opt-in rules first.
 ### Links and playback
-- BUILT 22 Oct, committed on `dedupe`, NOT deployed (needs a backend restart + frontend build):
+- BUILT 22 Oct and LIVE (`c91d4e2`, backend restarted):
   - **Compose checks each track's link before posting**: the platform's real title is shown under the link with "✓ looks right / ? check this one / ✗ does not look right" (uses `/api/track-links/check`, free oEmbed); posting asks "Post anyway / Go back and look" if any look wrong. The API was tried against real YouTube; the compose screen itself was not tried in a browser (the note box needs a resolved link).
   - **Compilations use each track's own artist** in the gap sweep (SQL, falls back to the post's first artist unless it is "Various") and in compose's Discogs-video matching (the other compose searches already did).
   - **Spotify placeholder -> YouTube**: `services/placeholderSwap.js`, hourly and a minute after start, database only (no units). A post track whose link is still the Spotify placeholder recorded in the link book gets the YouTube link once one exists. `PLACEHOLDER_SWAP=0` switches it off. The nightly spare-units job now also swaps (it used to set the YouTube link but leave the Spotify one showing). Tried on a throwaway copy of the data.
