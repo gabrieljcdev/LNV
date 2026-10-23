@@ -1,5 +1,11 @@
-# /etc/caddy/Caddyfile — replace waxopathy.com with the live domain. Caddy fetches and renews the HTTPS certificate itself.
-waxopathy.com, www.waxopathy.com {
+# /etc/caddy/Caddyfile. Caddy fetches and renews the HTTPS certificates itself, but only once the name's DNS points at this server (the A records), so
+# apply this file AFTER the DNS answers (claude/2026-10-23-domain-and-email.md). 23 Oct 2026: the site is chewingtheceiling.com; the .co.uk, www and the
+# old waxopathy.com names all send people there.
+www.chewingtheceiling.com, chewingtheceiling.co.uk, www.chewingtheceiling.co.uk, waxopathy.com, www.waxopathy.com {
+	redir https://chewingtheceiling.com{uri} permanent
+}
+
+chewingtheceiling.com {
 	encode zstd gzip
 
 	# The API (and nothing else) goes to the backend.
