@@ -1,7 +1,7 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { prefetchDrawers } from '../lib/drawerPrefetch';
-import { isLoggedIn } from '../lib/auth';
+import { isLoggedIn, isAdmin } from '../lib/auth';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
@@ -30,7 +30,7 @@ const COMPONENTS = {
   community: (props) => <CommunityDrawer {...props} />,
   // Admin accounts only (the strip's admin button); every call it makes is
   // checked server-side too.
-  admin:   (props) => <Suspense fallback={null}><AdminDrawer {...props} /></Suspense>,
+  admin:   (props) => <Suspense fallback={<div style={{ padding: 28, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: 'var(--theme-text-ter)' }}>Loading…</div>}><AdminDrawer {...props} /></Suspense>,
   // Walls and playlists (2026-10-03): the strip's ♥.
   // "Your data" (the profile menu): the research-recording switch and what it holds.
   activity: (props) => <ActivityDrawer {...props} />,
@@ -78,6 +78,9 @@ const DRAWER_KEEP_MS = 10 * 60 * 1000;
 const DRAWER_KEEP_MAX = 4;
 const WARM_DRAWERS = ['about', 'artists', 'labels', 'genres', 'live', 'community'];
 const WARM_SIGNED_IN = ['playlists', 'walls'];
+// The admin drawer is lazy-loaded and used to be built only in the click that opened it, so its first open could show a black, empty panel until it was closed and
+// reopened (23 Oct). For admin accounts it is now built at idle with the others, so the click only reveals it.
+const WARM_ADMIN = ['admin'];
 
 export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
@@ -105,7 +108,7 @@ export default function ContentPanel() {
 
   // Fetch the drawers' lists right away, then build the drawers one at a time while the browser is idle.
   useEffect(() => {
-    const ids = [...WARM_DRAWERS, ...(isLoggedIn() ? WARM_SIGNED_IN : [])];
+    const ids = [...WARM_DRAWERS, ...(isLoggedIn() ? WARM_SIGNED_IN : []), ...(isLoggedIn() && isAdmin() ? WARM_ADMIN : [])];
     let i = 0, cancelled = false, handle = null;
     const later = fn => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 200));
     const step = () => {

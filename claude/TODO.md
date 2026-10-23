@@ -29,6 +29,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 | **Playlist "In playlists" chip**: should shared-by-link lists show, not only public ones? | Small |
 
 ## 2. Bugs to chase
+0. **Admin drawer opens black the first time** (23 Oct): the lazy-loaded admin drawer was the only one not pre-built at idle. Fixed in code (built at idle for admin accounts, and a "Loading…" line while it loads), committed, NOT deployed; confirm after deploy.
 1. **Bad YouTube matches** for very short titles ("Meftah – 7" played a football video): the artist must appear in the title, reject sport/news words, minimum score.
 2. **Comber 404 loop**: "[comber] Failed to fetch release … 404" once a minute in the server log. A 404 must end that release's retries (same kind of bug as the crawler loop, already fixed).
 3. **Hide is not applied to `/posts/browse`**, so a hidden post still appears in drawer lists.
@@ -102,6 +103,7 @@ Items marked **(check)** were written down earlier and I have not re-verified th
 - Server unit edits (need a go-ahead): systemd `MemoryHigh` well above 1.5 GB; `--heapsnapshot-signal=SIGUSR2`.
 
 ## 6. Check back on
+- **Memory (read 23 Oct, 13.3 h after the restart, 122 samples):** program memory 189 MB (was about 176 MB at the first measurement), V8 heap 15.4 MB, trend +17.2 MB a day (heap +1.4). Too early to call: the first day after a restart always climbs while SQLite fills its page cache (up to 128 MB) and the statement and link caches warm, and the panel turns the number red above 8 MB a day. The heap is nearly flat, which is the good sign. Judge it after 3 days: a leak is program memory still climbing after day 3 with the heap climbing too, or passing about 300 MB.
 - **Admin Status, Memory, after 2 to 3 days**: flat program memory = no leak; a steady climb = a leak (the cache counters say whether it is ours).
 - **Admin Status, "YouTube 30 days"**: first runs are a catch-up (up to 2,500 units a day).
 - **Admin, "How people move"**, after using the site as `lnv_admin`.
