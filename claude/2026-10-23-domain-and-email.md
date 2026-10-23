@@ -16,7 +16,7 @@ In names.co.uk: My Account → the domain → DNS / Manage DNS records. Do both 
 
 Then tell Claude. DNS can take minutes to hours; Claude checks it from here before touching the server. Do not change the DNS of waxopathy.com.
 
-## Step 2: the server (Claude, after step 1 answers)
+## Step 2: the server: DONE 23 Oct (DNS answered; Caddy, .env and the frontend/backend switched over; all names checked: .com serves, the rest redirect with valid certificates)
 1. Back up `/etc/caddy/Caddyfile`, install `deploy/Caddyfile` from the repo (it serves chewingtheceiling.com and redirects the other names to it), `systemctl reload caddy`, and check
    `https://chewingtheceiling.com` loads with a padlock and `https://waxopathy.com` redirects.
 2. In `/opt/lnv/backend/.env`: `FRONTEND_URL=https://chewingtheceiling.com` and `API_URL=https://chewingtheceiling.com/api` (these are the links inside emails, and the only website
