@@ -155,6 +155,37 @@ const MORE_TOOLS = [
   ['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>],
   ['feeds', 'Choose a feed', '≡'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐'],
 ];
+// Instant hover labels beside the round chips (24 Oct, gabriel): the browser's own title tooltip is slow and plain. One listener for all of them: the
+// chip's title is moved to data-tip on hover (so the native one stays quiet) and drawn in a portal, since the strip clips what overflows it.
+function ChipTips() {
+  const [tip, setTip] = useState(null);
+  useEffect(() => {
+    const chip = e => { const el = e.target instanceof Element ? e.target.closest('#lnv-chips button, #lnv-chips a, #lnv-chips-left button, #lnv-chips-left a') : null; return el; };
+    const over = e => {
+      const el = chip(e);
+      if (!el) return;
+      const t = el.getAttribute('title');
+      if (t) { el.setAttribute('data-tip', t); el.removeAttribute('title'); }
+      const text = el.getAttribute('data-tip');
+      if (!text) return;
+      const r = el.getBoundingClientRect();
+      setTip({ text, x: r.right + 8, y: r.top + r.height / 2 });
+    };
+    const out = e => { if (chip(e)) setTip(null); };
+    const hide = () => setTip(null);
+    document.addEventListener('mouseover', over);
+    document.addEventListener('mouseout', out);
+    document.addEventListener('mousedown', hide);
+    return () => { document.removeEventListener('mouseover', over); document.removeEventListener('mouseout', out); document.removeEventListener('mousedown', hide); };
+  }, []);
+  if (!tip) return null;
+  return createPortal(
+    <div role="tooltip" style={{ position: 'fixed', left: tip.x, top: tip.y, transform: 'translateY(-50%)', zIndex: 100000, pointerEvents: 'none', maxWidth: 260,
+      padding: '5px 10px', borderRadius: 8, background: 'var(--theme-dark3, #222)', color: 'var(--theme-text-pri, #fff)', border: '1px solid var(--theme-border)', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      fontFamily: "'Barlow', sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'normal' }}>{tip.text}</div>,
+    document.body);
+}
+
 function MoreMenu() {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState(null);
@@ -337,6 +368,8 @@ export default function Strip({ activeView }) {
   </>);
 
   return (
+    <>
+    <ChipTips />
     <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
           down to RAIL_WIDTH (108px), written every frame by
@@ -516,5 +549,6 @@ export default function Strip({ activeView }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
