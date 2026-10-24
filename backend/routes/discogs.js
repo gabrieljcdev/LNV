@@ -10,6 +10,8 @@ try { db.exec('ALTER TABLE release_track_links ADD COLUMN paid INTEGER NOT NULL 
 import { combSoon } from '../services/catalogueComber.js';
 import { adoptProfileLinks } from '../services/profileLinks.js';
 import { suggestionsFor, mineFor, userLinkInfo } from '../services/trackLinks.js';
+import { linkFromDiscogsVideos } from '../services/discogsVideos.js';
+import { resolveArtistName } from '../services/artistLookup.js';
 
 const router = express.Router();
 
@@ -53,6 +55,15 @@ router.get('/search', async (req, res, next) => {
   }
 });
 
+// GET /api/discogs/artist-id?name= -> { id }. For an artist who is only on a record as a track artist or
+// remixer (no Discogs id saved with the post): the ids kept from each release's own credits
+// (services/artistLookup.js, backend/sweep-artist-ids.mjs), else a name the crawl knows. No guessing from a search.
+router.get('/artist-id', async (req, res, next) => {
+  try {
+    res.json({ id: (await resolveArtistName(req.query.name, { search: false })).id }); // only names Discogs credited or the crawl knows: a search can match the wrong artist
+  } catch (err) { next(err); }
+});
+
 // GET /api/discogs/release/:id
 router.get('/release/:id', async (req, res, next) => {
   try {
@@ -86,6 +97,17 @@ router.get('/artist/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/discogs/catalogue-totals -> { artist: { [discogsId]: total }, label: { ... } }
+// The size of each crawled artist's / label's Discogs catalogue (2026-10-09): the Artists and Labels
+// tabs show it beside the post count.
+router.get('/catalogue-totals', (req, res, next) => {
+  try {
+    const out = { artist: {}, label: {} };
+    for (const r of db.prepare('SELECT kind, entity_id, total FROM discogs_catalogue_crawl WHERE total IS NOT NULL').all()) out[r.kind][r.entity_id] = r.total;
+    res.json(out);
+  } catch (err) { next(err); }
+});
+
 // GET /api/discogs/label/:id — label logo for spotlight cards (Feed.jsx).
 router.get('/label/:id', async (req, res, next) => {
   try {
@@ -103,16 +125,16 @@ router.get('/label/:id', async (req, res, next) => {
 // when they have no prior LNV posts. Summary only — no tracklist/videos;
 // the frontend fetches a specific release's full detail via
 // GET /discogs/release/:id, lazily, only once the user clicks one.
-// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=
+// GET /api/discogs/{artist|label}/:id/releases?offset=0&limit=100&q=   (+ decade=1990|unknown or year=1994 to jump there, decades=1 for the counts per decade)
 // The WHOLE catalogue, crawled in the background (getCataloguePage) and
 // served from the DB in pages, newest year first; q filters title / artist
 // / catno. `crawl` says how much has been collected so far.
 for (const kind of ['artist', 'label']) {
   router.get(`/${kind}/:id/releases`, async (req, res, next) => {
     try {
-      const { offset, limit, q } = req.query;
+      const { offset, limit, q, decade, year, decades } = req.query;
       combSoon(kind, Number(req.params.id)); // someone's looking: comb this one first
-      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q }));
+      res.json(await getCataloguePage(kind, Number(req.params.id), { offset, limit, q, decade, year, decades: decades === '1' }));
     } catch (err) {
       next(err);
     }
@@ -141,6 +163,8 @@ router.get('/youtube/search', async (req, res, next) => {
     // Saved first (2026-10-07): a link already found for this very release +
     // track is never searched for again, whoever posts it — a known miss
     // (30 days) and, for listening, a saved Spotify placeholder count too.
+    // Discogs' own videos for this release come before any search (free; saved, so it is a one-off per release).
+    if (release_id && position) await linkFromDiscogsVideos(Number(release_id)).catch(() => null);
     if (release_id && position) {
       const saved = db.prepare(`SELECT youtube_url, youtube_title, spotify_url, spotify_title,
                                        fetched_at > datetime('now', '-30 days') AS fresh
@@ -231,7 +255,8 @@ router.get('/track-sources', async (req, res, next) => {
 // another try (was 14 — misses were costing searches, 2026-10-06).
 router.get('/release/:id/track-links', async (req, res, next) => {
   try {
-    // Opening a release fills it from its Spotify album first (free).
+    // Opening a release: Discogs' own videos first (free, saved for everyone), then its Spotify album (free).
+    await linkFromDiscogsVideos(Number(req.params.id)).catch(() => null);
     await ensureReleaseSpotify(Number(req.params.id)).catch(() => null);
     const rows = db.prepare(`
       SELECT position, youtube_url, youtube_title, spotify_url, spotify_title FROM release_track_links

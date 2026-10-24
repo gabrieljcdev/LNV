@@ -1,13 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { prefetchDrawers } from '../lib/drawerPrefetch';
+import { isLoggedIn, isAdmin } from '../lib/auth';
 import { useLayout } from '../context/LayoutContext';
 import { RAIL_WIDTH, STRIP_RADIUS } from './Strip';
 import Logs from '../pages/Logs';
-import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, DrawerHead, DrawerBody } from './Drawers';
-import { AdminDrawer } from './AdminDrawer';
+import { ArtistsDrawer, LabelsDrawer, GenresDrawer, LiveDrawer, AboutDrawer, PostListDrawer, DrawerHead, DrawerBody } from './Drawers';
+// Admin accounts only: loaded when an admin first opens it.
+const AdminDrawer = lazy(() => import('./AdminDrawer').then(m => ({ default: m.AdminDrawer })));
 import { WallsDrawer, PlaylistsDrawer } from './CollectionDrawers';
 import { usePhone } from '../lib/usePhone';
 import { PHONE_NAV_H } from './PhoneNav';
 import { CommunityDrawer } from './CommunityDrawer';
+import { ActivityDrawer } from './ActivityDrawer';
+import { NotificationsDrawer } from './NotificationsDrawer';
 
 // 2026-10-01: artists / labels / genres / live sets / about are the new
 // drawers in Drawers.jsx, each with its own header (title, count, filter,
@@ -18,12 +24,17 @@ const COMPONENTS = {
   genres:  (props) => <GenresDrawer {...props} />,
   live:    (props) => <LiveDrawer {...props} />,
   about:   (props) => <AboutDrawer {...props} />,
+  // Who has a record: the playlists it is in / the people who kept it (the post card's Details tiles).
+  postlist: (props) => <PostListDrawer {...props} />,
   // Community boards (alpha, 2026-10-06) — the strip's community tab.
   community: (props) => <CommunityDrawer {...props} />,
   // Admin accounts only (the strip's admin button); every call it makes is
   // checked server-side too.
-  admin:   (props) => <AdminDrawer {...props} />,
+  admin:   (props) => <Suspense fallback={<div style={{ padding: 28, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: 'var(--theme-text-ter)' }}>Loading…</div>}><AdminDrawer {...props} /></Suspense>,
   // Walls and playlists (2026-10-03): the strip's ♥.
+  // "Your data" (the profile menu): the research-recording switch and what it holds.
+  activity: (props) => <ActivityDrawer {...props} />,
+  notifications: (props) => <NotificationsDrawer {...props} />,
   walls:   (props) => <WallsDrawer {...props} />,
   playlists: (props) => <PlaylistsDrawer {...props} />,
   logs:    (props) => <><DrawerHead title="Activity" count="" /><DrawerBody><Logs {...props} /></DrawerBody></>,
@@ -36,10 +47,10 @@ const PANEL_WIDTH = `min(640px, calc(100vw - ${RAIL_WIDTH}px))`;
 
 function FilesPage() {
   const files = [
-    { key: 'readme',  lines: ['WELCOME TO LATE NIGHT VIBES', '────────────────────────────────', 'A blog for serious music lovers.', 'Dig deep. Post what you\'re playing.', '', '> Browse the feed', '> Post a record', '> Discover what others are digging', '> Click ▶ for a random track'] },
-    { key: 'about',   lines: ['ABOUT LATE NIGHT VIBES', '────────────────────────────────', 'A sophisticated music community', 'for serious collectors.', '', 'Built with React, Node.js,', 'Discogs API and YouTube API.', '', 'EST. 2024'] },
-    { key: 'donate',  lines: ['DONATE', '────────────────────────────────', 'LNV is free and always will be.', 'If you enjoy it, consider', 'supporting the project.', '', '> hello@latenightvibes.com'] },
-    { key: 'contact', lines: ['CONTACT', '────────────────────────────────', '> hello@latenightvibes.com', '> @latenightvibes', '', 'WE DIG DEEP'] },
+    { key: 'readme',  lines: ['WELCOME TO CHEWING THE CEILING', '────────────────────────────────', 'A blog for serious music lovers.', 'Dig deep. Post what you\'re playing.', '', '> Browse the feed', '> Post a record', '> Discover what others are digging', '> Click ▶ for a random track'] },
+    { key: 'about',   lines: ['ABOUT CHEWING THE CEILING', '────────────────────────────────', 'A sophisticated music community', 'for serious collectors.', '', 'Built with React, Node.js,', 'Discogs API and YouTube API.', '', 'EST. 2024'] },
+    { key: 'donate',  lines: ['DONATE', '────────────────────────────────', 'Chewing the Ceiling is free and always will be.', 'If you enjoy it, consider', 'supporting the project.', '', '> hello@chewingtheceiling.com'] },
+    { key: 'contact', lines: ['CONTACT', '────────────────────────────────', '> hello@chewingtheceiling.com', '', 'WE DIG DEEP'] },
   ];
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', padding: '24px' }}>
@@ -56,12 +67,93 @@ function FilesPage() {
   );
 }
 
+// Drawers that are ready before you click (gabriel, 2026-10-10: "pretty much instant on the initial open").
+// The main drawers are built in the background a moment after the page loads, hidden, with their lists already fetched,
+// so opening one is just the slide: nothing to load, nothing to build.
+// They also stay alive when you click off (so a track playing in one keeps playing and reopening puts you back where you
+// were: the artist you had open, the filter you typed, the scroll). A drawer you have been in and left is reset after
+// DRAWER_KEEP_MS (10 minutes): a pre-built one is quietly rebuilt fresh, any other is dropped. Opening a drawer with a
+// name ("open Dixon") is its own entry; the newest DRAWER_KEEP_MAX of those are kept.
+const DRAWER_KEEP_MS = 10 * 60 * 1000;
+const DRAWER_KEEP_MAX = 4;
+const WARM_DRAWERS = ['about', 'artists', 'labels', 'genres', 'live', 'community'];
+const WARM_SIGNED_IN = ['playlists', 'walls'];
+// The admin drawer is lazy-loaded and used to be built only in the click that opened it, so its first open could show a black, empty panel until it was closed and
+// reopened (23 Oct). For admin accounts it is now built at idle with the others, so the click only reveals it.
+const WARM_ADMIN = ['admin'];
+
 export default function ContentPanel() {
   const { d3Content, d3Props, closeD3 } = useLayout();
   const isOpen    = !!d3Content;
-  const Component = COMPONENTS[d3Content];
   const phone = usePhone();
+  const qc = useQueryClient();
+  // One entry per drawer TYPE (artists, labels, about, ...). Opening "artists" for a name does not build a new drawer: it
+  // hands the name to the one that is already built (the drawer reads `filter` / `open` and its `_n` command number).
+  // Building a drawer in the click that opens it was the slow, sometimes blank first open.
+  const activeKey = d3Content || null;
+  const openId = d3Content ? `${d3Content}:${d3Props?._n ?? 0}` : null;
+  // { key, content, props, closed, since, warm, visited, gen }  (`since`: when the timer noticed it closed; `gen`: bumped to rebuild fresh)
+  const [entries, setEntries] = useState([]);
 
+  // When something is opened (or opened again with a new name), update the list in the same render (no flash of an empty
+  // panel). Order is never changed: moving a drawer's element in the page would reload any player inside it.
+  const [seenOpen, setSeenOpen] = useState(null);
+  if (openId !== seenOpen) {
+    setSeenOpen(openId);
+    let next = entries.map(e => e.key === activeKey ? { ...e, props: d3Props || {}, closed: false, since: null, visited: true } : { ...e, closed: true });
+    if (activeKey && !next.some(e => e.key === activeKey)) next = [...next, { key: activeKey, content: d3Content, props: d3Props || {}, closed: false, since: null, visited: true, warm: false, gen: 0 }];
+    const keep = new Set(next.filter(e => !e.warm).map(e => e.key).slice(-DRAWER_KEEP_MAX));
+    setEntries(next.filter(e => e.warm || keep.has(e.key)));
+  }
+
+  // Fetch the drawers' lists right away, then build the drawers one at a time while the browser is idle.
+  useEffect(() => {
+    const ids = [...WARM_DRAWERS, ...(isLoggedIn() ? WARM_SIGNED_IN : []), ...(isLoggedIn() && isAdmin() ? WARM_ADMIN : [])];
+    let i = 0, cancelled = false, handle = null;
+    const later = fn => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 200));
+    const step = () => {
+      if (cancelled || i >= ids.length) return;
+      const id = ids[i++];
+      setEntries(prev => (prev.some(e => e.key === id) ? prev : [...prev, { key: id, content: id, props: {}, closed: true, since: null, warm: true, visited: false, gen: 0 }]));
+      handle = later(step);
+    };
+    prefetchDrawers(qc);
+    const start = setTimeout(() => { handle = later(step); }, 500);
+    return () => { cancelled = true; clearTimeout(start); if (handle != null) { if (window.cancelIdleCallback) window.cancelIdleCallback(handle); else clearTimeout(handle); } };
+  }, [qc]);
+
+  // The 10-minute reset: a timer notices when a drawer you have been in has been closed, and resets it once it has been
+  // closed that long (it checks every 15 seconds, so the reset lands within 15 seconds of the 10 minutes).
+  useEffect(() => {
+    const t = setInterval(() => setEntries(prev => {
+      const now = Date.now();
+      let changed = false;
+      const next = [];
+      for (const e of prev) {
+        const m = e.closed && e.visited ? (e.since ? e : { ...e, since: now }) : (e.since ? { ...e, since: null } : e);
+        if (m !== e) changed = true;
+        if (m.closed && m.visited && m.since && now - m.since >= DRAWER_KEEP_MS) {
+          changed = true;
+          if (m.warm) next.push({ ...m, gen: (m.gen || 0) + 1, props: {}, visited: false, since: null }); // rebuilt fresh, still ready
+        } else next.push(m);
+      }
+      return changed ? next : prev;
+    }), 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  // A drawer that opens and is still empty a moment later leaves a clue in the console (for chasing the blank-drawer bug).
+  useEffect(() => {
+    if (!openId) return undefined;
+    const t = setTimeout(() => {
+      const el = document.querySelector('#lnv-drawer > [aria-hidden="false"]');
+      const len = (el?.textContent || '').trim().length;
+      if (len < 20) console.warn('[drawer] opened with no content', { openId, found: !!el, textLength: len, drawerChildren: document.getElementById('lnv-drawer')?.children.length });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [openId]);
+
+  const list = entries;
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') closeD3(); };
     window.addEventListener('keydown', onKey);
@@ -108,9 +200,21 @@ export default function ContentPanel() {
         boxShadow: isOpen ? '4px 0 40px rgba(0,0,0,0.30)' : 'none',
         visibility: isOpen ? 'visible' : 'hidden',
       }}>
-        {/* Keyed by what's open, so opening another name starts fresh
-            (filter cleared, the right detail shown). */}
-        {isOpen && Component && <Component key={d3Content + JSON.stringify(d3Props || {})} {...d3Props} />}
+        {/* One entry per drawer kept alive, keyed by what it is (so opening another name starts fresh). The one on show
+            fills the panel; the others stay mounted but hidden (visibility, not display: a player inside keeps playing). */}
+        {list.map(e => {
+          const C = COMPONENTS[e.content];
+          if (!C) return null;
+          const active = isOpen && e.key === activeKey;
+          return (
+            <div key={`${e.key}#${e.gen || 0}`} aria-hidden={!active}
+              style={active
+                ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
+                : { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', visibility: 'hidden', pointerEvents: 'none' }}>
+              <C {...e.props} />
+            </div>
+          );
+        })}
       </div>
     </>
   );

@@ -1,4 +1,5 @@
 import express from 'express';
+import { watchCache } from '../services/memoryWatch.js';
 import fetch from 'node-fetch';
 import { searchDiscogs, searchDiscogsBarcode, getRelease, getArtistReleases, getLabelReleases, resolveDiscogsUrl, catalogueCandidates } from '../services/discogsService.js';
 import { getChannelUploads, extractVideoId, channelsWithVerdicts } from '../services/youtubeService.js';
@@ -175,15 +176,26 @@ function detectPostType({ platform, duration, title = '', tags = [], description
   if (tracks.length >= 6) return 'album';
   if (catNo && tracks.length <= 2) return 'single'; // catNo alone = single only if very few tracks
 
-  let score = 0;
-  const t = (title + ' ' + tags.join(' ') + ' ' + description).toLowerCase();
+  // Only the title says what this is. Tags and descriptions are uploader spam
+  // ("half of where you live", "We don't own the rights...") and made plain
+  // tracks from re-upload channels read as sets.
+  const lowTitle = title.toLowerCase();
+  const setWord = /\b(live|mix|dj.?set|podcast|session|b2b|boiler.?room|fabric|berghain|hor)\b/;
+  // "(Fort Romeau Remix)", "Official Audio": released music, however long.
+  const trackTitle = /\b(re-?mix|rework|edit|dub|vip|official (audio|video|music video)|lyric video|visuali[sz]er)\b/.test(lowTitle)
+    && !/\b(live|dj.?set|b2b|podcast|session)\b/.test(lowTitle);
 
+  let score = 0;
   if (duration > 1800) score += 2;  // >30min
   if (duration > 3600) score += 1;  // >60min bonus
-  if (/\b(live|mix|dj.?set|podcast|session|b2b|boiler.?room|fabric|berghain|hor|h.r)\b/.test(t)) score += 2;
-  if (/\bat\b/.test(title.toLowerCase())) score += 1;
-  if (KNOWN_CHANNELS.some(c => title.includes(c) || description.includes(c))) score += 3;
-  if (duration < 900 && !/(mix|set|live)/i.test(t)) score -= 3;  // <15min, no mix keyword
+  if (setWord.test(lowTitle)) score += 2;
+  if (/\bat\b/.test(lowTitle)) score += 1;
+  const channelHit = KNOWN_CHANNELS.some(c => new RegExp(`(^|[^\\p{L}\\p{N}])${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'iu').test(title));
+  if (channelHit) score += 3;
+  if (duration && duration < 900 && !setWord.test(lowTitle)) score -= 3;  // <15min, no set word
+  if (trackTitle) score -= 3;
+  // "Full Album" / "Full EP" uploads are long but are releases, not sets.
+  if (/\bfull (album|ep|lp)\b/.test(lowTitle) && !/\b(live|dj.?set|b2b|session)\b/.test(lowTitle)) return 'album';
 
   if (score >= 2) return 'livemix';
   if (tracks.length >= 6) return 'album';
@@ -937,6 +949,7 @@ const FALLBACK_TIMEOUT_MS = 6000;
 // Small in-process memo: the same link is often pasted twice in a row
 // (fetch, edit, fetch again). Discogs calls have their own SQLite cache.
 const memo = new Map();
+watchCache('link lookups memo', () => memo.size);
 async function memoised(key, fn, ttlMs = 6 * 3600e3) {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.t < ttlMs) return hit.v;
@@ -2181,6 +2194,8 @@ router.get('/resolve', async (req, res) => {
     // No Discogs release: cross-check other catalogues, try Discogs again
     // with what they found, else fill the blanks and attach artist/label ids.
     await resolveWithFallback(result);
+    // No Discogs release but the platform named the album a track is on: the post carries the album's title.
+    if (!result.discogs_id && result._search?.kind === 'track' && result._search.album && result.detected_type !== 'livemix') result.title = stripReleaseSuffix(result._search.album);
     delete result._search;
 
     // ── Attach real Discogs artist/label ids ────────────────────────────────
@@ -2230,6 +2245,10 @@ router.get('/resolve', async (req, res) => {
         result.label = result.label || relLabel.name || '';
         result.catNo = result.catNo || relLabel.catno || '';
       }
+
+      // A pasted track posts as its record, not as the track's name: the
+      // highlight marks the track (gabriel, 2026-10-24).
+      if (matchedTrack && rel?.title) result.title = rel.title;
 
       // The pasted link IS the stream for its own track — don't leave that
       // row blank in the tracklist.

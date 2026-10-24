@@ -1,8 +1,11 @@
 import fetch from 'node-fetch';
+import { watchCache } from './memoryWatch.js';
 import dotenv from 'dotenv';
 import db from '../db/database.js';
+import { setupCatalogueIndex, catalogueSearchReady, searchCatalogueRowids } from './catalogueIndex.js';
 import { logEvent } from './logService.js';
 import { countCall } from './usageService.js';
+import { setName } from './entityNames.js';
 dotenv.config();
 
 const DISCOGS_BASE = 'https://api.discogs.com';
@@ -24,7 +27,7 @@ function getHeaders() {
   countCall('discogs');
   return {
     'Authorization': `Discogs token=${process.env.DISCOGS_TOKEN}`,
-    'User-Agent': 'LateNightVibes/1.0',
+    'User-Agent': 'ChewingTheCeiling/1.0 +https://chewingtheceiling.com',
   };
 }
 
@@ -88,6 +91,19 @@ const remixersOf = list => (list || [])
   .map(a => ({ id: a.id, name: a.name.replace(/\s*\(\d+\)$/, '') }));
 
 // background: the cover queue's own fetches don't count as site traffic.
+// A background GET for the account import (services/discogsAccount.js, 2026-10-08): the shared
+// token, a timeout, and one patient wait if Discogs says 429. -> { status, data } (data null unless 200).
+export async function discogsJson(path) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let res;
+    try { res = await fetch(`${DISCOGS_BASE}${path}`, { headers: getHeaders(), signal: AbortSignal.timeout(60000) }); }
+    catch { return { status: 504, data: null }; }
+    if (res.status === 429) { await new Promise(r => setTimeout(r, 30000)); continue; }
+    return { status: res.status, data: res.ok ? await res.json().catch(() => null) : null };
+  }
+  return { status: 429, data: null };
+}
+
 export async function getRelease(releaseId, { background = false } = {}) {
   const key = `release:${releaseId}`;
   const cached = getCached(key);
@@ -95,10 +111,18 @@ export async function getRelease(releaseId, { background = false } = {}) {
 
   const url = `${DISCOGS_BASE}/releases/${releaseId}`;
   const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error(`Failed to fetch release ${releaseId}: ${res.status}`);
+  if (!res.ok) throw httpError(`Failed to fetch release ${releaseId}: ${res.status}`, res.status);
   const data = normaliseRelease(await res.json());
   setCache(key, data);
   return data;
+}
+
+// An error that says which HTTP status it came from, so callers can tell "gone" (404) from "slow down" (429) from a real fault.
+function httpError(message, status) {
+  const e = new Error(message);
+  e.status = status;
+  if (status === 429) e.rateLimited = true;
+  return e;
 }
 
 // The master a release belongs to (0 = none), for the duplicate comber
@@ -125,7 +149,7 @@ export async function getMaster(masterId, { background = false } = {}) {
 
   const url = `${DISCOGS_BASE}/masters/${masterId}`;
   const res = await (background ? fetch : fgFetch)(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error(`Failed to fetch master ${masterId}: ${res.status}`);
+  if (!res.ok) throw httpError(`Failed to fetch master ${masterId}: ${res.status}`, res.status);
   const data = normaliseMaster(await res.json());
   setCache(key, data);
   return data;
@@ -377,6 +401,8 @@ export async function resolveDiscogsUrl(url) {
   throw new Error('Paste a Discogs release, master or shop link');
 }
 
+setupCatalogueIndex();   // full-text index over the stored catalogues (catalogueIndex.js)
+
 // ─── Catalogue crawler (labels and artists) ──────────────────────────────────
 // gabriel, 2026-10-02: a spotlight showed Discogs' first 25 releases of a
 // label or artist, whatever the size of the catalogue. Like the YouTube
@@ -388,26 +414,71 @@ export async function resolveDiscogsUrl(url) {
 // monthly to pick up new releases.
 
 const CATALOGUE_GAP_MS = 3000;
+const CATALOGUE_TIMEOUT_MS = 60000;   // Discogs' own limit is ~30 s; a hung request must not stall the worker
 const CATALOGUE_QUIET_MS = 4000;
 const CATALOGUE_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const catalogueCrawling = new Set();
+watchCache('catalogues crawling', () => catalogueCrawling.size);
+// A page Discogs keeps refusing (Columbia's page 44 answers 502 every time —
+// 2026-10-07) used to hold its crawl on that page for good. A page that fails
+// PAGE_RETRIES times is skipped and noted (discogs_catalogue_crawl.skipped);
+// the monthly refresh starts from page 1 again, so it gets another chance.
+// Three skips in a row mean Discogs itself is struggling: stop skipping, wait.
+try { db.exec('ALTER TABLE discogs_catalogue_crawl ADD COLUMN skipped TEXT'); } catch { /* already there */ }
+const PAGE_RETRIES = 3, PAGE_RETRY_WAIT_MS = 15000, OUTAGE_WAIT_MS = 10 * 60 * 1000;
+const pageFails = new Map();   // 'kind:id:page' -> failures this run
+const skipRun = new Map();     // 'kind:id' -> pages skipped in a row
+watchCache('crawl page failures', () => pageFails.size + skipRun.size);
 
 const crawlRow = (kind, id) => db.prepare('SELECT * FROM discogs_catalogue_crawl WHERE kind = ? AND entity_id = ?').get(kind, id);
 const catalogueCount = (kind, id) => db.prepare('SELECT COUNT(*) c FROM discogs_catalogue WHERE kind = ? AND entity_id = ?').get(kind, id).c;
 
 // One page from Discogs into discogs_catalogue. -> { pages, items } | null on 429.
-async function crawlCataloguePage(kind, id, page) {
-  const url = kind === 'artist'
-    ? `${DISCOGS_BASE}/artists/${id}/releases?page=${page}&per_page=100&sort=year&sort_order=desc`
-    : `${DISCOGS_BASE}/labels/${id}/releases?page=${page}&per_page=100`;
-  const res = await fetch(url, { headers: getHeaders() }); // background: not fgFetch
+// One slice of a catalogue from Discogs. -> JSON | null on 429. A request that
+// takes too long counts as a 504. Both artists and labels are asked in year
+// order (2026-10-07): Discogs' default order times the request out (502) deep
+// into a big label — Columbia, from page ~43 of 3,960 — while a sorted request
+// is answered, if slowly.
+async function fetchCatalogueSlice(kind, id, page, perPage) {
+  const url = `${DISCOGS_BASE}/${kind === 'artist' ? 'artists' : 'labels'}/${id}/releases?page=${page}&per_page=${perPage}&sort=year&sort_order=desc`;
+  let res;
+  try { res = await fetch(url, { headers: getHeaders(), signal: AbortSignal.timeout(CATALOGUE_TIMEOUT_MS) }); } // background: not fgFetch
+  catch (err) { throw Object.assign(new Error(`Discogs ${kind} ${id} releases page ${page}: timed out`), { status: 504 }); }
   if (res.status === 429) return null;
-  if (!res.ok) throw new Error(`Discogs ${kind} ${id} releases page ${page}: ${res.status}`);
-  const data = await res.json();
+  if (!res.ok) throw Object.assign(new Error(`Discogs ${kind} ${id} releases page ${page}: ${res.status}`), { status: res.status });
+  return res.json();
+}
+
+// One page of 100 into discogs_catalogue. -> { pages, items } | null on 429.
+// When Discogs gives up on a 100-row page (5xx / timeout), the same rows are
+// taken as four pages of 25 — smaller pages are far cheaper for it — before the
+// page is ever given up on.
+async function crawlCataloguePage(kind, id, page) {
+  let data;
+  try {
+    data = await fetchCatalogueSlice(kind, id, page, 100);
+    if (!data) return null;
+  } catch (err) {
+    if (!err.status || err.status < 500) throw err;
+    const row = crawlRow(kind, id);
+    data = { releases: [], pagination: { pages: row?.pages || page, items: row?.total || 0 } };
+    for (let k = 1; k <= 4; k++) {
+      await new Promise(r => setTimeout(r, CATALOGUE_GAP_MS));
+      const part = await fetchCatalogueSlice(kind, id, (page - 1) * 4 + k, 25);
+      if (!part) return null;
+      data.releases.push(...(part.releases || []));
+    }
+  }
   const get = db.prepare('SELECT role FROM discogs_catalogue WHERE kind = ? AND entity_id = ? AND item_type = ? AND item_id = ?');
-  const put = db.prepare(`INSERT OR REPLACE INTO discogs_catalogue
+  // An upsert, not INSERT OR REPLACE: rows are updated in place so the search
+  // index's triggers stay exact, and a monthly re-crawl no longer wipes what the
+  // duplicate comber has already settled (work_key, master_id, dup_of).
+  const put = db.prepare(`INSERT INTO discogs_catalogue
     (kind, entity_id, item_type, item_id, title, year, role, thumb, artist, label, format, catno, main_release)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(kind, entity_id, item_type, item_id) DO UPDATE SET
+      title = excluded.title, year = excluded.year, role = excluded.role, thumb = excluded.thumb, artist = excluded.artist,
+      label = excluded.label, format = excluded.format, catno = excluded.catno, main_release = excluded.main_release`);
   db.transaction(() => {
     for (const r of data.releases || []) {
       // Label lists carry no type (they're all releases); artist lists mix in masters.
@@ -464,21 +535,98 @@ async function drainCatalogues() {
           await new Promise(r => setTimeout(r, 60000));
           continue;
         }
+        skipRun.delete(key); pageFails.delete(`${key}:${row.next_page}`);
         const done = row.next_page >= page.pages ? 1 : 0;
         db.prepare(`UPDATE discogs_catalogue_crawl SET total = ?, pages = ?, next_page = ?, done = ?, crawled_at = datetime('now')
                     WHERE kind = ? AND entity_id = ?`).run(page.items, page.pages, done ? row.next_page : row.next_page + 1, done, kind, id);
         if (done) catalogueCrawling.delete(key);
         else catalogueQueue.push(key); // back of the line
       } catch (err) {
+        const pk = `${key}:${row.next_page}`;
+        const fails = (pageFails.get(pk) || 0) + 1;
+        pageFails.set(pk, fails);
         console.error('[catalogue crawl]', key, err.message);
-        logEvent('error', 'crawl', `Discogs catalogue ${key}: ${err.message}`);
-        catalogueCrawling.delete(key); // retried next time it's asked for
+        if (err.status === 404) {
+          // A page that does not exist is a permanent answer (past the last page, or the entity is gone): the crawl is finished, not retried.
+          db.prepare("UPDATE discogs_catalogue_crawl SET done = 1, crawled_at = datetime('now') WHERE kind = ? AND entity_id = ?").run(kind, id);
+          catalogueCrawling.delete(key); skipRun.delete(key); pageFails.delete(pk);
+          logEvent('warn', 'crawl', `Discogs catalogue ${key}: page ${row.next_page} not found, treated as the end of the list`);
+        } else if (err.status && err.status !== 429 && fails >= PAGE_RETRIES && (skipRun.get(key) || 0) < 3) {
+          // Skip the page, remember it, carry on.
+          const last = row.next_page >= (row.pages || 0) && row.pages > 0;
+          const skipped = [...new Set([...(row.skipped || '').split(',').filter(Boolean), String(row.next_page)])].join(',');
+          db.prepare("UPDATE discogs_catalogue_crawl SET next_page = ?, done = ?, skipped = ?, crawled_at = datetime('now') WHERE kind = ? AND entity_id = ?")
+            .run(last ? row.next_page : row.next_page + 1, last ? 1 : 0, skipped, kind, id);
+          skipRun.set(key, (skipRun.get(key) || 0) + 1);
+          pageFails.delete(pk);
+          logEvent('warn', 'crawl', `Skipped ${key} page ${row.next_page} after ${fails} failures (${err.message}); it is tried again at the monthly refresh`);
+          if (last) catalogueCrawling.delete(key); else catalogueQueue.push(key);
+        } else if (fails >= PAGE_RETRIES && err.status && err.status !== 429) {
+          logEvent('error', 'crawl', `Discogs catalogue ${key}: ${err.message} — three skipped pages in a row, waiting 10 minutes`);
+          skipRun.delete(key); pageFails.delete(pk);
+          catalogueQueue.push(key);
+          await new Promise(r => setTimeout(r, OUTAGE_WAIT_MS));
+        } else {
+          if (fails === 1) logEvent('error', 'crawl', `Discogs catalogue ${key}: ${err.message}`);
+          catalogueQueue.push(key);   // back of the line, another go in a moment
+          await new Promise(r => setTimeout(r, PAGE_RETRY_WAIT_MS));
+        }
       }
       await new Promise(r => setTimeout(r, CATALOGUE_GAP_MS));
     }
   } finally {
     catalogueWorking = false;
   }
+}
+
+/**
+ * The other releases a pasted link matched (compilations, reissues, EPs) when
+ * the poster picked one of them. They are kept so none of it is lost:
+ *  - each lands in the posted artists' catalogues (role "Appearance" when its
+ *    own credit is someone else, e.g. Various), so the artist's tab shows it;
+ *  - each release's label (and any artist credited on it) is queued for a full catalogue crawl, and the release
+ *    sits in that label's catalogue straight away.
+ * `artists` = [{ name, id }] of the post; `releases` = lookup alternates
+ * ({ discogs_id, release_title, artists, label, label_id, catNo, year, cover_image, format }).
+ */
+export function recordRelatedReleases(artists = [], releases = []) {
+  const put = db.prepare(`INSERT INTO discogs_catalogue
+    (kind, entity_id, item_type, item_id, title, year, role, thumb, artist, label, format, catno, main_release)
+    VALUES (?, ?, 'release', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ON CONFLICT(kind, entity_id, item_type, item_id) DO NOTHING`);
+  const track = db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)');
+  const posted = artists.filter(a => a?.id && a.id !== 194);
+  const touched = new Set();
+  // Every artist and label seen here gets its name stored, so the crawl lists can show it (entityNames.js).
+  for (const a of posted) setName('artist', a.id, a.name);
+  for (const r of releases) { for (const a of r?.artists || []) if (a?.id) setName('artist', a.id, a.name); if (r?.label_id) setName('label', r.label_id, r.label); }
+  db.transaction(() => {
+    for (const r of releases) {
+      const rid = Number(r?.discogs_id);
+      if (!rid) continue;
+      const credit = r.artists?.length ? r.artists.map(a => a.name).filter(Boolean).join(', ') : (r.artist || null);
+      const title = (r.release_title?.includes(' - ') ? r.release_title.split(' - ').slice(1).join(' - ') : r.release_title) || '';
+      const format = Array.isArray(r.format) ? r.format.join(', ') : (r.format || null);
+      const row = [rid, title, r.year ? Number(r.year) : null, null, r.thumb_image || r.cover_image || null, credit, r.label || null, format, r.catNo || null];
+      const own = new Set((r.artists || []).map(a => a.id));
+      for (const a of posted) {
+        put.run('artist', a.id, ...row.slice(0, 3), own.has(a.id) ? null : 'Appearance', ...row.slice(4));
+        track.run('artist', a.id); touched.add(`artist:${a.id}`);
+      }
+      // Artists credited on the release itself (not the post's, not "Various"): new to us, so they get crawled too.
+      for (const a of r.artists || []) {
+        if (!a?.id || a.id === 194 || /^various( artists)?$/i.test(a.name || '')) continue;
+        put.run('artist', a.id, ...row.slice(0, 3), null, ...row.slice(4));
+        track.run('artist', a.id); touched.add(`artist:${a.id}`);
+      }
+      if (r.label_id) {
+        put.run('label', r.label_id, ...row);
+        track.run('label', r.label_id); touched.add(`label:${r.label_id}`);
+      }
+    }
+  })();
+  for (const key of touched) { const [kind, id] = key.split(':'); crawlCatalogue(kind, Number(id)); }
+  return touched.size;
 }
 
 /**
@@ -502,8 +650,12 @@ export function startCatalogueKeeper() {
       logEvent('error', 'crawl', `Catalogue keeper: ${err.message}`);
     }
   };
+  // Housekeeping for a database that only grows: refresh the query planner's
+  // statistics and hand the WAL back, hourly (cheap when nothing changed).
+  const maintain = () => { try { db.pragma('optimize'); db.pragma('wal_checkpoint(PASSIVE)'); } catch (err) { console.error('[db maintenance]', err.message); } };
   setTimeout(sweep, 15000);
   setInterval(sweep, 60 * 60 * 1000);
+  setInterval(maintain, 60 * 60 * 1000);
 }
 
 /**
@@ -514,8 +666,17 @@ export function startCatalogueKeeper() {
 export function catalogueCandidates(title, limit = 25) {
   const term = String(title || '').trim().toLowerCase();
   if (term.length < 2) return [];
-  return db.prepare(`SELECT DISTINCT item_type, item_id, main_release, title, artist FROM discogs_catalogue
-                     WHERE instr(lower(title), ?) > 0 LIMIT ?`).all(term, limit)
+  // The search index answers in ~1 ms at any size; scanning every row (the
+  // fallback, if the index could not be built) is seconds at millions.
+  const cols = 'item_type, item_id, main_release, title, artist';
+  let rows;
+  if (catalogueSearchReady()) {
+    const ids = searchCatalogueRowids(term, limit * 4);
+    rows = ids.length ? db.prepare(`SELECT DISTINCT ${cols} FROM discogs_catalogue WHERE rowid IN (${ids.join(',')}) LIMIT ?`).all(limit) : [];
+  } else {
+    rows = db.prepare(`SELECT DISTINCT ${cols} FROM discogs_catalogue WHERE instr(lower(title), ?) > 0 LIMIT ?`).all(term, limit);
+  }
+  return rows
     .map(r => ({ releaseId: r.item_type === 'master' ? r.main_release : r.item_id, title: r.title, artist: r.artist }))
     .filter(r => r.releaseId);
 }
@@ -527,9 +688,15 @@ export function catalogueCandidates(title, limit = 25) {
  * isn't empty. Same row shape as getArtistReleases/getLabelReleases, plus
  * `crawl` progress.
  */
-export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = '' } = {}) {
-  if (!crawlRow(kind, id)) db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)').run(kind, id);
-  if (catalogueCount(kind, id) === 0 && !catalogueCrawling.has(`${kind}:${id}`)) {
+// Jump to a decade or a year (2026-10-22): the list is newest year first with undated releases last, so the first release of a
+// decade is the row after every release newer than it. `decade` (1990 = the 1990s), `year` (the first release of that year or,
+// when there is none, the nearest older one) or decade 'unknown' (the undated ones at the end) replace `offset`; the answer says
+// where it landed (jump) so the screen can scroll there. `decades` asks for the count per decade, for a row of chips.
+export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = '', decade = null, year = null, decades = false } = {}) {
+  // A negative id is a label added from Bandcamp (services/customLabels.js): its rows are already complete, nothing to ask Discogs.
+  const own = id < 0;
+  if (!own && !crawlRow(kind, id)) db.prepare('INSERT OR IGNORE INTO discogs_catalogue_crawl (kind, entity_id) VALUES (?, ?)').run(kind, id);
+  if (!own && catalogueCount(kind, id) === 0 && !catalogueCrawling.has(`${kind}:${id}`)) {
     const page = await crawlCataloguePage(kind, id, 1);
     if (page) {
       const done = page.pages <= 1 ? 1 : 0;
@@ -537,10 +704,9 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
                   WHERE kind = ? AND entity_id = ?`).run(page.items, page.pages, done ? 1 : 2, done, kind, id);
     }
   }
-  crawlCatalogue(kind, id); // not awaited
+  if (!own) crawlCatalogue(kind, id); // not awaited
 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 200);
-  const off = Math.max(Number(offset) || 0, 0);
   const term = String(q || '').trim().toLowerCase();
   // Pressings the duplicate comber folded under another row aren't listed;
   // the row they're folded under says how many versions it has (2026-10-06).
@@ -549,6 +715,21 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
     : 'c.kind = ? AND c.entity_id = ? AND c.dup_of IS NULL';
   const args = term ? [kind, id, term] : [kind, id];
   const matched = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where}`).get(...args).n;
+  let off = Math.max(Number(offset) || 0, 0), jump = null;
+  const asked = decade === 'unknown' ? 'unknown' : Number(decade) || null, askedYear = Number(year) || null;
+  if (asked === 'unknown') {
+    off = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year IS NOT NULL`).get(...args).n;
+    jump = { decade: 'unknown', offset: off, found: off < matched };
+  } else if (asked || askedYear) {
+    const first = askedYear || Math.floor(asked / 10) * 10;      // the oldest year the span reaches
+    const last = askedYear || first + 9;                          // and the newest
+    off = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year > ?`).get(...args, last).n;
+    const inSpan = db.prepare(`SELECT COUNT(*) n FROM discogs_catalogue c WHERE ${where} AND c.year BETWEEN ? AND ?`).get(...args, first, last).n;
+    jump = { ...(askedYear ? { year: askedYear } : { decade: first }), offset: off, found: inSpan > 0, inSpan };
+  }
+  const decadeCounts = decades
+    ? db.prepare(`SELECT CASE WHEN c.year IS NULL THEN NULL ELSE (c.year / 10) * 10 END AS decade, COUNT(*) AS n FROM discogs_catalogue c WHERE ${where} GROUP BY decade ORDER BY (decade IS NULL), decade DESC`).all(...args)
+    : null;
   const rows = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM discogs_catalogue d WHERE d.kind = c.kind AND d.entity_id = c.entity_id AND d.dup_of = c.item_type || ':' || c.item_id) AS folded
     FROM discogs_catalogue c WHERE ${where} ORDER BY (c.year IS NULL), c.year DESC, c.title LIMIT ? OFFSET ?`).all(...args, lim, off);
   const crawl = crawlRow(kind, id);
@@ -560,9 +741,13 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
       artist: r.artist, label: r.label, format: r.format, catno: r.catno, mainRelease: r.main_release,
       // Pressings folded under this row by the duplicate comber, and its master.
       versions: (r.folded || 0) + 1, masterId: r.item_type === 'master' ? r.item_id : (r.master_id || null),
+      // Bandcamp rows (type 'bandcamp') carry their own page; the id is not a Discogs id.
+      ...(r.item_type === 'bandcamp' ? { source: 'bandcamp', url: r.link } : {}),
     })),
     // items = Discogs' own count (it counts a release once per role).
     pagination: { items: crawl?.total || have, offset: off, limit: lim, matched },
+    ...(jump ? { jump } : {}),
+    ...(decadeCounts ? { decades: decadeCounts } : {}),
     crawl: { have, total: crawl?.total || have, done: !!crawl?.done, running: catalogueCrawling.has(`${kind}:${id}`) },
   };
 }
@@ -579,6 +764,7 @@ export async function getCataloguePage(kind, id, { offset = 0, limit = 100, q = 
 const COVER_GAP_MS = 2000;
 const coverQueue = [];
 const coverQueued = new Set();
+watchCache('covers queued', () => coverQueued.size);
 let coverWorking = false;
 
 function cachedCover(key) {

@@ -3,14 +3,18 @@ import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useLayout } from '../context/LayoutContext';
 import Clock from './Clock';
+import BrandScaleTool, { readBrandScale, applyBrandScale } from './BrandScaleTool';
 import { getUser, logout, isAdmin } from '../lib/auth';
 import { goHome, homeMode, useFeedMode, showMyProfile, wallLink } from '../lib/collections';
 import { queue } from '../lib/queue';
+import { MODULE_CARDS } from '../lib/moduleKit';
+import { isFeedPath } from '../lib/routes';
+import { useUnread } from '../lib/unread';
 
 // Your initial on the strip (2026-10-05): a small menu — your profile, a
 // link to it, sign out. (Clicking the initial used to sign you out.)
 // Drawn in a portal beside the button: the strip clips what overflows it.
-function ProfileMenu({ user, onProfile, onSignOut }) {
+function ProfileMenu({ user, onProfile, onData, onSignOut }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [at, setAt] = useState(null);
@@ -48,6 +52,8 @@ function ProfileMenu({ user, onProfile, onSignOut }) {
         </div>
         <button role="menuitem" autoFocus style={item} {...hover} onClick={() => { setOpen(false); onProfile(); }}>My profile</button>
         <button role="menuitem" style={item} {...hover} onClick={() => { navigator.clipboard?.writeText(wallLink(user)).then(() => setCopied(true)).catch(() => {}); }}>{copied ? '✓ Link copied' : 'Copy a link to my profile'}</button>
+        <button role="menuitem" style={item} {...hover} onClick={() => { setOpen(false); window.dispatchEvent(new Event('lnv-tour')); }}>How it works</button>
+        <button role="menuitem" style={item} {...hover} onClick={() => { setOpen(false); onData(); }}>Your data</button>
         <div style={{ height: 1, background: 'var(--theme-border)', margin: '4px 8px' }} />
         <button role="menuitem" style={{ ...item, color: 'var(--theme-text-sec)' }} {...hover} onClick={onSignOut}>Sign out</button>
       </div>,
@@ -143,8 +149,83 @@ export const STRIP_OPEN_WIDTH = RAIL_OPEN_WIDTH + SECONDARY_STRIP_WIDTH; // 530 
 // show the feed passing beneath — never the page background.
 export const STRIP_RADIUS = 40;
 
+// "More" (2026-10-23, gabriel): the tools that were icon-only chips (search, choose a feed, listen, theme) behind one ⋯ chip, with names. Each does what its chip did:
+// Feed.jsx listens for 'lnv-tool'. Drawn in a portal beside the button, as the profile menu is (the strip clips what overflows it).
+const MORE_TOOLS = [
+  ['search', 'Search', <svg key="s" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l5 5" /></svg>],
+  ['feeds', 'Choose a feed', '≡'], ['listen', 'How do you listen?', '♪'], ['theme', 'Theme', '◐'],
+];
+// Instant hover labels beside the round chips (24 Oct, gabriel): the browser's own title tooltip is slow and plain. One listener for all of them: the
+// chip's title is moved to data-tip on hover (so the native one stays quiet) and drawn in a portal, since the strip clips what overflows it.
+function ChipTips() {
+  const [tip, setTip] = useState(null);
+  useEffect(() => {
+    const chip = e => { const el = e.target instanceof Element ? e.target.closest('#lnv-chips button, #lnv-chips a, #lnv-chips-left button, #lnv-chips-left a') : null; return el; };
+    const over = e => {
+      const el = chip(e);
+      if (!el) return;
+      const t = el.getAttribute('title');
+      if (t) { el.setAttribute('data-tip', t); el.removeAttribute('title'); }
+      const text = el.getAttribute('data-tip');
+      if (!text) return;
+      const r = el.getBoundingClientRect();
+      setTip({ text, x: r.right + 8, y: r.top + r.height / 2 });
+    };
+    const out = e => { if (chip(e)) setTip(null); };
+    const hide = () => setTip(null);
+    document.addEventListener('mouseover', over);
+    document.addEventListener('mouseout', out);
+    document.addEventListener('mousedown', hide);
+    return () => { document.removeEventListener('mouseover', over); document.removeEventListener('mouseout', out); document.removeEventListener('mousedown', hide); };
+  }, []);
+  if (!tip) return null;
+  return createPortal(
+    <div role="tooltip" style={{ position: 'fixed', left: tip.x, top: tip.y, transform: 'translateY(-50%)', zIndex: 100000, pointerEvents: 'none', maxWidth: 260,
+      padding: '5px 10px', borderRadius: 8, background: 'var(--theme-dark3, #222)', color: 'var(--theme-text-pri, #fff)', border: '1px solid var(--theme-border)', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      fontFamily: "'Barlow', sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'normal' }}>{tip.text}</div>,
+    document.body);
+}
+
+function MoreMenu() {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = e => { if (!menuRef.current?.contains(e.target) && !btnRef.current?.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  function toggle() {
+    const r = btnRef.current.getBoundingClientRect();
+    setAt({ left: r.right + 12, top: r.top });
+    setOpen(v => !v);
+  }
+  return <>
+    <button ref={btnRef} onClick={toggle} title="More: search, choose a feed, listen, theme" aria-label="More: search, choose a feed, listen, theme" aria-haspopup="menu" aria-expanded={open}
+      style={{ color: open ? '#fff' : 'var(--theme-accent)', fontSize:'16px', background: open ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>⋯</button>
+    {open && at && createPortal(
+      <div ref={menuRef} role="menu" aria-label="More"
+        style={{ position:'fixed', left: at.left, top: at.top, zIndex: 400, width: 210, padding: 6, background:'var(--theme-dark3)', border:'1px solid var(--theme-border)', borderRadius: 16, boxShadow:'0 16px 40px rgba(0,0,0,0.45)' }}>
+        {MORE_TOOLS.map(([id, title, glyph]) => (
+          <button key={id} role="menuitem" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('lnv-tool', { detail: id })); }}
+            style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'9px 12px', border:0, borderRadius:10, background:'transparent', color:'var(--theme-text-pri)', fontFamily:"'Barlow', sans-serif", fontWeight:600, fontSize:14, textAlign:'left', cursor:'pointer' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--theme-accent) 16%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+            <span aria-hidden="true" style={{ width:20, textAlign:'center', color:'var(--theme-accent)', display:'inline-flex', justifyContent:'center' }}>{glyph}</span>{title}
+          </button>
+        ))}
+      </div>,
+      document.body
+    )}
+  </>;
+}
+
 export default function Strip({ activeView }) {
-  const onFeed = useLocation().pathname === '/' && activeView === 'feed';
+  const onFeed = isFeedPath(useLocation().pathname) && activeView === 'feed';
   const { setCurrentTrack, stripRef, railZoneRef, secondaryStripRef, railWordmarkRef, fBarsRef, navTabsRef, d3Content, openD3, closeD3 } = useLayout();
 
   // Non-panel tabs (main feed / readme / about) swap the feed-zone content
@@ -161,6 +242,65 @@ export default function Strip({ activeView }) {
     window.lnvNavigate?.(tab.id);
   }
   const user = getUser();
+  const unread = useUnread();
+
+  // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
+  // sliders (BrandScaleTool.jsx) win over these.
+  const [chipsLeft, setChipsLeft] = useState(true) // admin, new post, more and you sit under the pills (true) or join the right-hand column on a short screen
+  const fitRef = useRef(null)
+  useEffect(() => { fitRef.current?.() }, [chipsLeft])
+  useEffect(() => {
+    // The wordmark (23 Oct, gabriel): the visible LETTERS start at the same 5px as the pills, and it is as big as the room under the chips allows.
+    // The text box is narrower than the letters (line-height 36px against a 72px font), so the ink pokes out to the left of the box: the offset is worked
+    // out from the font's own metrics and taken off the left. CHEWING THE CEILING is about 5.7 times as tall as CHEWING's size.
+    const inkOffset = cw => {
+      try {
+        const m = document.createElement('canvas').getContext('2d')
+        m.font = '900 ' + cw + 'px Barlow, sans-serif'
+        const t = m.measureText('CHEWING')
+        if (t.fontBoundingBoxAscent == null) return -0.19 * cw
+        return (36 - (t.fontBoundingBoxAscent + t.fontBoundingBoxDescent)) / 2 + t.fontBoundingBoxAscent - t.actualBoundingBoxAscent   // where the capitals start, from the box's left edge
+      } catch { return -0.19 * cw }
+    }
+    // CHEWING's length at a font size, from the font itself (its letter-spacing is -0.025em).
+    const lenChew = cw => {
+      try { const m = document.createElement('canvas').getContext('2d'); m.font = '900 ' + cw + 'px Barlow, sans-serif'; return m.measureText('CHEWING').width - 0.025 * cw * 7 } catch { return 4.3 * cw }
+    }
+    // Sizes set with the ?brandtool sliders still win.
+    const fit = () => {
+      const brand = railWordmarkRef.current, tabs = navTabsRef.current, strip = stripRef.current
+      if (!brand || !tabs || !strip) return
+      const saved = readBrandScale()
+      if (saved) { setChipsLeft(false); applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
+      const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
+      const pillsEnd = last ? last.offsetTop + last.offsetHeight : 0
+      const H = strip.clientHeight
+      const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + (getUser() ? 2 : 1)          // chips (the bell sits under the profile chip) that would sit under the pills (42px each with their gaps)
+      const chipsEnd = pillsEnd + 10 + n * 42 - 4
+      // Preferred (gabriel, 24 Oct): the whole wordmark as it always was (CHEWING 72px with THE CEILING carrying on from its end on the same baseline), flush left; the four chips under the pills.
+      // THE CEILING stands on the thin baseline side of the letters, so it runs beside the chips without touching them. Needs about 1000px of height.
+      if (H - 10 - lenChew(72) >= chipsEnd + 16) {
+        setChipsLeft(true)
+        brand.style.visibility = ''
+        applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 23 - inkOffset(72), bottom: 10 })   // the whole wordmark 10px in from the pills' edge so THE CEILING clears the chips
+        return
+      }
+      // Too short for that: every chip in the right-hand column, one wordmark under the pills at the size that fits (hidden if even that will not).
+      const room = H - pillsEnd - 10 - 14
+      const cw = Math.min(72, Math.floor(room / 5.72))
+      setChipsLeft(false)
+      brand.style.visibility = cw < 24 ? 'hidden' : ''
+      const size = Math.max(24, cw)
+      applyBrandScale(brand, { chewing: size, ceiling: Math.round(size * 0.278), left: 5 - inkOffset(size), bottom: 10 })
+    }
+    fitRef.current = fit
+    fit()
+    const t1 = setTimeout(fit, 300), t2 = setTimeout(fit, 1500) // after the fonts have arrived
+    document.fonts?.ready?.then(fit)
+    window.addEventListener('resize', fit)
+    return () => { clearTimeout(t1); clearTimeout(t2); window.removeEventListener('resize', fit) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railWordmarkRef, navTabsRef, stripRef, getUser()]);
   const feedMode = useFeedMode();
 
   async function handleLogout() {
@@ -178,7 +318,58 @@ export default function Strip({ activeView }) {
     } catch (err) { console.error('Random error:', err); }
   }
 
+  const brandTool = typeof location !== 'undefined' && new URLSearchParams(location.search).has('brandtool');
+
+  // The four chips that move between the left column (under the pills) and the right-hand one.
+  const fourChips = (<>
+        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
+            (status, logs, users). A round button like ▶ and the identity
+            one, not a vertical pill: the tab stack is ~680px already and a
+            pill would push the identity button off a 768px-tall screen. */}
+        {user && isAdmin() && (() => {
+          const active = d3Content === 'admin';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >⚙</button>
+          );
+        })()}
+        {/* New post and the "more" menu sit with the other chips (the tools that used to be a stack at the bottom, in the wordmark's way). Feed.jsx listens for 'lnv-tool'. */}
+        {MODULE_CARDS && <button onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: 'compose' }))} title="New post" aria-label="New post"
+          style={{ color:'#fff', fontSize:'15px', background:'var(--theme-accent)', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>✎</button>}
+        {MODULE_CARDS && <MoreMenu />}
+        {/* Identity — your initial when signed in (a menu: your profile,
+            its link, sign out — ProfileMenu above); otherwise a link to
+            /login (see lib/auth.js). */}
+        {user ? (
+          <ProfileMenu user={user} onSignOut={handleLogout}
+            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }}
+            onData={() => openD3('activity')} />
+        ) : (
+          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
+            style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
+          >＋</a>
+        )}
+        {/* Notifications bell (2026-10-22): signed in only, with the unread number. */}
+        {user && (() => {
+          const active = d3Content === 'notifications';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('notifications'))} title={unread ? `Notifications (${unread} new)` : 'Notifications'} aria-label={unread ? `Notifications, ${unread} new` : 'Notifications'}
+              style={{ position:'relative', color: active ? '#fff' : 'var(--theme-accent)', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+              {unread > 0 && <span style={{ position:'absolute', top:-4, right:-4, minWidth:15, height:15, borderRadius:99, background:'var(--theme-accent)', color:'#fff', fontFamily:"'IBM Plex Mono', monospace", fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px' }}>{unread > 9 ? '9+' : unread}</span>}
+            </button>
+          );
+        })()}
+  </>);
+
   return (
+    <>
+    <ChipTips />
     <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
       {/* Zone 1 — the icon rail's own color. Animates RAIL_OPEN_WIDTH (320px)
           down to RAIL_WIDTH (108px), written every frame by
@@ -190,6 +381,7 @@ export default function Strip({ activeView }) {
         // covers' radius); was 14, too subtle at this height. Feed.jsx's
         // FLOAT_RADIUS (cards, intro) is set from STRIP_RADIUS so all match.
         borderTopRightRadius:STRIP_RADIUS, borderBottomRightRadius:STRIP_RADIUS }}>
+        {brandTool && <BrandScaleTool brandRef={railWordmarkRef} />}
         {/* FADE text wordmark. FIXED position (round 23) — never moves as
             the rail collapses, only opacity animates (fadeTextOpacity,
             LayoutProvider). ROUND 24: gabriel wants this centered for the
@@ -206,22 +398,24 @@ export default function Strip({ activeView }) {
           id="lnv-brand"
           ref={railWordmarkRef}
           style={{
+            // CHEWING THE CEILING (chosen brand, 2026-10-12): CHEWING stands where
+            // FADE did (vertical, big); THE CEILING carries on from the end of the G on the
+            // same baseline, so the bottoms of every letter are flush.
             position: 'absolute',
             left: '28px',
             bottom: '40px',
-            writingMode: 'vertical-rl',
-            transform: 'rotate(180deg)',
             fontFamily: 'Barlow, sans-serif',
-            fontSize: '100px',
             fontWeight: 900,
             color: 'var(--pastel-blue-mid)',
-            letterSpacing: '-3px',
-            lineHeight: '36px',
             whiteSpace: 'nowrap',
             opacity: 0,
           }}
         >
-          FADE
+          {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
+            <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
+            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
+          </div>
         </div>
       </div>
       {/* Zone 2 — the old "secondary strip" color. Only its `left` is
@@ -316,26 +510,29 @@ export default function Strip({ activeView }) {
           column, not something to size up the way the drawer pills did.
           Not verified live — worth checking the tab stack doesn't run past
           100vh on a shorter screen now that each tab is taller. */}
-      <div id="lnv-tabs" ref={navTabsRef} style={{ position:'absolute', left:0, top:0, width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
+      <div id="lnv-tabs" ref={navTabsRef} data-region="nav" data-chrome="" style={{ position:'absolute', left:0, top:0, ...(MODULE_CARDS ? { bottom:0 } : null), width:'44px', display:'flex', flexDirection:'column', alignItems:'center', padding:'14px 0 0', gap:'4px', opacity:0 }}>
         {TABS.map((tab, i) => {
           if (!tab) return <div key={'d'+i} style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'4px 0' }} />;
           const isActive = tab.panel ? d3Content === tab.id : activeView === tab.id && (tab.id !== 'feed' || feedMode.type === homeMode().type);
           return (
             <button key={tab.id} data-tab={tab.id}
               onClick={() => handleTabClick(tab)}
-              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'19px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
+              style={{ writingMode:'vertical-rl', transform:'rotate(180deg)', fontFamily:"'Barlow', sans-serif" /* was VT323 — Barlow like the feed and drawers, gabriel 2026-10-01 */, fontWeight:600, fontSize:'13px', letterSpacing:'0.06em', color: isActive ? '#fff' : 'var(--theme-text-ter)', background: isActive ? 'var(--theme-accent)' : 'transparent', border: isActive ? 'none' : '1px solid var(--theme-border)', cursor:'pointer', padding:'11px 0', width:'34px', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, /* centred both ways: flex + line-height 1 drops Barlow's extra line-gap, which sat the text off-centre */ whiteSpace:'nowrap', textTransform:'lowercase', borderRadius:'99px', transition:'color 0.2s, background 0.2s, border-color 0.8s' }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background='var(--theme-dark3)'; e.currentTarget.style.color='var(--theme-text-pri)'; }}}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--theme-text-ter)'; }}}
             >{tab.id === 'feed' && user ? 'my feed' : tab.label}</button>
           );
         })}
-        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
+        {/* Four of the chips (admin, new post, more, you) sit under the pills in this column; play, the bell and playlists stay in the second column on the right.
+            On a screen too short to fit the wordmark under them they join the right-hand column instead (chipsLeft, set by the fit effect). */}
+        {chipsLeft && <div id="lnv-chips-left" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, marginTop:10 }}>{fourChips}</div>}
+        {/* The round buttons (2026-10-23, gabriel): a second column to the right of the pills, so the wordmark can sit flush left under the pills with the same small gap. */}
+        <div id="lnv-chips" style={{ position:'absolute', left:62, top:14, width:32, display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
         <button onClick={handleRandom} title="Play random track"
           style={{ color:'var(--theme-accent)', fontSize:'16px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', transition:'background 0.2s, border-color 0.8s' }}
           onMouseEnter={e => e.currentTarget.style.background='var(--theme-dark3)'}
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
-        <div style={{ width:'22px', height:'1px', background:'var(--theme-border)', margin:'5px 0' }} />
         {/* Playlists and walls (2026-10-03, CollectionDrawers.jsx). Signed in only;
             a round button like ▶ for the same height reason as admin below. */}
         {user && (() => {
@@ -348,32 +545,10 @@ export default function Strip({ activeView }) {
             >{/* A playlist, not ♥ — ♥ means keeping a record now (2026-10-06). */}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h11" /><path d="M3 12h11" /><path d="M3 18h7" /><path d="M18 17V6l4-1" /><circle cx="16" cy="17" r="2" /></svg></button>
           );
         })()}
-        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
-            (status, logs, users). A round button like ▶ and the identity
-            one, not a vertical pill: the tab stack is ~680px already and a
-            pill would push the identity button off a 768px-tall screen. */}
-        {user && isAdmin() && (() => {
-          const active = d3Content === 'admin';
-          return (
-            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
-              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
-            >⚙</button>
-          );
-        })()}
-        {/* Identity — your initial when signed in (a menu: your profile,
-            its link, sign out — ProfileMenu above); otherwise a link to
-            /login (see lib/auth.js). */}
-        {user ? (
-          <ProfileMenu user={user} onSignOut={handleLogout}
-            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }} />
-        ) : (
-          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
-            style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
-          >＋</a>
-        )}
+        {!chipsLeft && fourChips}
+        </div>
       </div>
     </div>
+    </>
   );
 }

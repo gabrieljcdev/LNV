@@ -1,8 +1,7 @@
 const LINES = [
   'CONTACT.TXT',
   '────────────────────────────────',
-  '> hello@latenightvibes.com',
-  '> @latenightvibes',
+  '> hello@chewingtheceiling.com',
   '',
   'WE DIG DEEP',
 ];

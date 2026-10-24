@@ -2,7 +2,8 @@ import express from 'express';
 import db from '../db/database.js';
 import { requireAuth } from '../middleware/auth.js';
 import { firstFriend } from '../services/authService.js';
-import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, introductionsFor, introReason } from '../services/collectionsService.js';
+import { notify } from '../services/notifications.js';
+import { userByName, wallStats, inCommon, profileOf, newShareToken, favouritesOf, setFavourite, laterOf, setLater, introductionsFor, introReason } from '../services/collectionsService.js';
 
 // Walls (2026-10-03): every user's public profile feed — the posts they
 // made, readable by anyone (posts: GET /posts?wall=<username>). Following
@@ -29,7 +30,8 @@ router.post('/:username/follow', requireAuth, (req, res, next) => {
     const u = userByName(req.params.username);
     if (!u) return res.status(404).json({ error: 'No such user.' });
     if (u.id === req.user.id) return res.status(400).json({ error: 'That’s you.' });
-    db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(req.user.id, u.id);
+    const made = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(req.user.id, u.id).changes;
+    if (made) notify(u.id, 'follow', { actorId: req.user.id });
     res.json({ following: true });
   } catch (err) { next(err); }
 });
@@ -136,6 +138,18 @@ router.patch('/me/profile', requireAuth, (req, res, next) => {
 router.get('/me/favourites', requireAuth, (req, res, next) => {
   try { res.json(favouritesOf(req.user.id)); } catch (err) { next(err); }
 });
+// For later (2026-10-22): a private bookmark list (artists, labels, channels), newest first.
+// GET /me/later -> { items: [{ kind, name, created_at }] };  PUT /me/later { kind, name, on } -> the same list.
+router.get('/me/later', requireAuth, (req, res, next) => {
+  try { res.json({ items: laterOf(req.user.id) }); } catch (err) { next(err); }
+});
+router.put('/me/later', requireAuth, (req, res, next) => {
+  try {
+    const { kind, name, on } = req.body || {};
+    if (!setLater(req.user.id, kind, name, !!on)) return res.status(400).json({ error: 'Save an artist, label or channel for later.' });
+    res.json({ items: laterOf(req.user.id) });
+  } catch (err) { next(err); }
+});
 router.put('/me/favourites', requireAuth, (req, res, next) => {
   try {
     const { kind, name, on } = req.body || {};
@@ -150,6 +164,7 @@ router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
   try {
     const p = db.prepare('SELECT * FROM playlists WHERE id = ? AND owner_id = ?').get(Number(req.params.id), req.user.id);
     if (!p) return res.status(404).json({ error: 'Playlist not found.' });
+    if (p.kind === 'collection' || p.kind === 'wantlist') return res.status(400).json({ error: 'Your Discogs lists are private for now — showing them on your profile isn’t switched on yet.' });
     const shown = !!req.body?.shown;
     if (shown && !p.share_token) db.prepare('UPDATE playlists SET share_token = ? WHERE id = ?').run(newShareToken(), p.id);
     db.prepare('UPDATE playlists SET on_profile = ? WHERE id = ?').run(shown ? 1 : 0, p.id);
@@ -158,14 +173,19 @@ router.put('/me/playlists/:id', requireAuth, (req, res, next) => {
 });
 
 // A wall's header: whose it is, how many posts, whether you follow it.
+// Also how /u/<name> (the wall's address, 2026-10-22) is resolved: the name is matched without regard to case, `username` is the real
+// spelling and `path` the address to show, so /u/AMY can be tidied to /u/amy; an unknown name is a 404 for the page to say "no such person".
 router.get('/:username', (req, res, next) => {
   try {
     const owner = userByName(req.params.username);
     if (!owner) return res.status(404).json({ error: 'No such person.' });
     const me = req.user?.id || null;
     const isOwner = me === owner.id;
+    const profile = db.prepare('SELECT display_name, avatar_url FROM users WHERE id = ?').get(owner.id);
     res.json({
       user_id: owner.id, username: owner.username,
+      path: `/u/${encodeURIComponent(owner.username)}`, exact: owner.username === req.params.username,
+      display_name: profile?.display_name || null, avatar_url: profile?.avatar_url || null,
       post_count: wallStats(owner.id).post_count,
       is_owner: isOwner,
       following: !!(me && db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(me, owner.id)),

@@ -16,6 +16,8 @@ function read() {
 }
 function write(v) {
   try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY) } catch { /* ignore */ }
+  // Signing in or out: anything that depends on who you are (lib/flow.js) looks again.
+  try { window.dispatchEvent(new Event('lnv-auth')) } catch { /* no window */ }
 }
 
 export const getToken   = () => read()?.token || null

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LNV short posts and replies</title>
+<!--
+  Short posts + replies mockups (gabriel, 9-10 Oct), in the drawers' own design language (Drawers.jsx tokens).
+  Dev-only, not linked from the app: http://localhost:5173/mockup5.html. Light / dark toggle at the top.
+  1 card: short post as a quote, 1-2 newest replies, "View all". 2 post window: short by default / full post.
+  3 replies drawer: same shell as the Artists / Playlists drawers, the post's line pinned, one reply per row.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,300&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --sans: 'Barlow', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --card: #c8402f; --line: rgba(255,255,255,.22);
+    /* the drawers' own tokens (Drawers.jsx PRI / SEC / TER / LINE / FILL / HOVER) */
+    --theme-bg: #d9e3e8; --theme-text-pri: #1b2a35; --theme-text-sec: #44586a; --theme-text-ter: #7a8b99; --theme-border: rgba(27,42,53,.18); --theme-accent: #c8402f; }
+  body.dark { --theme-bg: #1d2329; --theme-text-pri: #eef2f5; --theme-text-sec: #b4c0ca; --theme-text-ter: #7f8e9b; --theme-border: rgba(238,242,245,.18); }
+  :root { --fill: color-mix(in srgb, var(--theme-text-pri) 7%, transparent); --hover: color-mix(in srgb, var(--theme-accent) 14%, transparent); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; background: var(--theme-bg); color: var(--theme-text-pri); font-family: var(--sans); }
+  .lbl { font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--theme-text-ter); margin: 0 0 10px; }
+  .row { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: grid; gap: 8px; }
+  .note { font: 400 12px/1.5 var(--sans); color: var(--theme-text-ter); max-width: 400px; margin: 0; }
+
+  /* 1 — the card, bottom part only (cover / tracklist unchanged above) */
+  .card { width: 420px; background: var(--card); border-radius: 14px; padding: 22px 24px; color: #fff; }
+  .card .head { display: flex; gap: 12px; align-items: center; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .card .head i { width: 54px; height: 54px; border-radius: 6px; background: linear-gradient(135deg,#e8a33d,#7a3b1e); flex-shrink: 0; }
+  .card .head b { display: block; font: 700 17px/1.2 var(--sans); } .card .head span { font: italic 300 14px/1.2 var(--sans); color: rgba(255,255,255,.82); }
+  .quote { margin: 16px 0 14px; padding-left: 14px; border-left: 3px solid rgba(255,255,255,.55); font: 400 17px/1.45 var(--sans); }
+  .rep { display: grid; grid-template-columns: 24px 1fr auto; gap: 9px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); font: 400 14px/1.35 var(--sans); color: rgba(255,255,255,.82); }
+  .rep .av { width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.16); display: grid; place-items: center; font: 700 11px var(--sans); color: #fff; align-self: center; }
+  .rep b { color: #fff; margin-right: 6px; } .rep time { font: 500 10px var(--mono); color: rgba(255,255,255,.58); }
+  .more { display: flex; justify-content: space-between; padding-top: 9px; border-top: 1px solid var(--line); font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; }
+  .more span:last-child { color: rgba(255,255,255,.7); }
+  .by { margin-top: 12px; display: flex; gap: 10px; font: 500 10px var(--mono); letter-spacing: .1em; color: rgba(255,255,255,.58); text-transform: uppercase; }
+
+  /* 2 + 3 — drawer language: panel on the theme background, 34px side padding, 900-weight title, mono count, round x */
+  .panel { width: 420px; background: var(--theme-bg); color: var(--theme-text-pri); border: 1px solid var(--theme-border); border-radius: 18px; display: flex; flex-direction: column; overflow: hidden; }
+  .dh { padding: 28px 30px 6px 34px; }
+  .dh .t { display: flex; align-items: baseline; gap: 10px; }
+  .dh h3 { margin: 0; flex: 1; font: 900 30px/1.05 var(--sans); letter-spacing: -.02em; }
+  .dh .cnt { font: 400 12.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--theme-text-ter); white-space: nowrap; }
+  .x { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--theme-border); background: var(--fill); color: var(--theme-text-sec); font-size: 17px; align-self: center; display: grid; place-items: center; }
+  .pill { display: flex; align-items: center; background: var(--fill); border: 1px solid var(--theme-border); border-radius: 99px; padding: 8px 14px; font: 400 15px var(--sans); color: var(--theme-text-ter); }
+  .body { padding: 6px 30px 26px 34px; }
+  .sec { display: flex; justify-content: space-between; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-text-ter); margin: 20px 0 6px; }
+  .recrow { display: grid; grid-template-columns: 46px 1fr; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--theme-border); }
+  .recrow i { width: 46px; height: 46px; border-radius: 8px; background: linear-gradient(135deg,#e8a33d,#7a3b1e); }
+  .recrow b { display: block; font: 700 15px var(--sans); } .recrow span { font: italic 300 13px var(--sans); color: var(--theme-text-sec); }
+  .field { width: 100%; background: var(--fill); border: 1px solid var(--theme-border); border-radius: 12px; padding: 11px 14px; font: 400 15px/1.45 var(--sans); color: var(--theme-text-pri); resize: none; display: block; }
+  textarea.field { height: 96px; } textarea.big { height: 170px; }
+  .bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .chip { border: 1px solid var(--theme-border); background: none; border-radius: 99px; padding: 4px 12px; font: 400 13px var(--sans); color: var(--theme-text-sec); cursor: pointer; }
+  .go { border: 0; border-radius: 99px; background: var(--theme-text-pri); color: var(--theme-bg); padding: 8px 20px; font: 700 12px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+  .pin { padding: 10px 0 10px 14px; border-left: 3px solid var(--theme-accent); font: 400 16px/1.45 var(--sans); }
+  .dr { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--theme-border); font: 400 15px/1.4 var(--sans); color: var(--theme-text-sec); }
+  .dr:hover { background: var(--hover); }
+  .dr .av { width: 28px; height: 28px; border-radius: 50%; background: var(--fill); border: 1px solid var(--theme-border); display: grid; place-items: center; font: 700 12px var(--sans); color: var(--theme-text-pri); align-self: center; }
+  .dr b { color: var(--theme-text-pri); font-weight: 700; margin-right: 6px; } .dr time { font: 400 11px var(--mono); color: var(--theme-text-ter); }
+  .earlier { display: block; margin: 12px 0 0; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-accent); }
+  .compose { display: flex; gap: 8px; align-items: center; padding: 14px 30px 18px 34px; border-top: 1px solid var(--theme-border); }
+  .compose .pill { flex: 1; min-width: 0; } .compose em { font: normal 400 11px var(--mono); color: var(--theme-text-ter); }
+  .tall { height: 660px; width: 520px; } .tall .body { flex: 1; overflow: auto; }
+  /* the artist / label drawer's detail view: crumb chip, cover + mono facts, section heads, rows */
+  .crumb { border: 1px solid var(--theme-border); background: none; border-radius: 99px; padding: 3px 10px; font: 400 12.5px var(--mono); color: var(--theme-text-sec); white-space: nowrap; }
+  .hdr { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: end; margin: 6px 0 4px; }
+  .hdr i { width: 96px; height: 96px; border-radius: 18px; background: linear-gradient(135deg,#e8a33d,#7a3b1e); }
+  .facts { font: 400 12.5px/1.7 var(--mono); color: var(--theme-text-sec); letter-spacing: .04em; text-transform: uppercase; }
+  .tags { display: flex; gap: 5px; margin-top: 8px; } .tags span { border: 1px solid var(--theme-border); border-radius: 99px; padding: 2px 9px; font: 400 12px var(--sans); color: var(--theme-text-sec); }
+  .rrow { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid var(--theme-border); }
+  .rrow:hover { background: var(--hover); }
+  .rrow .av { width: 42px; height: 42px; border-radius: 12px; background: var(--fill); border: 1px solid var(--theme-border); display: grid; place-items: center; font: 700 15px var(--sans); flex-shrink: 0; }
+  .rrow .tx { flex: 1; min-width: 0; } .rrow .tx b { display: block; font: 700 16px var(--sans); } .rrow .tx span { font: 400 15px/1.4 var(--sans); color: var(--theme-text-sec); }
+  .rrow .rt { text-align: right; font: 400 12px/1.5 var(--mono); color: var(--theme-text-ter); white-space: nowrap; } .rrow .rt u { text-decoration: none; color: var(--theme-accent); opacity: 0; } .rrow:hover .rt u { opacity: 1; }
+  /* 4 — tracklist as rows (the playlist drawer's rounded rows) with highlights */
+  .tl { width: 760px; background: var(--theme-bg); border: 1px solid var(--theme-border); border-radius: 18px; padding: 22px 26px 24px; }
+  .tl .hd { display: flex; justify-content: space-between; font: 600 11px var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--theme-text-ter); margin-bottom: 10px; }
+  .tl .hd em { font: normal 400 11px var(--mono); letter-spacing: .06em; }
+  .tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .tr { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: var(--fill); border: 1px solid transparent; font: 600 14px var(--sans); color: var(--theme-text-pri); }
+  .tr:hover { background: var(--hover); }
+  .tr .pos { font: 400 11px var(--mono); color: var(--theme-text-ter); width: 22px; }
+  .tr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tr .src { display: flex; gap: 3px; } .tr .src span { font: 500 9px var(--mono); border: 1px solid var(--theme-border); border-radius: 3px; padding: 1px 4px; color: var(--theme-text-ter); }
+  .tr .src span.on { background: #1d4b6e; border-color: #1d4b6e; color: #fff; }
+  .tr .hl { font: 400 12px var(--mono); color: var(--theme-text-ter); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .tr .hl .st { font-size: 16px; line-height: 1; color: var(--theme-text-ter); }
+  .tr.pick { background: color-mix(in srgb, var(--theme-accent) 14%, transparent); border-color: color-mix(in srgb, var(--theme-accent) 55%, transparent); }
+  .tr.pick .hl .st, .tr.mine .hl .st { color: var(--theme-accent); }
+  .tr.mine { background: color-mix(in srgb, var(--theme-accent) 8%, transparent); }
+  .tr .who { display: flex; } .tr .who i { width: 17px; height: 17px; border-radius: 50%; margin-left: -5px; border: 2px solid var(--theme-bg); background: var(--theme-text-sec); color: var(--theme-bg); font: 700 8px/13px var(--sans); text-align: center; } .tr .who i:first-child { margin-left: 0; }
+  .legend { display: flex; gap: 16px; margin-top: 12px; font: 400 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .quoteBox { font: italic 300 20px/1.4 var(--sans); color: var(--theme-text-pri); padding: 4px 0 6px; }
+</style>
+</head>
+<body>
+<p class="note" style="margin-bottom:16px"><button class="chip" onclick="document.body.classList.toggle('dark')">Light / dark</button> &nbsp;Colours and type match the drawers (theme tokens, 900-weight title, mono count, 34px padding, uppercase section heads).</p>
+<div class="row">
+  <div class="col">
+    <div class="lbl">1 · Card (bottom of the shelf card)</div>
+    <div class="card">
+      <div class="head"><i></i><div><b>Matthew Dekay</b><span>Lost In A Moment EP</span></div></div>
+      <div class="quote">Dixon's rework is the one. Put it on at 3am and thank me later.</div>
+      <div class="rep"><span class="av">F</span><span><b>fab</b>Agreed, that bassline never lets go</span><time>2h</time></div>
+      <div class="rep"><span class="av">L</span><span><b>lando</b>Sleeper of the year</span><time>1h</time></div>
+      <div class="more"><span>View all 7 replies →</span><span>Reply</span></div>
+      <div class="by"><span>lnv_admin</span><span>main #18</span><span style="margin-left:auto">3h ago</span></div>
+    </div>
+    <p class="note">One or two replies under the post (two when short, one when long, so the card keeps its height). "View all" and "Reply" open the drawer on the right.</p>
+  </div>
+
+  <div class="col">
+    <div class="lbl">2 · Post window, short by default</div>
+    <div class="panel">
+      <div class="dh"><div class="t"><h3>New post</h3><span class="cnt">Short</span><span class="x">×</span></div></div>
+      <div class="body">
+        <div class="sec" style="margin-top:8px"><span>The record</span></div>
+        <div class="recrow"><i></i><div><b>Matthew Dekay</b><span>Lost In A Moment EP</span></div></div>
+        <div class="sec"><span>Say something</span><span>64 / 300</span></div>
+        <textarea class="field" placeholder="A line about it…">Dixon's rework is the one.</textarea>
+        <div class="bar"><button class="chip">Write a full post</button><button class="go" style="margin-left:auto">Post</button></div>
+      </div>
+    </div>
+    <div class="lbl" style="margin-top:14px">2b · Full post</div>
+    <div class="panel">
+      <div class="dh"><div class="t"><h3>New post</h3><span class="cnt">Full</span><span class="x">×</span></div></div>
+      <div class="body">
+        <div class="recrow"><i></i><div><b>Matthew Dekay</b><span>Lost In A Moment EP</span></div></div>
+        <div class="sec"><span>Post title</span><span>optional</span></div>
+        <input class="field" placeholder="Post title" />
+        <div class="sec"><span>Description</span><span>optional</span></div>
+        <textarea class="field big" placeholder="Write about it…"></textarea>
+        <div class="bar"><button class="chip">← Back to short post</button><button class="go" style="margin-left:auto">Post</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="lbl">3 · Replies drawer (same shell as Artists / Playlists)</div>
+    <div class="panel tall">
+      <div class="dh"><div class="t"><button class="crumb">← Post #18</button><h3>Matthew Dekay</h3><span class="cnt">7 replies</span><span class="x">×</span></div></div>
+      <div class="body">
+        <div class="hdr"><i></i><div><div class="facts"><div>Lost In A Moment EP</div><div>Innervisions · 2012</div><div>Posted by lnv_admin · 3h ago</div></div><div class="tags"><span>Electronic</span><span>Deep House</span></div></div></div>
+        <div class="sec"><span>The post</span><span>#18</span></div>
+        <div class="quoteBox">Dixon's rework is the one. Put it on at 3am and thank me later.</div>
+        <div class="sec"><span>Replies</span><span>oldest first</span></div>
+        <a class="earlier">Show 4 earlier replies</a>
+        <div class="rrow"><span class="av">F</span><span class="tx"><b>fab</b><span>Agreed, that bassline never lets go</span></span><span class="rt">2h<br /><u>reply →</u></span></div>
+        <div class="rrow"><span class="av">L</span><span class="tx"><b>lando</b><span>Sleeper of the year</span></span><span class="rt">1h<br /><u>reply →</u></span></div>
+        <div class="rrow"><span class="av">L</span><span class="tx"><b>lnv_admin</b><span>Right? Chasing the vinyl now.</span></span><span class="rt">40m<br /><u>reply →</u></span></div>
+      </div>
+      <div class="compose"><div class="pill">Reply to this post…</div><em>0 / 300</em><button class="go">Reply</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="lbl" style="margin:34px 0 10px">4 · Tracklist as rows, with highlights (the space under the cover on the card)</div>
+<div class="tl">
+  <div class="hd"><span>Tracklist · tap ☆ to highlight</span><em>10 tracks · 3 highlighted</em></div>
+  <div class="tgrid">
+    <div class="tr pick"><span class="pos">A1</span><span class="nm">Boss Tres Bien</span><span class="src"><span class="on">YT</span><span>SP</span><span>DZ</span></span><span class="hl"><span class="who"><i>L</i><i>F</i></span>3 <span class="st">★</span></span></div>
+    <div class="tr"><span class="pos">A2</span><span class="nm">The Sweetest Sounds</span><span class="src"><span class="on">YT</span><span>SP</span><span>DZ</span></span><span class="hl"><span class="st">☆</span></span></div>
+    <div class="tr mine"><span class="pos">A3</span><span class="nm">Love Letters</span><span class="src"><span>SP</span><span>DZ</span><span>AM</span></span><span class="hl">1 <span class="st">★</span></span></div>
+    <div class="tr"><span class="pos">A4</span><span class="nm">I Love Paris</span><span class="src"><span>SP</span><span>DZ</span><span>AM</span></span><span class="hl"><span class="st">☆</span></span></div>
+    <div class="tr"><span class="pos">A5</span><span class="nm">Tonight</span><span class="src"><span>SP</span><span>DZ</span></span><span class="hl"><span class="st">☆</span></span></div>
+    <div class="tr pick"><span class="pos">B1</span><span class="nm">Days Of Wine And Roses</span><span class="src"><span class="on">YT</span><span>SP</span></span><span class="hl"><span class="who"><i>L</i><i>F</i><i>A</i></span>5 <span class="st">★</span></span></div>
+  </div>
+  <div class="legend"><span>★ filled = highlighted by people</span><span>tinted row = the poster's pick</span><span>faces = who</span></div>
+</div>
+</body>
+</html>

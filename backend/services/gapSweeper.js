@@ -23,6 +23,7 @@ import db from '../db/database.js';
 import { getRelease } from './discogsService.js';
 import { searchTrackVideo } from './youtubeService.js';
 import { logEvent } from './logService.js';
+import { quotaDay } from './quotaDay.js';
 import { lastfmConfigured, lastfmGenres } from './lastfmService.js';
 import { platformGenres } from '../routes/media.js';
 
@@ -34,7 +35,7 @@ const RECHECK = '-7 days';
 const DISCOGS_POST = "COALESCE(p.platform, 'discogs') = 'discogs'";
 const DISCOGS_GAP_MS = 3000; // well under Discogs' 60/min alongside the other jobs
 const paidPerDay = () => Number(process.env.GAP_SWEEP_YT_SEARCHES ?? 0);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => quotaDay();   // the paid-search count follows YouTube's (Pacific) quota day
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const key = s => String(s || '').toLowerCase().replace(/\s*-\s*topic$/, '').replace(/\s*\(\d+\)$/, '').replace(/[^\p{L}\p{N}]+/gu, '');
 
@@ -105,8 +106,8 @@ async function fillFromReleases() {
       }
       if (p.year == null && rel.year) { db.prepare('UPDATE posts SET year = ? WHERE id = ? AND year IS NULL').run(rel.year, p.id); filled.years++; }
       if ((p.platform || 'discogs') === 'discogs' && !db.prepare('SELECT 1 FROM post_tracks WHERE post_id = ?').get(p.id) && rel.tracklist?.length) {
-        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration) VALUES (?, ?, ?, ?)');
-        for (const t of rel.tracklist) if (t.title) it.run(p.id, t.position || null, t.title, t.duration || null);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, artist) VALUES (?, ?, ?, ?, ?)');
+        for (const t of rel.tracklist) if (t.title) it.run(p.id, t.position || null, t.title, t.duration || null, (t.artists || []).map(a => a?.name).filter(Boolean).join(', ') || null);
         filled.tracklists++;
       }
     })();
@@ -141,7 +142,8 @@ async function fillGenresFromLastfm() {
 async function fillTrackLinks() {
   const tracks = db.prepare(`
     SELECT t.id, t.title, t.post_id,
-      (SELECT artist_name FROM post_artists a WHERE a.post_id = t.post_id ORDER BY a.id LIMIT 1) AS artist,
+      -- the track's own artist first (a compilation's release artist is just "Various"); then the post's first artist unless that is "Various"
+      COALESCE(NULLIF(t.artist, ''), (SELECT artist_name FROM post_artists a WHERE a.post_id = t.post_id AND a.artist_name NOT LIKE 'Various%' ORDER BY a.id LIMIT 1)) AS artist,
       (SELECT label_name FROM post_labels l WHERE l.post_id = t.post_id ORDER BY l.id LIMIT 1) AS label
     FROM post_tracks t
     WHERE COALESCE(t.youtube_url, '') = '' AND COALESCE(t.stream_url, '') = ''
