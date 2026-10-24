@@ -215,22 +215,41 @@ export default function Strip({ activeView }) {
 
   // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
   // sliders (BrandScaleTool.jsx) win over these.
+  const [chipsLeft, setChipsLeft] = useState(true) // admin, new post, more and you sit under the pills (true) or join the right-hand column on a short screen
   useEffect(() => {
-    // Flush left at the same 5px as the pills (23 Oct, gabriel), as big as the room under the last tab allows (CHEWING THE CEILING is about 5.7 times as tall as CHEWING's size).
+    // The wordmark (23 Oct, gabriel): the visible LETTERS start at the same 5px as the pills, and it is as big as the room under the chips allows.
+    // The text box is narrower than the letters (line-height 36px against a 72px font), so the ink pokes out to the left of the box: the offset is worked
+    // out from the font's own metrics and taken off the left. CHEWING THE CEILING is about 5.7 times as tall as CHEWING's size.
+    const inkOffset = cw => {
+      try {
+        const m = document.createElement('canvas').getContext('2d')
+        m.font = '900 ' + cw + 'px Barlow, sans-serif'
+        const t = m.measureText('CHEWING')
+        if (t.fontBoundingBoxAscent == null) return -0.19 * cw
+        return (36 - (t.fontBoundingBoxAscent + t.fontBoundingBoxDescent)) / 2 + t.fontBoundingBoxAscent - t.actualBoundingBoxAscent   // where the capitals start, from the box's left edge
+      } catch { return -0.19 * cw }
+    }
     // Sizes set with the ?brandtool sliders still win.
     const fit = () => {
       const brand = railWordmarkRef.current, tabs = navTabsRef.current, strip = stripRef.current
       if (!brand || !tabs || !strip) return
       const saved = readBrandScale()
-      if (saved) { applyBrandScale(brand, { ...saved, left: 5 }); return }
+      if (saved) { applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
       const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
-      const room = strip.clientHeight - (last ? last.offsetTop + last.offsetHeight : 0) - 10 - 14
-      const cw = Math.min(72, Math.floor(room / 5.72))   // 72 is the size it always had
-      brand.style.visibility = cw < 24 ? 'hidden' : ''   // a screen too short to fit it under the tabs: leave it out rather than run it into them
-      applyBrandScale(brand, { chewing: Math.max(24, cw), ceiling: Math.round(Math.max(24, cw) * 0.278), left: 5, bottom: 10 })
+      const pillsEnd = last ? last.offsetTop + last.offsetHeight : 0
+      const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + 1          // chips that would sit under the pills (42px each with their gaps)
+      const roomLeft = strip.clientHeight - (pillsEnd + 10 + n * 42) - 10 - 14
+      const wantLeft = Math.floor(roomLeft / 5.72) >= 36                               // big enough to be worth it: chips under the pills
+      const room = wantLeft ? roomLeft : strip.clientHeight - pillsEnd - 10 - 14
+      const cw = Math.min(72, Math.floor(room / 5.72))                                  // 72 is the size it always had
+      setChipsLeft(wantLeft)
+      brand.style.visibility = cw < 24 ? 'hidden' : ''                                  // too short to fit at all: leave it out rather than run it into the tabs
+      const size = Math.max(24, cw)
+      applyBrandScale(brand, { chewing: size, ceiling: Math.round(size * 0.278), left: 5 - inkOffset(size), bottom: 10 })
     }
     fit()
     const t1 = setTimeout(fit, 300), t2 = setTimeout(fit, 1500) // after the fonts have arrived
+    document.fonts?.ready?.then(fit)
     window.addEventListener('resize', fit)
     return () => { clearTimeout(t1); clearTimeout(t2); window.removeEventListener('resize', fit) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -253,6 +272,40 @@ export default function Strip({ activeView }) {
   }
 
   const brandTool = typeof location !== 'undefined' && new URLSearchParams(location.search).has('brandtool');
+
+  // The four chips that move between the left column (under the pills) and the right-hand one.
+  const fourChips = (<>
+        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
+            (status, logs, users). A round button like ▶ and the identity
+            one, not a vertical pill: the tab stack is ~680px already and a
+            pill would push the identity button off a 768px-tall screen. */}
+        {user && isAdmin() && (() => {
+          const active = d3Content === 'admin';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
+              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            >⚙</button>
+          );
+        })()}
+        {/* New post and the "more" menu sit with the other chips (the tools that used to be a stack at the bottom, in the wordmark's way). Feed.jsx listens for 'lnv-tool'. */}
+        {MODULE_CARDS && <button onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: 'compose' }))} title="New post" aria-label="New post"
+          style={{ color:'#fff', fontSize:'15px', background:'var(--theme-accent)', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>✎</button>}
+        {MODULE_CARDS && <MoreMenu />}
+        {/* Identity — your initial when signed in (a menu: your profile,
+            its link, sign out — ProfileMenu above); otherwise a link to
+            /login (see lib/auth.js). */}
+        {user ? (
+          <ProfileMenu user={user} onSignOut={handleLogout}
+            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }}
+            onData={() => openD3('activity')} />
+        ) : (
+          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
+            style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
+          >＋</a>
+        )}
+  </>);
 
   return (
     <div id="lnv-strip" ref={stripRef} style={{ left:0, position:'sticky', width:`${STRIP_OPEN_WIDTH}px`, minWidth:`${RAIL_WIDTH}px`, height:'100vh', flexShrink:0, zIndex:100, boxSizing:'border-box', overflow:'hidden', background:'transparent' /* was var(--theme-dark2) + a 1px borderRight: both showed as a green sliver round zone 1's rounded corners once fully collapsed (gabriel, 2026-09-30) — the colour and the edge line live on zone 2 now, which is 0 wide when collapsed */, transition:'background 0.8s, border-color 0.8s' }}>
@@ -408,6 +461,9 @@ export default function Strip({ activeView }) {
             >{tab.id === 'feed' && user ? 'my feed' : tab.label}</button>
           );
         })}
+        {/* Four of the chips (admin, new post, more, you) sit under the pills in this column; play, the bell and playlists stay in the second column on the right.
+            On a screen too short to fit the wordmark under them they join the right-hand column instead (chipsLeft, set by the fit effect). */}
+        {chipsLeft && <div id="lnv-chips-left" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, marginTop:10 }}>{fourChips}</div>}
         {/* The round buttons (2026-10-23, gabriel): a second column to the right of the pills, so the wordmark can sit flush left under the pills with the same small gap. */}
         <div id="lnv-chips" style={{ position:'absolute', left:62, top:14, width:32, display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
         <button onClick={handleRandom} title="Play random track"
@@ -440,36 +496,7 @@ export default function Strip({ activeView }) {
             >{/* A playlist, not ♥ — ♥ means keeping a record now (2026-10-06). */}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h11" /><path d="M3 12h11" /><path d="M3 18h7" /><path d="M18 17V6l4-1" /><circle cx="16" cy="17" r="2" /></svg></button>
           );
         })()}
-        {/* Admin (2026-10-02) — admin accounts only: opens the admin drawer
-            (status, logs, users). A round button like ▶ and the identity
-            one, not a vertical pill: the tab stack is ~680px already and a
-            pill would push the identity button off a 768px-tall screen. */}
-        {user && isAdmin() && (() => {
-          const active = d3Content === 'admin';
-          return (
-            <button onClick={() => (active ? closeD3() : openD3('admin'))} title="Admin — status, logs and users" aria-label="Admin"
-              style={{ color: active ? '#fff' : 'var(--theme-accent)', fontSize:'15px', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
-            >⚙</button>
-          );
-        })()}
-        {/* New post and the "more" menu sit with the other chips (the tools that used to be a stack at the bottom, in the wordmark's way). Feed.jsx listens for 'lnv-tool'. */}
-        {MODULE_CARDS && <button onClick={() => window.dispatchEvent(new CustomEvent('lnv-tool', { detail: 'compose' }))} title="New post" aria-label="New post"
-          style={{ color:'#fff', fontSize:'15px', background:'var(--theme-accent)', border:'1px solid var(--theme-accent)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s', padding:0 }}>✎</button>}
-        {MODULE_CARDS && <MoreMenu />}
-        {/* Identity — your initial when signed in (a menu: your profile,
-            its link, sign out — ProfileMenu above); otherwise a link to
-            /login (see lib/auth.js). */}
-        {user ? (
-          <ProfileMenu user={user} onSignOut={handleLogout}
-            onProfile={() => { closeD3(); window.lnvNavigate?.('feed'); showMyProfile(); }}
-            onData={() => openD3('activity')} />
-        ) : (
-          <a href="/login" title="Sign in or create an account" aria-label="Sign in"
-            style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
-          >＋</a>
-        )}
+        {!chipsLeft && fourChips}
         </div>
       </div>
     </div>
