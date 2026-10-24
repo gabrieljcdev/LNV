@@ -244,14 +244,14 @@ export default function Strip({ activeView }) {
       const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
       const pillsEnd = last ? last.offsetTop + last.offsetHeight : 0
       const H = strip.clientHeight
-      const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + 1          // chips that would sit under the pills (42px each with their gaps)
+      const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + (getUser() ? 2 : 1)          // chips (the bell sits under the profile chip) that would sit under the pills (42px each with their gaps)
       const chipsEnd = pillsEnd + 10 + n * 42 - 4
       // Preferred (gabriel, 24 Oct): the whole wordmark as it always was (CHEWING 72px with THE CEILING carrying on from its end on the same baseline), flush left; the four chips under the pills.
       // THE CEILING stands on the thin baseline side of the letters, so it runs beside the chips without touching them. Needs about 1000px of height.
       if (H - 10 - lenChew(72) >= chipsEnd + 16) {
         setChipsLeft(true)
         brand.style.visibility = ''
-        applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 5 + 10 - inkOffset(72), bottom: 10 })   // the whole wordmark 10px in from the pills' edge so THE CEILING clears the chips
+        applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 23 - inkOffset(72), bottom: 10 })   // the whole wordmark 10px in from the pills' edge so THE CEILING clears the chips
         return
       }
       // Too short for that: every chip in the right-hand column, one wordmark under the pills at the size that fits (hidden if even that will not).
@@ -321,6 +321,19 @@ export default function Strip({ activeView }) {
             style={{ color:'var(--theme-text-ter)', fontSize:'14px', background:'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }}
           >＋</a>
         )}
+        {/* Notifications bell (2026-10-22): signed in only, with the unread number. */}
+        {user && (() => {
+          const active = d3Content === 'notifications';
+          return (
+            <button onClick={() => (active ? closeD3() : openD3('notifications'))} title={unread ? `Notifications (${unread} new)` : 'Notifications'} aria-label={unread ? `Notifications, ${unread} new` : 'Notifications'}
+              style={{ position:'relative', color: active ? '#fff' : 'var(--theme-accent)', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
+            ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+              {unread > 0 && <span style={{ position:'absolute', top:-4, right:-4, minWidth:15, height:15, borderRadius:99, background:'var(--theme-accent)', color:'#fff', fontFamily:"'IBM Plex Mono', monospace", fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px' }}>{unread > 9 ? '9+' : unread}</span>}
+            </button>
+          );
+        })()}
   </>);
 
   return (
@@ -487,19 +500,6 @@ export default function Strip({ activeView }) {
           onMouseEnter={e => e.currentTarget.style.background='var(--theme-dark3)'}
           onMouseLeave={e => e.currentTarget.style.background='transparent'}
         >▶</button>
-        {/* Notifications bell (2026-10-22): signed in only, with the unread number. */}
-        {user && (() => {
-          const active = d3Content === 'notifications';
-          return (
-            <button onClick={() => (active ? closeD3() : openD3('notifications'))} title={unread ? `Notifications (${unread} new)` : 'Notifications'} aria-label={unread ? `Notifications, ${unread} new` : 'Notifications'}
-              style={{ position:'relative', color: active ? '#fff' : 'var(--theme-accent)', background: active ? 'var(--theme-accent)' : 'transparent', border:'1px solid var(--theme-border)', cursor:'pointer', width:'32px', height:'32px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'4px', transition:'background 0.2s' }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background='var(--theme-dark3)'; }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
-            ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
-              {unread > 0 && <span style={{ position:'absolute', top:-4, right:-4, minWidth:15, height:15, borderRadius:99, background:'var(--theme-accent)', color:'#fff', fontFamily:"'IBM Plex Mono', monospace", fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px' }}>{unread > 9 ? '9+' : unread}</span>}
-            </button>
-          );
-        })()}
         {/* Playlists and walls (2026-10-03, CollectionDrawers.jsx). Signed in only;
             a round button like ▶ for the same height reason as admin below. */}
         {user && (() => {
