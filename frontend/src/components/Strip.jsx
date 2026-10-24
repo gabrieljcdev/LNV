@@ -246,22 +246,12 @@ export default function Strip({ activeView }) {
       const H = strip.clientHeight
       const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + 1          // chips that would sit under the pills (42px each with their gaps)
       const chipsEnd = pillsEnd + 10 + n * 42 - 4
-      // Preferred (gabriel, 24 Oct): CHEWING at its full 72px at the bottom, the four chips under the pills, THE CEILING beside the chips. Needs about 1000px of height.
+      // Preferred (gabriel, 24 Oct): the whole wordmark as it always was (CHEWING 72px with THE CEILING carrying on from its end on the same baseline), flush left; the four chips under the pills.
+      // THE CEILING stands on the thin baseline side of the letters, so it runs beside the chips without touching them. Needs about 1000px of height.
       if (H - 10 - lenChew(72) >= chipsEnd + 16) {
         setChipsLeft(true)
         brand.style.visibility = ''
         applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 5 - inkOffset(72), bottom: 10 })
-        const b = brand.querySelector('#lnv-brand-b'), group = document.getElementById('lnv-chips-left')
-        if (b && group) {
-          const sr = strip.getBoundingClientRect(), br = brand.getBoundingClientRect()
-          // THE CEILING runs the same length as the stack of chips beside it: its letters are spaced out to fill whatever the plain text leaves short.
-          const chipsList = group.children, bandH = chipsList.length ? chipsList[chipsList.length - 1].getBoundingClientRect().bottom - chipsList[0].getBoundingClientRect().top : 0
-          b.style.letterSpacing = '-0.3px'
-          const plainH = b.getBoundingClientRect().height
-          b.style.letterSpacing = (-0.3 + Math.max(0, Math.min(8, (bandH - plainH) / 11))) + 'px'
-          b.style.top = (group.offsetTop - (br.top - sr.top)) + 'px'                    // the same stretch as the chips
-          b.style.left = (71 - inkOffset(20) - (br.left - sr.left)) + 'px'               // centred on the chips' column
-        }
         return
       }
       // Too short for that: every chip in the right-hand column, one wordmark under the pills at the size that fits (hidden if even that will not).
@@ -378,10 +368,8 @@ export default function Strip({ activeView }) {
           {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
           <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
             <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
-            {!chipsLeft && <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>}
+            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
           </div>
-          {/* Split layout (24 Oct, gabriel): CHEWING keeps its full size at the bottom; THE CEILING stands in the right-hand column beside the four chips. Placed by the fit effect. */}
-          {chipsLeft && <div id="lnv-brand-b" style={{ position: 'absolute', left: 0, top: 0, writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px', fontSize: 'var(--cl, 20px)', letterSpacing: '-0.3px' }}>THE CEILING</div>}
         </div>
       </div>
       {/* Zone 2 — the old "secondary strip" color. Only its `left` is
