@@ -248,7 +248,7 @@ export default function Strip({ activeView }) {
       const chipsEnd = pillsEnd + 10 + n * 42 - 4
       // Preferred (gabriel, 24 Oct): the whole wordmark as it always was (CHEWING 72px with THE CEILING carrying on from its end on the same baseline), flush left; the four chips under the pills.
       // THE CEILING stands on the thin baseline side of the letters, so it runs beside the chips without touching them. Needs about 1000px of height.
-      if (H - 10 - lenChew(72) >= chipsEnd + 16) {
+      if (H - 10 - lenChew(72) - 34 >= chipsEnd + 16) {   // 34: the extra gap before THE CEILING (marginInlineStart 44px against the old 10)
         setChipsLeft(true)
         brand.style.visibility = ''
         applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 5 - inkOffset(72), bottom: 10 })
@@ -368,7 +368,7 @@ export default function Strip({ activeView }) {
           {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
           <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
             <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
-            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
+            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '44px' /* room so THE CEILING clears the chips */, verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
           </div>
         </div>
       </div>

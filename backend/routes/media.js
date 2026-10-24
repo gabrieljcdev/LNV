@@ -2194,6 +2194,8 @@ router.get('/resolve', async (req, res) => {
     // No Discogs release: cross-check other catalogues, try Discogs again
     // with what they found, else fill the blanks and attach artist/label ids.
     await resolveWithFallback(result);
+    // No Discogs release but the platform named the album a track is on: the post carries the album's title.
+    if (!result.discogs_id && result._search?.kind === 'track' && result._search.album && result.detected_type !== 'livemix') result.title = stripReleaseSuffix(result._search.album);
     delete result._search;
 
     // ── Attach real Discogs artist/label ids ────────────────────────────────
@@ -2243,6 +2245,10 @@ router.get('/resolve', async (req, res) => {
         result.label = result.label || relLabel.name || '';
         result.catNo = result.catNo || relLabel.catno || '';
       }
+
+      // A pasted track posts as its record, not as the track's name: the
+      // highlight marks the track (gabriel, 2026-10-24).
+      if (matchedTrack && rel?.title) result.title = rel.title;
 
       // The pasted link IS the stream for its own track — don't leave that
       // row blank in the tracklist.
