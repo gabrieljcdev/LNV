@@ -58,6 +58,7 @@ Only open items are listed here. Everything finished lives in the handovers and 
 ### Links and playback
 - Nightly job seeded from crawled channels (step 4 of the 7 Oct link plan); "Tracks with nothing to play" are only counted, not chased; Tidal links in cards; Last.fm as a free match check (minor).
 ### Feed and cards
+- **Highlights panel at the start of someone else's feed** (gabriel, 24 Oct): when you open another person's feed, the first card is a "Highlights" panel: a playlist of every track highlighted (the star) in that feed, in order, each row with a **jump to post** button that scrolls the feed to the post it came from. Play all / shuffle on the panel (reuse the queue player: lib/queue.js, and the playlist rows in CollectionDrawers.jsx). Needs: a backend endpoint that lists a feed's highlighted tracks (track_highlights joined to post_tracks and posts, for a wall/feed owner) and a front-end panel slotted in like the profile card (WallCard) at the head of a wall feed. Open questions: whose highlights count (the feed owner's only, or anyone's on those posts, which is what the cards show now); order (newest post first or feed order); show nothing when there are none; also offer it on your own feed?
 - **Add to a playlist from the compose window**, applied only when the post succeeds (15 Oct).
 - **A whole playlist as one card** in your feed (10 Oct).
 - **Post format**: one-line (about 300 characters) by default is built; decide what is left (9 Oct).
