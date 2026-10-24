@@ -216,6 +216,8 @@ export default function Strip({ activeView }) {
   // The wordmark's sizes and spot, read off gabriel's screenshot (2026-10-12). Sizes set with the ?brandtool
   // sliders (BrandScaleTool.jsx) win over these.
   const [chipsLeft, setChipsLeft] = useState(true) // admin, new post, more and you sit under the pills (true) or join the right-hand column on a short screen
+  const fitRef = useRef(null)
+  useEffect(() => { fitRef.current?.() }, [chipsLeft])
   useEffect(() => {
     // The wordmark (23 Oct, gabriel): the visible LETTERS start at the same 5px as the pills, and it is as big as the room under the chips allows.
     // The text box is narrower than the letters (line-height 36px against a 72px font), so the ink pokes out to the left of the box: the offset is worked
@@ -229,24 +231,48 @@ export default function Strip({ activeView }) {
         return (36 - (t.fontBoundingBoxAscent + t.fontBoundingBoxDescent)) / 2 + t.fontBoundingBoxAscent - t.actualBoundingBoxAscent   // where the capitals start, from the box's left edge
       } catch { return -0.19 * cw }
     }
+    // CHEWING's length at a font size, from the font itself (its letter-spacing is -0.025em).
+    const lenChew = cw => {
+      try { const m = document.createElement('canvas').getContext('2d'); m.font = '900 ' + cw + 'px Barlow, sans-serif'; return m.measureText('CHEWING').width - 0.025 * cw * 7 } catch { return 4.3 * cw }
+    }
     // Sizes set with the ?brandtool sliders still win.
     const fit = () => {
       const brand = railWordmarkRef.current, tabs = navTabsRef.current, strip = stripRef.current
       if (!brand || !tabs || !strip) return
       const saved = readBrandScale()
-      if (saved) { applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
+      if (saved) { setChipsLeft(false); applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
       const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
       const pillsEnd = last ? last.offsetTop + last.offsetHeight : 0
+      const H = strip.clientHeight
       const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + 1          // chips that would sit under the pills (42px each with their gaps)
-      const roomLeft = strip.clientHeight - (pillsEnd + 10 + n * 42) - 10 - 14
-      const wantLeft = Math.floor(roomLeft / 5.72) >= 36                               // big enough to be worth it: chips under the pills
-      const room = wantLeft ? roomLeft : strip.clientHeight - pillsEnd - 10 - 14
-      const cw = Math.min(72, Math.floor(room / 5.72))                                  // 72 is the size it always had
-      setChipsLeft(wantLeft)
-      brand.style.visibility = cw < 24 ? 'hidden' : ''                                  // too short to fit at all: leave it out rather than run it into the tabs
+      const chipsEnd = pillsEnd + 10 + n * 42 - 4
+      // Preferred (gabriel, 24 Oct): CHEWING at its full 72px at the bottom, the four chips under the pills, THE CEILING beside the chips. Needs about 1000px of height.
+      if (H - 10 - lenChew(72) >= chipsEnd + 16) {
+        setChipsLeft(true)
+        brand.style.visibility = ''
+        applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 5 - inkOffset(72), bottom: 10 })
+        const b = brand.querySelector('#lnv-brand-b'), group = document.getElementById('lnv-chips-left')
+        if (b && group) {
+          const sr = strip.getBoundingClientRect(), br = brand.getBoundingClientRect()
+          // THE CEILING runs the same length as the stack of chips beside it: its letters are spaced out to fill whatever the plain text leaves short.
+          const chipsList = group.children, bandH = chipsList.length ? chipsList[chipsList.length - 1].getBoundingClientRect().bottom - chipsList[0].getBoundingClientRect().top : 0
+          b.style.letterSpacing = '-0.3px'
+          const plainH = b.getBoundingClientRect().height
+          b.style.letterSpacing = (-0.3 + Math.max(0, Math.min(8, (bandH - plainH) / 11))) + 'px'
+          b.style.top = (group.offsetTop - (br.top - sr.top)) + 'px'                    // the same stretch as the chips
+          b.style.left = (71 - inkOffset(20) - (br.left - sr.left)) + 'px'               // centred on the chips' column
+        }
+        return
+      }
+      // Too short for that: every chip in the right-hand column, one wordmark under the pills at the size that fits (hidden if even that will not).
+      const room = H - pillsEnd - 10 - 14
+      const cw = Math.min(72, Math.floor(room / 5.72))
+      setChipsLeft(false)
+      brand.style.visibility = cw < 24 ? 'hidden' : ''
       const size = Math.max(24, cw)
       applyBrandScale(brand, { chewing: size, ceiling: Math.round(size * 0.278), left: 5 - inkOffset(size), bottom: 10 })
     }
+    fitRef.current = fit
     fit()
     const t1 = setTimeout(fit, 300), t2 = setTimeout(fit, 1500) // after the fonts have arrived
     document.fonts?.ready?.then(fit)
@@ -352,8 +378,10 @@ export default function Strip({ activeView }) {
           {/* --cw (CHEWING's size) is set by the fit effect above; 84px until it runs. */}
           <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px' }}>
             <span style={{ fontSize: 'var(--cw, 84px)', letterSpacing: '-0.025em' }}>CHEWING</span>
-            <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>
+            {!chipsLeft && <span style={{ fontSize: 'var(--cl, 24px)', letterSpacing: '-0.3px', marginInlineStart: '10px', verticalAlign: 'calc((var(--cw, 84px) - var(--cl, 24px)) * -0.35)' /* drops it onto CHEWING's baseline */ }}>THE CEILING</span>}
           </div>
+          {/* Split layout (24 Oct, gabriel): CHEWING keeps its full size at the bottom; THE CEILING stands in the right-hand column beside the four chips. Placed by the fit effect. */}
+          {chipsLeft && <div id="lnv-brand-b" style={{ position: 'absolute', left: 0, top: 0, writingMode: 'vertical-rl', transform: 'rotate(180deg)', lineHeight: '36px', fontSize: 'var(--cl, 20px)', letterSpacing: '-0.3px' }}>THE CEILING</div>}
         </div>
       </div>
       {/* Zone 2 — the old "secondary strip" color. Only its `left` is
