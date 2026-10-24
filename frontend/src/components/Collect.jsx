@@ -703,6 +703,26 @@ export function WallCard({ username, compact = false, friends }) {
     </section>
   )
 
+  // Who follows them (24 Oct 2026, gabriel): the same friends-list chips, each name opens that feed.
+  const followers = p.followers || { names: [], total: 0 }
+  const followersSection = (
+    <section style={{ marginTop: 18 }}>
+      <h3 style={head}>Followers · {followers.total}</h3>
+      {followers.total === 0 ? (
+        <div style={{ fontSize: 13, color: ter }}>{owner ? 'Nobody follows you yet.' : 'No followers yet.'}</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {followers.names.map(n => (
+            <button key={n} onClick={() => openWall(n)} title={`Open ${n}’s feed`} style={chip}>
+              <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', background: fill(30), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>{n.charAt(0).toUpperCase()}</span>{n}
+            </button>
+          ))}
+          {followers.total > followers.names.length && <span style={{ fontFamily: MONO, fontSize: 11, color: ter, alignSelf: 'center' }}>+ {followers.total - followers.names.length} more</span>}
+        </div>
+      )}
+    </section>
+  )
+
   const commonSection = !p.is_owner ? (
     <section style={{ borderTop: `1px solid ${fill(18)}`, paddingTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -779,7 +799,7 @@ export function WallCard({ username, compact = false, friends }) {
     ['sound', <Blk key="sound" bg={tone('accent')} cut={cut('tr')} style={{ padding: compact ? pad : `${top + 14}px 28px 26px` }}>{soundSection}</Blk>],
     favourites && ['fav', <Blk key="fav" bg={tone('light2')} style={{ padding: pad, display: 'flex', flexDirection: 'column', gap: 22 }}>{labelsSection}{artistsSection}{channelsSection}{laterSection}</Blk>],
     playlistsSection && ['pl', <Blk key="pl" bg={tone('dark3')} cut={cut('bl')} style={{ padding: compact ? pad : '24px 28px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact ? null : { flex: 1, overflowY: 'auto', paddingBottom: 24, scrollbarWidth: 'none' }) }}>{playlistsSection}</div></Blk>],
-    ['fol', <Blk key="fol" bg={tone('light1')} style={{ padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact || flexKey !== 'fol' ? null : { flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }) }}>{followsSection}</div></Blk>],
+    ['fol', <Blk key="fol" bg={tone('light1')} style={{ padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}><div style={{ minHeight: 0, ...(compact || flexKey !== 'fol' ? null : { flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }) }}>{followsSection}{followersSection}</div></Blk>],
     commonSection && ['com', <Blk key="com" bg={MOD ? solidBg(ML.base) : (c => [c, c])('color-mix(in srgb, var(--theme-showcase) 55%, var(--theme-dark1))')} cut={cut('tl')} style={{ padding: pad }}>{commonSection}</Blk>],
   ].filter(Boolean)
 

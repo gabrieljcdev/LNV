@@ -290,6 +290,11 @@ export function profileOf(ownerId, viewerId) {
       const rows = db.prepare('SELECT u.username FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY f.created_at DESC, u.username').all(ownerId);
       return { names: rows.slice(0, 24).map(r => r.username), total: rows.length };
     })(),
+    // Who follows them, newest first (24 Oct 2026): the other half of the friends list.
+    followers: (() => {
+      const rows = db.prepare('SELECT u.username FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.followee_id = ? ORDER BY f.created_at DESC, u.username').all(ownerId);
+      return { names: rows.slice(0, 24).map(r => r.username), total: rows.length };
+    })(),
   };
   if (own) {
     out.allPlaylists = db.prepare('SELECT * FROM playlists WHERE owner_id = ? ORDER BY is_default DESC, created_at').all(ownerId).map(playlistRow);
