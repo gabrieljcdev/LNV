@@ -2691,13 +2691,14 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
             <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
             <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500 }}>
               {v.title}
               {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
             </span>
-                        <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+            {!ph && <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>}
+            <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
             <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
               aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
               title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
@@ -2711,7 +2712,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       <div ref={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks"
         style={ph ? { position: 'relative', width: '100%', padding: '0 0 16px', boxSizing: 'border-box' } : { position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' /* the full page height: the search and the compose button moved to the strip (14 Oct) */ }}>
         <style>{BLOCK_CSS}{MODULE_CSS}</style>
-        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateAreas: '"top" "cover" "det" "post" "stats" "src"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 1fr) minmax(120px, 150px)', gridTemplateAreas: '"top top top" "det cover src" "det post stats"', color: 'var(--lv-pri)' }) }}>
+        <div className={`lnv-mod${ph ? ' lnv-modp' : ''}`} style={{ position: 'relative', width: '100%', ...(ph ? { display: 'grid', gap: 8, gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateAreas: '"top" "cover" "det" "src" "post" "stats" "trk"', color: 'var(--lv-pri)' } : { height: '100%', display: 'grid', gap: 8, gridTemplateColumns: '200px 330px minmax(240px, 1fr)', gridTemplateRows: 'minmax(84px, 112px) minmax(220px, 330px) minmax(120px, 150px) minmax(150px, 1fr)', gridTemplateAreas: '"top top top" "det cover src" "det post stats" "trk trk trk"', color: 'var(--lv-pri)' }) }}>
 
         {/* the top row: the artist name takes what the post number does not need */}
         <div style={{ gridArea: 'top', display: 'grid', gap: 8, minHeight: 0, gridTemplateColumns: numOnly ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr) max(240px, calc(100% - 546px))' }}>
@@ -2774,17 +2775,27 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           )}
         </Blk>
 
-        {/* the big box beside the cover: the tracks (24 Oct, gabriel: mockup 51 — the track list takes the playlists box; the playlists are one tap away in its header, and Add to playlist is in the details and on every track) */}
-        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: ph ? '14px 16px 6px' : '16px 14px 0 18px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
-            <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
-            <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6, whiteSpace: 'nowrap' }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
+        {/* the big box beside the cover: the playlists this record is in (the sources moved to the small box, 14 Oct) */}
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'src', borderRadius: R, padding: '16px 18px 14px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 8 }}><span>playlists</span><span>{nPl}</span></div>
+          <div style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
+            {nPl === 0 ? <div style={{ fontFamily: d.bodyFf, fontSize: 14, lineHeight: 1.4, opacity: 0.65 }}>Not in anyone's playlists yet.</div>
+              : post.playlists.map(pl => (
+                <div key={pl.id} className="mod-sr" onClick={() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name })} title={`${pl.name}${pl.owner ? ` · by ${pl.owner}` : ''}`}
+                  style={{ display: 'grid', gridTemplateColumns: '18px minmax(0, 1fr)', gap: 10, alignItems: 'center', padding: '10px 12px', margin: '0 -12px', borderRadius: 14, cursor: 'pointer', fontFamily: d.bodyFf, fontWeight: 500, fontSize: 15 }}>
+                  <span aria-hidden="true" style={{ opacity: 0.6 }}>♫</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+                    {pl.owner && <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6, marginTop: 2 }}>by {pl.owner}</span>}
+                  </span>
+                </div>
+              ))}
           </div>
-          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
-            {tracks.map((t, i) => mrow(t, i))}
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <AddToPlaylistButton post={post} label="＋ Add to playlist" style={chip} />
+            <HideButton post={post} label="Hide" style={chip} />
+            {nPl > 0 && <button onClick={e => setWheel({ kind: 'others', at: at(e) })} title="Other people's playlists with this record" style={chipFill}>See all</button>}
           </div>
-          <button onClick={e => (nPl > 0 ? setWheel({ kind: 'others', at: at(e) }) : null)} disabled={nPl === 0} title={nPl > 0 ? 'The playlists this record is in' : 'Not in anyone’s playlists yet'}
-            style={{ ...mono, flex: 'none', alignSelf: 'flex-start', margin: '6px 0 10px', padding: '4px 0', background: 'none', border: 'none', color: 'inherit', opacity: nPl > 0 ? 0.75 : 0.45, cursor: nPl > 0 ? 'pointer' : 'default', textDecoration: nPl > 0 ? 'underline' : 'none', textUnderlineOffset: 3 }}>{nPl > 0 ? `in ${nPl} playlist${nPl === 1 ? '' : 's'} ›` : 'not in any playlist yet'}</button>
         </Blk>
 
         {/* under the media: the post, and only the post */}
@@ -2832,6 +2843,16 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           </Blk>
         </div>
 
+        {/* the tracks */}
+        <Blk bg={BASE} {...(ph ? null : { 'data-sweep': 'base' })} className="lnv-still" style={{ gridArea: 'trk', borderRadius: R, padding: ph ? '14px 16px 6px' : '14px 24px 0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--lv-pri)', flexShrink: 0 }}>
+            <b style={{ fontFamily: d.bodyFf, fontWeight: 600, fontSize: 17 }}>Tracks</b>
+            <span style={{ ...mono, marginLeft: 'auto', opacity: 0.6 }}>{tracks.length}{runtime ? ` · ${runtime}` : ''}{highlighted ? ` · ${highlighted} ★` : ''}</span>
+          </div>
+          <div data-inner-scroll="" style={{ flex: ph ? 'none' : '1 1 0', minHeight: 0, overflowY: ph ? 'visible' : 'auto', ...INNER_SCROLL_STYLE }}>
+            {tracks.map((t, i) => mrow(t, i))}
+          </div>
+        </Blk>
         </div>
 
         {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
