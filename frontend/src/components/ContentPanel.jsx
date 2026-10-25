@@ -168,9 +168,13 @@ export default function ContentPanel() {
           scroll the main feed while the drawer's open.
           Phones: none — the sheet fills the screen, and the nav under it
           stays tappable. */}
-      {isOpen && !phone && (
-        <div id="lnv-drawer-backdrop" onClick={closeD3}
-          style={{ position: 'fixed', inset: 0, zIndex: 39, background: 'rgba(0,0,0,0.30)' }} />
+      {!phone && (
+        <div id="lnv-drawer-backdrop" onClick={isOpen ? closeD3 : undefined}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 39, background: 'rgba(0,0,0,0.30)',
+            opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? 'auto' : 'none', visibility: isOpen ? 'visible' : 'hidden',
+            transition: isOpen ? 'opacity 0.4s cubic-bezier(0.4,0,0.2,1)' : 'opacity 0.4s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0.4s',
+          }} />
       )}
 
       {/* Panel — flush to the collapsed rail (RAIL_WIDTH), slides in from
@@ -185,7 +189,8 @@ export default function ContentPanel() {
         background: 'var(--theme-bg)', zIndex: 40,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
         transform: isOpen ? 'translateY(0)' : 'translateY(100%)',
-        transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1), background 0.8s',
+        // visibility waits for the slide to finish on close, so closing animates like opening
+        transition: isOpen ? 'transform 0.35s cubic-bezier(0.4,0,0.2,1), background 0.8s' : 'transform 0.35s cubic-bezier(0.4,0,0.2,1), background 0.8s, visibility 0s linear 0.35s',
         visibility: isOpen ? 'visible' : 'hidden',
       } : {
         // Starts STRIP_RADIUS under the rail, so the rail's rounded corners
@@ -196,7 +201,7 @@ export default function ContentPanel() {
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
         borderTopRightRadius: STRIP_RADIUS, borderBottomRightRadius: STRIP_RADIUS,
         transform: isOpen ? 'translateX(0)' : `translateX(calc(-100% - ${RAIL_WIDTH}px))`,
-        transition: 'transform 0.4s cubic-bezier(0.4,0,0.2,1), background 0.8s',
+        transition: isOpen ? 'transform 0.4s cubic-bezier(0.4,0,0.2,1), background 0.8s' : 'transform 0.4s cubic-bezier(0.4,0,0.2,1), background 0.8s, visibility 0s linear 0.4s',
         boxShadow: isOpen ? '4px 0 40px rgba(0,0,0,0.30)' : 'none',
         visibility: isOpen ? 'visible' : 'hidden',
       }}>
@@ -210,7 +215,9 @@ export default function ContentPanel() {
             <div key={`${e.key}#${e.gen || 0}`} aria-hidden={!active}
               style={active
                 ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
-                : { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', visibility: 'hidden', pointerEvents: 'none' }}>
+                : { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', visibility: 'hidden', pointerEvents: 'none',
+                  // while the panel slides shut the drawer's content stays visible until it is gone
+                  transition: isOpen ? 'none' : `visibility 0s linear ${phone ? 0.35 : 0.4}s` }}>
               <C {...e.props} />
             </div>
           );
