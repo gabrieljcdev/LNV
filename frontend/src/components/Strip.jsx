@@ -271,27 +271,12 @@ export default function Strip({ activeView }) {
       const brand = railWordmarkRef.current, tabs = navTabsRef.current, strip = stripRef.current
       if (!brand || !tabs || !strip) return
       const saved = readBrandScale()
-      if (saved) { setChipsLeft(false); applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
-      const pills = tabs.querySelectorAll('button[data-tab]'), last = pills[pills.length - 1]
-      const pillsEnd = last ? last.offsetTop + last.offsetHeight : 0
-      const H = strip.clientHeight
-      const n = (MODULE_CARDS ? 2 : 0) + (getUser() && isAdmin() ? 1 : 0) + (getUser() ? 2 : 1)          // chips (the bell sits under the profile chip) that would sit under the pills (42px each with their gaps)
-      const chipsEnd = pillsEnd + 10 + n * 42 - 4
-      // Preferred (gabriel, 24 Oct): the whole wordmark as it always was (CHEWING 72px with THE CEILING carrying on from its end on the same baseline), flush left; the four chips under the pills.
-      // THE CEILING stands on the thin baseline side of the letters, so it runs beside the chips without touching them. Needs about 1000px of height.
-      if (H - 10 - lenChew(72) >= chipsEnd + 16) {
-        setChipsLeft(true)
-        brand.style.visibility = ''
-        applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 23 - inkOffset(72), bottom: 10 })   // the whole wordmark 10px in from the pills' edge so THE CEILING clears the chips
-        return
-      }
-      // Too short for that: every chip in the right-hand column, one wordmark under the pills at the size that fits (hidden if even that will not).
-      const room = H - pillsEnd - 10 - 14
-      const cw = Math.min(72, Math.floor(room / 5.72))
-      setChipsLeft(false)
-      brand.style.visibility = cw < 24 ? 'hidden' : ''
-      const size = Math.max(24, cw)
-      applyBrandScale(brand, { chewing: size, ceiling: Math.round(size * 0.278), left: 5 - inkOffset(size), bottom: 10 })
+      if (saved) { setChipsLeft(true); applyBrandScale(brand, { ...saved, left: 5 - inkOffset(saved.chewing) }); return }
+      // Fixed places (gabriel, 25 Oct: "we shouldn't be moving anything for set locations"): the chips always sit under the pills and the wordmark is always
+      // the same size, flush at the bottom: nothing is measured, shrunk or moved to a different column by the window's height any more.
+      setChipsLeft(true)
+      brand.style.visibility = ''
+      applyBrandScale(brand, { chewing: 72, ceiling: 20, left: 23 - inkOffset(72), bottom: 10 })
     }
     fitRef.current = fit
     fit()
