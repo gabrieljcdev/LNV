@@ -2424,6 +2424,36 @@ function PlaylistMiniWheel({ post, onOpen }) {
   )
 }
 
+// The sleeve card (25 Oct 2026, gabriel's Baths-sleeve layout, mockup65): ?cards=sleeve turns it on (remembered), ?cards=module turns it off. Desktop only for now.
+const SLEEVE_CARDS = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('cards')
+    if (q === 'sleeve') localStorage.setItem('lnv-sleeve', '1')
+    if (q === 'module' || q === 'blocks') localStorage.removeItem('lnv-sleeve')
+    return localStorage.getItem('lnv-sleeve') === '1'
+  } catch { return false }
+})()
+// The olive box: a tall block, a bar along the bottom, and every round corner the nav strip's 40. One command layout always, so it can animate between sizes.
+function sleevePath(w, h, nx, ny, o = {}) {
+  const R1 = o.R1 ?? 40, r2 = o.r2 ?? 40, R3 = o.R3 ?? 40, r5 = o.r5 ?? 40, r0 = o.r0 ?? 40
+  return `M${r0},0 L${nx - R1},0 A${R1},${R1} 0 0 1 ${nx},${R1} L${nx},${ny - r2} A${r2},${r2} 0 0 0 ${nx + r2},${ny} L${w - R3},${ny} A${R3},${R3} 0 0 1 ${w},${ny + R3} L${w},${h - R3} A${R3},${R3} 0 0 1 ${w - R3},${h} L${r5},${h} A${r5},${r5} 0 0 1 0,${h - r5} L0,${r0} A${r0},${r0} 0 0 1 ${r0},0 Z`
+}
+// A box that tells its children how tall it is (the card is as tall as the page).
+function SizedBox({ refCb, style, className, children }) {
+  const el = useRef(null)
+  const [h, setH] = useState(0)
+  useLayoutEffect(() => {
+    const n = el.current
+    if (!n) return undefined
+    const fit = () => setH(n.clientHeight)
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(n)
+    return () => ro.disconnect()
+  }, [])
+  return <div ref={n => { el.current = n; refCb?.(n) }} className={className} style={style}>{h > 0 ? children(h) : null}</div>
+}
+
 function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
   useThemeTick() // the blocks' hand-coloured spectrum is per palette: look again when the palette changes
   const { registerPostRef, openD3 } = useLayout() || {}
@@ -2433,6 +2463,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
   const [commentCount, setCommentCount] = useState(post.commentCount || post.comment_count || 0)
   const [plPop, setPlPop] = useState(null)
   const [wheel, setWheel] = useState(null) // blocks card: the playlist wheels ({ kind: 'add', at, tracks, title } from a track's +, { kind: 'others', at } from the wheel in Details)
+  const [sleeveOpen, setSleeveOpen] = useState(false) // sleeve card: the olive box is in front of the media
   const [wash, setWash] = useState(null) // blocks card: the source colour flooding Plays from
   const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
   const notesReply = chatId === post.id
@@ -2706,6 +2737,155 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           </div>
           {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
         </div>
+      )
+    }
+    if (SLEEVE_CARDS && !ph) {
+      // The sleeve (25 Oct 2026): paper = the post's colour, olive box = its first accent, the № box = its second. Fonts and sizes are the module card's own.
+      const open = sleeveOpen
+      const W = d.cardW, MX = 18, MY = 232, MW = W - 48
+      const mx = 272, XL = mx - MX
+      const srow = (t, i) => {
+        const u = urlOf(t)
+        const active = !!activeUrl && u === activeUrl
+        const v = shelfTrack(t, comp)
+        const h = hlOf(t)
+        const mine = !!me && h.by.includes(me)
+        const lit = h.n > 0 || mine
+        return (
+          <div key={i}>
+            <div className="mod-tr" onClick={e => { e.stopPropagation(); if (u) setActiveUrl(active ? null : u) }}
+              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+              <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500 }}>
+                {v.title}
+                {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
+              </span>
+              <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+              <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
+                aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
+                title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: lit ? 18 : 15, color: lit ? 'var(--theme-accent)' : 'inherit', opacity: lit ? 1 : 0.4 }}>{lit ? '★' : '☆'}</button>
+            </div>
+            {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+          </div>
+        )
+      }
+      const actions = (
+        <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap' }}>
+          <HeartButton post={post} text={on => on ? '♥ In your feed' : '♡ Add to feed'} style={{ ...chip, background: 'var(--lv-pri)', color: 'var(--blk-bg)', borderColor: 'var(--lv-pri)' }} onStyle={{ background: 'transparent', color: 'var(--lv-pri)', borderColor: 'var(--lv-pri)' }} />
+          <AddToPlaylistButton post={post} label="＋ Playlist" style={chip} />
+          <HideButton post={post} label="Hide" style={chip} />
+          <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={chip}>Discogs ↗</a>
+          {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={chip}>Buy ↗</a>}
+        </div>
+      )
+      return (
+        <SizedBox refCb={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks" style={{ position: 'relative', flexShrink: 0, width: d.cardW, height: '100%', padding: '14px 0', boxSizing: 'border-box' }}>
+          {SH => {
+            const H = Math.max(640, SH - 28)
+            const MH = H - MY - 48, NX = Math.round(MW * 0.52), NY = Math.round(MH * 0.62)
+            const my = MY + 64, mw = W - mx - 56, mh = MH - 64 - 58
+            const closedPath = sleevePath(MW, MH, XL, MH, { R1: 0, r2: 0, R3: 0 }), openPath = sleevePath(MW, MH, NX, NY)
+            const barTop = my + mh - MY + 10
+            const lidOpts = { position: 'absolute', left: MX, top: MY, width: MW, height: MH, borderRadius: 0, boxShadow: 'none', outline: 'none' }
+            const raise = () => { if (!open) setSleeveOpen(true) }
+            const activeRow = activeIdx >= 0 ? tracks[activeIdx] : null
+            return (
+              <div className="lnv-mod" style={{ position: 'relative', width: '100%', height: H }}>
+                <Blk bg={BASE} className="lnv-still" style={{ position: 'absolute', inset: 0, borderRadius: R }}>
+                  {/* title and the details, printed small under it */}
+                  <div style={{ position: 'absolute', left: 26, top: 22, width: 490 }}>
+                    <h2 ref={hdrR} style={{ margin: 0, fontFamily: d.bodyFf, fontWeight: 600, fontSize: wordSize, letterSpacing: '-0.045em', lineHeight: 0.95, paddingBottom: 4, color: 'var(--lv-pri)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                      {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', letterSpacing: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}<span style={{ color: 'var(--lv-sec)' }}>.</span>
+                    </h2>
+                    <div style={{ marginTop: 6, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 300, fontSize: 19, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</div>
+                  </div>
+                  <div style={{ position: 'absolute', left: 26, top: 104, width: 380, ...mono, lineHeight: 1.6, color: 'var(--lv-sec)' }}>
+                    {label && <b style={{ color: 'var(--lv-pri)', fontWeight: 600 }}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></b>}{label && (catNo || post.year) ? ' · ' : ''}{[catNo, post.year].filter(Boolean).join(' · ')}
+                    {post.genres?.length > 0 && <div>{post.genres.join(', ')}</div>}
+                    {(post.mentions?.length > 0 || post.origin === 'digging' || (post.origin === 'user' && post.origin_ref) || (post.alsoPostedHow || []).some(h => h.origin)) && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', textTransform: 'none' }}><FoundVia post={post} style={{ whiteSpace: 'normal' }} /><TagChips post={post} /></div>}
+                    {contributors.length > 0 && <div style={{ opacity: 0.85 }}>{contributors.slice(0, 6).map((n, k) => <span key={n}>{k > 0 && ' · '}{n}</span>)}{contributors.length > 6 && ` +${contributors.length - 6}`}</div>}
+                  </div>
+                  {/* the post, on the paper beside the media */}
+                  <div style={{ position: 'absolute', left: 424, top: 184, width: W - 424 - 30, height: 104 }}>
+                    {quote ? <p title={quote} style={{ margin: 0, fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 17, lineHeight: 1.28, letterSpacing: '-0.01em', whiteSpace: 'pre-line', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{quote}</p>
+                      : <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontFamily: d.monoFf, fontSize: 11 }}>
+                      {posterName && <UserChip name={posterName} d={d} />}
+                      <span style={{ color: 'var(--lv-ter)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={stampOf(post.created_at)}>{stampOf(post.created_at).split(' · ')[0]}</span>
+                      {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, at(e)); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: d.bodyFf, fontSize: 12, color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+                      <button onClick={e => setNotesReply(v => !v, at(e))} aria-expanded={notesReply} style={{ ...chipFill, marginLeft: 'auto', padding: '6px 14px' }}>↩ Reply{commentCount > 0 ? ` · ${commentCount}` : ''}</button>
+                      {canModify && <>
+                        <button onClick={() => onEdit?.(post)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--lv-sec)' }}>edit</button>
+                        <button onClick={deletePost} disabled={deleting} style={{ background: 'none', border: 'none', padding: 0, cursor: deleting ? 'default' : 'pointer', font: 'inherit', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? '…' : 'delete'}</button>
+                      </>}
+                    </div>
+                  </div>
+                  {catNo && <div style={{ ...mono, position: 'absolute', right: 30, bottom: 16, fontSize: 11 }}>{catNo}</div>}
+
+                  {/* the post number */}
+                  <Blk bg={A2} className="lnv-still" style={{ position: 'absolute', right: 0, top: 0, width: 248, height: 166, borderRadius: `0 ${R}px 0 ${R}px`, padding: '16px 20px', zIndex: 6, display: 'flex', flexDirection: 'column' }}>
+                    <div aria-label={`Post ${num}`} style={{ lineHeight: 1.2 }}>
+                      <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.6 }}>№ post</span>
+                      <b style={{ display: 'block', fontFamily: d.bodyFf, fontWeight: 200, fontSize: numSz, lineHeight: 0.95, letterSpacing: '-0.05em', margin: '2px 0 4px' }}>{num}</b>
+                      <span style={{ ...mono, display: 'block', fontSize: 9.5, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{`${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>
+                    </div>
+                    <div style={{ marginTop: 'auto', display: 'flex', gap: 14, ...mono, fontSize: 10.5 }}>
+                      <button onClick={() => openD3?.('postlist', { kind: 'people', people: keptBy, title: 'Kept by', post: [artist, post.title].filter(Boolean).join(' – ') })} title="See who kept this" style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>kept by {String(keptBy.length).padStart(2, '0')} ›</button>
+                      <button onClick={e => nPl > 0 && setWheel({ kind: 'others', at: at(e) })} title={nPl > 0 ? 'The playlists this record is in' : 'Not in anyone’s playlists yet'} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: nPl > 0 ? 'pointer' : 'default', textDecoration: nPl > 0 ? 'underline' : 'none', textUnderlineOffset: 3, opacity: nPl > 0 ? 1 : 0.55 }}>{nPl > 0 ? `in ${nPl} playlist${nPl === 1 ? '' : 's'} ›` : 'no playlists'}</button>
+                    </div>
+                  </Blk>
+
+                  {/* the olive box at rest: under the media; click anywhere on it to bring it to the front */}
+                  <Blk bg={A1} className="lnv-still" onClick={raise} style={{ ...lidOpts, clipPath: `path('${sleevePath(MW, MH, NX, NY)}')`, cursor: open ? 'default' : 'pointer', zIndex: 2 }}>
+                    <div style={{ position: 'absolute', left: XL, top: barTop, width: mw - 30 }}>{actions}</div>
+                  </Blk>
+
+                  {/* the media */}
+                  <Blk bg={DARK} className="lnv-still" onClickCapture={e => { if (open) { e.stopPropagation(); setSleeveOpen(false) } }} style={{ position: 'absolute', left: mx, top: my, width: mw, height: mh, borderRadius: R, padding: 0, zIndex: 4, cursor: open ? 'pointer' : undefined }}>
+                    {playingSrc ? (
+                      <div style={{ position: 'absolute', inset: 0, background: '#000' }}><TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} /></div>
+                    ) : (
+                      <div onClick={() => firstUrl && setActiveUrl(firstUrl)} title={firstUrl ? 'Play' : undefined} style={{ position: 'absolute', inset: 0, background: cover ? '#000' : 'var(--theme-dark3)', cursor: firstUrl ? 'pointer' : 'default' }}>
+                        {cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      </div>
+                    )}
+                    {shownP && locations.length > 0 && (
+                      <button onClick={e => { e.stopPropagation(); const k = locations.findIndex(l => l.p === shownP); playFrom(locations[(k + 1) % locations.length].p) }} title={locations.length > 1 ? 'Tap to play from the next source' : `Play from ${SOURCE_NAME[shownP] || shownP}`}
+                        style={{ ...mono, position: 'absolute', left: 16, top: 14, zIndex: 3, padding: '5px 11px', borderRadius: 99, border: '1px solid #ffffff88', background: '#0008', color: '#fff', cursor: 'pointer' }}>{curP ? 'playing on ' : ''}{SOURCE_NAME[shownP] || shownP}{shownN != null && tracks.length > 1 ? ` · ${shownN} of ${tracks.length}` : ''}</button>
+                    )}
+                    {open && <div aria-label="Bring the media to the front" style={{ position: 'absolute', inset: 0, zIndex: 5 }} />}
+                  </Blk>
+
+                  {/* the olive box in front: the same shape swelling over the media; the tracks and the buttons stay, the playing-on options appear in the bar */}
+                  <Blk bg={A1} className="lnv-still" onClick={raise} style={{ ...lidOpts, clipPath: `path('${open ? openPath : closedPath}')`, transition: 'clip-path .6s cubic-bezier(.3,.8,.3,1)', zIndex: 7, cursor: open ? 'default' : 'pointer' }}>
+                    <div style={{ position: 'absolute', left: 30, top: 62, width: 204, height: MH - 62 - 20, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ ...mono, display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: 4, flexShrink: 0 }}><span>Tracks {tracks.length}{runtime ? ` · ${runtime}` : ''}</span><span>{highlighted ? `${highlighted} ★` : ''}</span></div>
+                      <div data-inner-scroll="" onClick={e => e.stopPropagation()} style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>{tracks.map((t, i) => srow(t, i))}</div>
+                    </div>
+                    <div style={{ position: 'absolute', left: XL + 22, top: NY + 12, width: MW - XL - 52, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none', transition: open ? 'opacity .35s .25s' : 'opacity .15s' }}>
+                      <div style={{ ...mono, opacity: 0.7, marginBottom: 6 }}>playing on{shownP ? ' · carries on from the same second' : ''}</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                        {locations.length === 0 ? <span style={{ fontFamily: d.bodyFf, fontSize: 13, opacity: 0.7 }}>No links yet.</span> : locations.map(({ p, n }) => (
+                          <button key={p} onClick={e => { e.stopPropagation(); playFrom(p) }} aria-pressed={p === shownP} style={{ ...(p === shownP ? chipFill : chip), padding: '5px 11px' }}>{SOURCE_NAME[p] || p}{p === shownP && playing ? ' ▶' : ''}<span style={{ ...mono, fontSize: 9.5, marginLeft: 6, opacity: 0.7 }}>{n}/{tracks.length}</span></button>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontFamily: d.bodyFf, fontSize: 13 }}>
+                        <b style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeRow ? `${activeRow.position || activeIdx + 1} · ${activeRow.title}` : 'Nothing playing'}</b>
+                        {activeRow && <button onClick={e => { e.stopPropagation(); playNext() }} aria-label="Next track" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 17, padding: 0 }}>⏭</button>}
+                        {dAcct?.linked && discogsExact && [['collection', inColl, 'in your collection'], ['wantlist', inWant, 'on your wantlist']].map(([k, on, yes]) => (on ? <span key={k} style={{ ...mono, opacity: 0.8 }}>✓ {yes}</span> : <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ ...mono, color: 'inherit' }}>＋ {k} ↗</a>))}
+                      </div>
+                    </div>
+                    <div style={{ position: 'absolute', left: XL, top: barTop, width: mw - 30, zIndex: 2, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none' }}>{actions}</div>
+                  </Blk>
+                </Blk>
+                {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
+                {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
+                {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
+              </div>
+            )
+          }}
+        </SizedBox>
       )
     }
     return (
