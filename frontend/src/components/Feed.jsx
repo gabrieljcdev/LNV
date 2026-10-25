@@ -2427,10 +2427,9 @@ function PlaylistMiniWheel({ post, onOpen }) {
 // The sleeve card (25 Oct 2026, gabriel's Baths-sleeve layout, mockup65): ?cards=sleeve turns it on (remembered), ?cards=module turns it off. Desktop only for now.
 const SLEEVE_CARDS = (() => {
   try {
-    const q = new URLSearchParams(window.location.search).get('cards')
-    if (q === 'sleeve') localStorage.setItem('lnv-sleeve', '1')
-    if (q === 'module' || q === 'blocks') localStorage.removeItem('lnv-sleeve')
-    return localStorage.getItem('lnv-sleeve') === '1'
+    // Not remembered (25 Oct, gabriel: "the main site has the old format for now"): only a page opened with ?cards=sleeve shows it; anything remembered earlier is cleared.
+    localStorage.removeItem('lnv-sleeve')
+    return new URLSearchParams(window.location.search).get('cards') === 'sleeve'
   } catch { return false }
 })()
 // The olive box: a tall block, a bar along the bottom, and every round corner the nav strip's 40. One command layout always, so it can animate between sizes.
