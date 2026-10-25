@@ -2784,7 +2784,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
           {SH => {
             const H = Math.max(640, SH - 28)
             const MH = H - MY - 48, NX = Math.round(MW * 0.52), NY = Math.round(MH * 0.62)
-            const my = MY + 64, mw = W - mx - 56, mh = MH - 64 - 58
+            const my = MY + 64, mw = W - mx - 56, mh = Math.min(330, MH - 64 - 58) // the old cover box's 330: a touch wider than tall, like the embeds
             const closedPath = sleevePath(MW, MH, XL, MH, { R1: 0, r2: 0, R3: 0 }), openPath = sleevePath(MW, MH, NX, NY)
             const barTop = my + mh - MY + 10
             const lidOpts = { position: 'absolute', left: MX, top: MY, width: MW, height: MH, borderRadius: 0, boxShadow: 'none', outline: 'none' }
