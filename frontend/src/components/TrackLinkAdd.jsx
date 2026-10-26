@@ -25,9 +25,9 @@ const text = { background: 'none', border: 0, padding: 0, cursor: 'pointer', fon
 const pill = (on = true) => ({ border: `1px solid ${LINE}`, borderRadius: 99, padding: '4px 12px', background: 'none', color: PRI, fontFamily: SANS, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.5 })
 
 // Under a track with no link.
-export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone, prompt, signInText, indent }) {
+export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone, prompt, signInText, indent, startOpen }) {
   const box = indent == null ? wrap : { ...wrap, paddingLeft: indent }
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(!!startOpen)
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [check, setCheck] = useState(null)   // what the server made of the link
@@ -120,6 +120,77 @@ export function UserLinkNote({ by, submissionId, onDone }) {
       {isLoggedIn() && submissionId != null && (ask
         ? <> · sure? <button onClick={wrong} style={text}>yes, it's wrong</button> <button onClick={() => setAsk(false)} style={text}>no</button></>
         : <> · <button onClick={() => setAsk(true)} style={text}>wrong link?</button></>)}
+    </div>
+  )
+}
+
+// "Wrong link? Change it" (2026-10-22), under the track that is playing: the link plays but it is not this track. Say so (a report; two reports
+// take the link out of play), or paste a better one, which is checked like any added link (backend: routes/trackLinks.js, services/badLinks.js).
+export function WrongLinkRow({ releaseId, linkKey, url, title, artist, onDone, indent }) {
+  const box = indent == null ? wrap : { ...wrap, paddingLeft: indent }
+  const [open, setOpen] = useState(false)
+  const [better, setBetter] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [check, setCheck] = useState(null)
+  const [note, setNote] = useState('')
+  const [reportId, setReportId] = useState(null)
+  if (!isLoggedIn() || !releaseId || !linkKey || !url) return null
+  if (note) return (
+    <div style={{ ...box, color: TER }}>{note}
+      {reportId != null && <> <button onClick={async () => {
+        const r = await fetch(`${API}/track-links/report/${reportId}`, { method: 'DELETE', headers: authHeaders() })
+        setReportId(null); setNote(r.ok ? 'Report taken back.' : 'Could not take it back.'); onDone?.()
+      }} style={text}>undo</button></>}
+    </div>
+  )
+  if (!open) return <div style={box}><button onClick={() => setOpen(true)} style={text}>wrong link? change it</button></div>
+
+  const base = { release_id: releaseId, position: linkKey, title, artist }
+  const report = async () => {
+    setBusy(true)
+    const r = await post('/report', { ...base, url })
+    setBusy(false)
+    if (r.error) return setCheck({ bad: r.error })
+    setReportId(r.id ?? null)
+    setNote(r.status === 'flagged' ? 'Thanks. That link is now out of play.' : 'Thanks. Noted; another report takes it out of play.')
+    onDone?.()
+  }
+  const doCheck = async () => {
+    if (!better.trim()) return
+    setBusy(true); setCheck(null)
+    const r = await post('/check', { ...base, url: better.trim() })
+    setBusy(false)
+    setCheck(r.error && !r.platform ? { bad: r.error } : r)
+  }
+  const replace = async () => {
+    setBusy(true)
+    const r = await post('/replace', { ...base, old_url: url, url: better.trim() })
+    setBusy(false)
+    if (r.error) return setCheck({ bad: r.error })
+    setNote('Thanks. The old link is reported and yours is added.')
+    onDone?.()
+  }
+  return (
+    <div style={box}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button disabled={busy} onClick={report} style={pill(!busy)}>this is the wrong track</button>
+        <span style={{ color: TER }}>or paste a better link:</span>
+        <input value={better} onChange={e => { setBetter(e.target.value); setCheck(null) }} onKeyDown={e => e.key === 'Enter' && doCheck()}
+          placeholder="YouTube, SoundCloud or Spotify link"
+          style={{ flex: '1 1 200px', minWidth: 0, border: `1px solid ${LINE}`, borderRadius: 8, padding: '6px 10px', background: 'transparent', color: PRI, fontFamily: MONO, fontSize: 12 }} />
+        <button disabled={busy || !better.trim()} onClick={doCheck} style={pill(!busy && !!better.trim())}>check</button>
+        <button onClick={() => { setOpen(false); setBetter(''); setCheck(null) }} style={text}>cancel</button>
+      </div>
+      {check?.bad && <div style={{ marginTop: 6, color: BAD }}>{check.bad}</div>}
+      {check?.ok && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: PRI, fontWeight: 600, overflowWrap: 'anywhere' }}>{check.title}</div>
+            <div style={{ color: check.verdict === 'strong' ? SEC : WARN }}>{check.verdict === 'strong' ? 'Looks like the right track.' : check.reason}</div>
+          </div>
+          <button disabled={busy} onClick={replace} style={{ ...pill(!busy), marginLeft: 'auto', flexShrink: 0 }}>{busy ? '…' : 'use this one'}</button>
+        </div>
+      )}
     </div>
   )
 }

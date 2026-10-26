@@ -160,6 +160,12 @@ export async function addLink(user, { releaseId, position, url, title, artist })
   const check = await checkLink({ url, title: tt, artist });
   if (!check.ok) return { error: check.reason, code: 422 };
 
+  const sub = savePasted(user, { rid, pos, tt, artist, check });
+  return { ok: true, status: sub.status, verdict: check.verdict, reason: check.reason };
+}
+
+// Save a checked link as this person's submission and, when it clearly fits, make it live. Used by addLink and by "change it" (badLinks.js).
+function savePasted(user, { rid, pos, tt, artist, check }) {
   const status = check.verdict === 'strong' ? 'live' : 'pending';
   db.prepare(`INSERT INTO track_link_submissions (release_id, position, track_title, artist, url, platform, fetched_title, thumb, verdict, status, user_id, decided_by)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -172,8 +178,10 @@ export async function addLink(user, { releaseId, position, url, title, artist })
   db.prepare('DELETE FROM track_link_votes WHERE submission_id = ?').run(sub.id);   // a changed link starts clean
   if (status === 'live') publish(sub);
   logEvent('info', 'links', `${user.username} added a ${status} ${check.platform} link for release ${rid} ${pos}`);
-  return { ok: true, status, verdict: check.verdict, reason: check.reason };
+  return sub;
 }
+export const publishUserLink = async (user, { releaseId, position, title, artist, check }) =>
+  savePasted(user, { rid: Number(releaseId), pos: String(position), tt: String(title), artist, check });
 
 // "right" / "wrong" on someone else's link. -> { status, ok, bad } or { error, code }
 export function vote(user, submissionId, how) {

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=VT323&family=Barlow:wght@300;400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Barlow:wght@300;400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500&family=Chakra+Petch:wght@500;600;700&display=swap');
 
 :root {
   /* ── Existing brand colours ── */
@@ -141,6 +141,10 @@ html, body, #root {
     --theme-bg 0.8s ease,
     --theme-sidebar 0.8s ease;
 }
+/* A drawer open: the floating "my feed" switcher and the search box step aside. They sit above the drawer, so on a
+   narrow window they covered its header (the count and the close button). */
+body:has(#lnv-drawer[aria-hidden="false"]) [data-float-top] { opacity: 0; pointer-events: none; }
+[data-float-top] { transition: opacity 0.2s ease; }
 /* ── Stop left panel wheel events from advancing the scroll-outer layout ── */
 #lnv-strip,
 #lnv-drawer,

@@ -31,6 +31,7 @@ const postJson = async (path, body = {}) => {
 }
 
 const n = v => Number(v || 0).toLocaleString('en-GB')
+const durMs = ms => { const s = Math.round((ms || 0) / 1000); return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s` }
 const ago = iso => {
   if (!iso) return '—'
   const t = new Date(/Z$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z').getTime()
@@ -82,16 +83,165 @@ function Bar({ value, max, mark }) {
 // Services today (2026-10-06): how hard each outside service is being
 // asked — real requests only, cache hits don't count. LNV tries the
 // cheapest source first for each job, so the load spreads between them.
+// Flow (2026-10-22): how the accounts that switched activity recording on move through the site and listen (backend services/flow.js).
+// Research only: aggregates, shown to admins; nothing here steers what anyone hears.
+const FlowList = ({ rows, left, right }) => rows?.length ? rows.slice(0, 6).map((r, i) => (
+  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', fontFamily: SANS, fontSize: 14, color: SEC }}>
+    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{left(r)}</span>
+    <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, whiteSpace: 'nowrap' }}>{right(r)}</span>
+  </div>
+)) : <div style={{ fontFamily: SANS, fontSize: 14, color: TER }}>Nothing yet.</div>
+const FlowSub = ({ children }) => <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: TER, margin: '14px 0 4px' }}>{children}</div>
+
+function FlowSection() {
+  const [days, setDays] = useState(30)
+  const { data, error } = useQuery({ queryKey: ['admin-flow', days], queryFn: () => getJson(`/flow?days=${days}`), staleTime: 30_000 })
+  return (
+    <Section title="How people move" right={data ? `${n(data.people)} ${data.people === 1 ? 'person' : 'people'} · ${n(data.sessions)} visits · last ${data.days} days` : ''}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {[7, 30, 90].map(d => (
+          <button key={d} onClick={() => setDays(d)} aria-pressed={days === d}
+            style={{ border: `1px solid ${days === d ? PRI : LINE}`, background: days === d ? PRI : 'none', color: days === d ? 'var(--theme-bg)' : SEC, borderRadius: 99, padding: '2px 10px', fontFamily: SANS, fontSize: 13, cursor: 'pointer' }}>{d} days</button>
+        ))}
+      </div>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && (data.sessions === 0
+        ? <Note>No visits recorded yet. Only accounts with activity recording switched on appear here.</Note>
+        : <>
+          <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, lineHeight: 1.6 }}>
+            Visits last {durMs(data.session_ms.average)} on average (median {durMs(data.session_ms.median)}, longest {durMs(data.session_ms.longest)}).
+            {' '}{n(data.listening.listens)} listens, {durMs(data.listening.total_ms)} in all, {Math.round(data.listening.finish_rate * 100)}% played to the end.
+            {' '}{n(data.searches)} searches, {n(data.compose_opens)} times the post window was opened.
+          </div>
+          <FlowSub>Where the time goes</FlowSub>
+          <FlowList rows={data.time_in_views} left={r => r.view} right={r => durMs(r.ms)} />
+          <FlowSub>What leads where (click → view)</FlowSub>
+          <FlowList rows={data.what_led_where} left={r => r.lead} right={r => `${n(r.n)}×`} />
+          <FlowSub>Paths (view → view)</FlowSub>
+          <FlowList rows={data.paths} left={r => r.path} right={r => `${n(r.n)}×`} />
+          <FlowSub>Most clicked</FlowSub>
+          <FlowList rows={data.top_clicks} left={r => r.target} right={r => `${n(r.n)}×`} />
+          <FlowSub>Listening by player</FlowSub>
+          <FlowList rows={data.listening.by_platform} left={r => r.platform} right={r => `${n(r.listens)} · ${durMs(r.ms)}`} />
+          <FlowSub>Where visits start and end</FlowSub>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div><FlowList rows={data.first_view} left={r => `start: ${r.view}`} right={r => `${n(r.n)}`} /></div>
+            <div><FlowList rows={data.last_view} left={r => `end: ${r.view}`} right={r => `${n(r.n)}`} /></div>
+          </div>
+        </>)}
+    </Section>
+  )
+}
+
+// Memory (2026-10-22, backend services/memoryWatch.js): what the server holds and whether any of it grows. Resident memory includes the memory-mapped
+// database file (reclaimable by the kernel), so the number to watch is "program memory" (anonymous) and its trend per day.
+function MemorySection() {
+  const [hours, setHours] = useState(72)
+  const { data, error } = useQuery({ queryKey: ['admin-memory', hours], queryFn: () => getJson(`/memory?hours=${hours}`), staleTime: 60_000 })
+  const mb = v => (v == null ? '—' : `${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })} MB`)
+  const slope = v => (v == null ? 'not enough data yet' : `${v > 0 ? '+' : ''}${v.toLocaleString('en-GB', { maximumFractionDigits: 1 })} MB a day`)
+  const trendTone = v => (v == null ? TER : v > 8 ? LEVEL.error : v > 2 ? LEVEL.warn : SEC)
+  const pts = data?.series?.filter(p => p.anonMB != null) || []
+  const spark = (() => {
+    if (pts.length < 2) return null
+    const lo = Math.min(...pts.map(p => p.anonMB)), hi = Math.max(...pts.map(p => p.anonMB)), span = Math.max(1, hi - lo)
+    const d = pts.map((p, i) => `${(i / (pts.length - 1) * 300).toFixed(1)},${(38 - (p.anonMB - lo) / span * 34).toFixed(1)}`).join(' ')
+    return <svg viewBox="0 0 300 42" width="100%" height="42" role="img" aria-label="Program memory over time" style={{ display: 'block', marginTop: 8 }}><polyline points={d} fill="none" stroke="var(--theme-accent)" strokeWidth="1.5" /></svg>
+  })()
+  return (
+    <Section title="Memory" right={data?.now ? `up ${data.uptimeHours} h · ${n(data.samples)} samples` : ''}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {[24, 72, 168].map(h => (
+          <button key={h} onClick={() => setHours(h)} aria-pressed={hours === h}
+            style={{ border: `1px solid ${hours === h ? PRI : LINE}`, background: hours === h ? PRI : 'none', color: hours === h ? 'var(--theme-bg)' : SEC, borderRadius: 99, padding: '2px 10px', fontFamily: SANS, fontSize: 13, cursor: 'pointer' }}>{h < 48 ? `${h} h` : `${h / 24} days`}</button>
+        ))}
+      </div>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && !data.now && <Note>No samples yet. One is taken every 10 minutes, starting 30 seconds after the server starts.</Note>}
+      {data?.now && <>
+        <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, lineHeight: 1.6 }}>
+          <b style={{ color: PRI }}>Program memory {mb(data.now.anonMB)}</b> (peak {mb(data.peak.anonMB)}), of which V8 heap {mb(data.now.heapUsedMB)}.
+          {' '}Resident {mb(data.now.rssMB)} in all, but {mb(data.now.fileMB)} of that is the database file mapped into memory, which the system can drop at any time.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: '4px 14px', margin: '10px 0 2px', fontFamily: SANS, fontSize: 14, color: SEC }}>
+          <span>Trend, program memory</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: trendTone(data.trendMBPerDay.anon) }}>{slope(data.trendMBPerDay.anon)}</span>
+          <span>Trend, V8 heap</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: trendTone(data.trendMBPerDay.heapUsed) }}>{slope(data.trendMBPerDay.heapUsed)}</span>
+        </div>
+        <div style={{ fontFamily: SANS, fontSize: 13, color: TER }}>Flat is healthy. A steady climb over several days is a leak; it needs about a day of samples to show.</div>
+        {spark}
+        {Object.keys(data.now.caches || {}).length > 0 && <div style={{ fontFamily: MONO, fontSize: 12, color: TER, marginTop: 8, lineHeight: 1.7 }}>
+          {Object.entries(data.now.caches).map(([k, v]) => <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}><span>{k}</span><span>{n(v)}</span></div>)}
+        </div>}
+      </>}
+    </Section>
+  )
+}
+
+// Wrong links (2026-10-22, backend services/badLinks.js): links people said play the wrong track. A flagged link is out of play; Put back deletes the flag
+// (the link is not restored by itself, a finder or a person can add it again).
+function BadLinksSection() {
+  const qc = useQueryClient()
+  const { data, error } = useQuery({ queryKey: ['admin-bad-links'], queryFn: () => getJson('/bad-links'), staleTime: 30_000 })
+  const [busy, setBusy] = useState(null)
+  const list = data?.badLinks || []
+  const flagged = list.filter(b => b.status !== 'reported').length
+  const putBack = async id => {
+    setBusy(id)
+    try { await postJson(`/bad-links/${id}/revert`); qc.invalidateQueries({ queryKey: ['admin-bad-links'] }) } catch (err) { window.alert(err.message) }
+    setBusy(null)
+  }
+  return (
+    <Section title="Wrong links" right={data ? `${n(flagged)} flagged · ${n(list.length - flagged)} reported` : ''}>
+      {error && <Note tone="error">{error.message}</Note>}
+      {data && list.length === 0 && <Note>None. Listeners can report a link from the track that is playing ("wrong link? change it").</Note>}
+      {list.map(b => (
+        <div key={b.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '7px 0', borderTop: `1px solid ${LINE}` }}>
+          <div style={{ minWidth: 0, fontFamily: SANS, fontSize: 14, color: SEC }}>
+            <a href={b.url} target="_blank" rel="noopener noreferrer" style={{ color: PRI, wordBreak: 'break-all' }}>{b.url}</a>
+            <div style={{ fontFamily: MONO, fontSize: 11.5, color: TER }}>
+              {b.status === 'reported' ? 'reported' : 'flagged'} · release {b.releaseId} · track {b.position} · {n(b.reports)} {b.reports === 1 ? 'report' : 'reports'} · {ago(b.at)}{b.flaggedBy ? ` · by ${b.flaggedBy}` : ''}
+            </div>
+            {b.reporters?.filter(r => r.reason).map((r, i) => <div key={i} style={{ fontSize: 13, color: TER }}>{r.by}: {r.reason}</div>)}
+          </div>
+          <button disabled={busy === b.id} onClick={() => putBack(b.id)} style={{ border: `1px solid ${LINE}`, background: 'none', color: PRI, borderRadius: 99, padding: '4px 12px', fontFamily: SANS, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: busy === b.id ? 0.5 : 1 }}>Put back</button>
+        </div>
+      ))}
+    </Section>
+  )
+}
+
+// Playable coverage (2026-10-22, backend services/coverage.js): how much of the site can be played, and in full or only as a Spotify preview.
+function CoverageSection({ c }) {
+  const t = c.tracks, b = c.book
+  const rows = [
+    ['YouTube', t.youtube], ['SoundCloud', t.soundcloud], ['Bandcamp', t.bandcamp], ['Other direct link', t.otherDirect],
+    ['Spotify only (a 30-second preview unless signed in there)', t.spotifyOnly], ['Nothing to play', t.none],
+  ]
+  return (
+    <Section title="Playable coverage" right={`${t.playablePct}% playable · ${t.fullLengthPct}% in full`}>
+      <div style={{ fontFamily: SANS, fontSize: 13, color: TER, marginBottom: 6 }}>Tracks on live posts, by the best link each has ({n(t.total)} tracks).</div>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', fontFamily: SANS, fontSize: 14, color: SEC }}>
+          <span>{k}</span><span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{n(v)}{t.total ? ` · ${(Math.round(v / t.total * 1000) / 10)}%` : ''}</span>
+        </div>))}
+      <div style={{ fontFamily: SANS, fontSize: 13, color: TER, margin: '10px 0 4px' }}>The link book ({n(b.total)} tracks of records): {n(b.youtube)} with YouTube, {n(b.spotifyOnly)} Spotify only, {n(b.no_link)} nothing yet, {n(b.byListeners)} added by listeners, {n(b.flagged)} flagged wrong.</div>
+      {c.placeholdersReadyToSwap > 0 && <Note>{n(c.placeholdersReadyToSwap)} Spotify placeholder{c.placeholdersReadyToSwap === 1 ? '' : 's'} on posts have a YouTube link waiting; the hourly swap puts it on the post.</Note>}
+    </Section>
+  )
+}
+
 function ServicesSection({ s }) {
   const rows = [
-    ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, s.youtube.used >= s.youtube.cap * 0.8 ? 'searches paused — free checks and Spotify only' : '100 units per search'],
+    ['YouTube', `${n(s.youtube.used)} of ${n(s.youtube.cap)} units`, '100 units per search — see the balance above'],
+    ...(s.youtubeRefresh ? [['YouTube 30 days', `${n(s.youtubeRefresh.due)} due · ${n(s.youtubeRefresh.overdue)} overdue`, s.youtubeRefresh.last ? `last run: ${n(s.youtubeRefresh.last.refreshed)} confirmed, ${n(s.youtubeRefresh.last.cleared)} cleared, ${n(s.youtubeRefresh.last.expired)} expired; ${n(s.youtubeRefresh.unitsToday)} of ${n(s.youtubeRefresh.unitsPerDay)} refresh units today` : `stored YouTube data is refreshed at 25 days; ${n(s.youtubeRefresh.unitsToday)} of ${n(s.youtubeRefresh.unitsPerDay)} refresh units today`]] : []),
     ['Discogs', `${n(s.discogs.calls)} requests`, 'limit 60 a minute'],
     ['Spotify', s.spotify.on ? `${n(s.spotify.calls)} requests` : 'not connected', s.spotify.on ? 'barcodes, tracklists; player when YouTube is busy' : 'add SPOTIFY_CLIENT_ID / SECRET to backend/.env'],
+    ...(s.deezer ? [['Deezer', `${n(s.deezer.calls)} requests`, 'free link search for new posts, no key'], ['Apple', `${n(s.apple.calls)} requests`, 'iTunes search, free link search for new posts'], ['MusicBrainz', `${n(s.musicbrainz.calls)} requests`, 'filed YouTube / SoundCloud / Bandcamp links; 1 a second']] : []),
     ['Last.fm', s.lastfm.on ? `${n(s.lastfm.calls)} requests` : 'not connected', s.lastfm.on ? 'genres when Discogs has none' : 'add LASTFM_API_KEY to backend/.env'],
   ]
   return (
     <Section title="Services today">
-      <div style={{ display: 'grid', gridTemplateColumns: '80px minmax(0, auto) minmax(0, 1fr)', gap: '7px 14px', alignItems: 'baseline', fontFamily: SANS, fontSize: 14, color: SEC }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, auto) minmax(0, 1fr)', gap: '7px 14px', alignItems: 'baseline', fontFamily: SANS, fontSize: 14, color: SEC }}>
         {rows.map(([name, value, note]) => [
           <span key={name + 'n'} style={{ fontWeight: 700, color: PRI }}>{name}</span>,
           <span key={name + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: PRI, whiteSpace: 'nowrap' }}>{value}</span>,
@@ -141,6 +291,53 @@ function GapsSection({ gaps }) {
   )
 }
 
+// The YouTube balance (2026-10-07): units left, paid searches left, how the
+// day is divided between listening and new posts, what was spent on what,
+// and when it resets. Same numbers the search budget uses (backend
+// services/searchBudget.js).
+function QuotaBalance({ y }) {
+  const pct = v => `${Math.min(100, (v / y.dailyCap) * 100)}%`
+  const resetIn = `${Math.floor(y.resetsInSec / 3600)}h ${String(Math.floor((y.resetsInSec % 3600) / 60)).padStart(2, '0')}m`
+  const state = y.remaining <= 0 ? ['Spent — nothing but free checks until reset', LEVEL.error]
+    : y.usedToday >= y.dailyCap * y.listenShare ? ['Listening paused — the rest is kept for new posts', LEVEL.warn]
+    : y.usedToday >= y.dailyCap * 0.5 ? ['Over half the day is gone', LEVEL.warn]
+    : ['Healthy', SEC]
+  const tile = (label, value, sub) => (
+    <div key={label} style={{ background: FILL, borderRadius: 14, padding: '10px 12px' }}>
+      <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: TER }}>{label}</div>
+      <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 24, color: PRI, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontFamily: SANS, fontSize: 12.5, color: SEC }}>{sub}</div>
+    </div>
+  )
+  const row = (k, v) => [
+    <span key={k + 'k'} style={{ fontSize: 13, color: TER }}>{k}</span>,
+    <span key={k + 'v'} style={{ fontFamily: MONO, fontSize: 12.5, color: PRI, fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
+  ]
+  return (
+    <Section title="YouTube quota balance" right={<span style={{ color: state[1] }}>{state[0]}</span>}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8 }}>
+        {tile('Units left', n(y.remaining), `of ${n(y.dailyCap)} today`)}
+        {tile('Searches left', n(y.searchesLeft), '100 units each')}
+        {tile('Resets in', resetIn, 'midnight UTC')}
+      </div>
+      <div style={{ position: 'relative', height: 10, borderRadius: 99, background: FILL, overflow: 'hidden', marginTop: 12 }}>
+        <div title="Track searches" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: pct(y.searchUnits), background: 'var(--theme-accent)' }} />
+        <div title="Crawls and lookups" style={{ position: 'absolute', top: 0, bottom: 0, left: pct(y.searchUnits), width: pct(y.otherUnits), background: 'var(--theme-accent)', opacity: 0.45 }} />
+        <div title="Background crawls stop here" style={{ position: 'absolute', top: 0, bottom: 0, left: `${y.crawlShare * 100}%`, width: 2, background: PRI, opacity: 0.4 }} />
+        <div title="Listening stops here — the rest is for new posts" style={{ position: 'absolute', top: 0, bottom: 0, left: `${y.listenShare * 100}%`, width: 2, background: PRI, opacity: 0.8 }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '5px 16px', marginTop: 12, alignItems: 'baseline' }}>
+        {row('Spent on searches', `${n(y.searchUnits)} units · ${n(y.searchesToday)} paid search${y.searchesToday === 1 ? '' : 'es'}`)}
+        {row('Spent on crawls and lookups', `${n(y.otherUnits)} units`)}
+        {row('Listening can still use', `${n(y.listenRoom)} units (it stops at ${Math.round(y.listenShare * 100)}%)`)}
+        {row('Kept for new posts', `${n(y.postsReserve)} units — always available to posting`)}
+        {row('Per release', `at most ${y.perRelease} paid searches, only after Spotify, Deezer and Apple find nothing`)}
+      </div>
+      <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 8 }}>Background channel crawls stop at {Math.round(y.crawlShare * 100)}% (the thin line); listening stops at {Math.round(y.listenShare * 100)}% (the bold line). Dark = track searches, pale = crawls.</div>
+    </Section>
+  )
+}
+
 function StatusTab({ onShowLogs }) {
   const { data, error, isLoading } = useQuery({ queryKey: ['admin', 'status'], queryFn: () => getJson('/status'), refetchInterval: 10000 })
   const [test, setTest] = useState(null)
@@ -164,7 +361,7 @@ function StatusTab({ onShowLogs }) {
       {email.configured ? (
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ fontFamily: MONO, fontSize: 12.5, color: SEC, lineHeight: 1.7 }}>
-            {email.host}:{email.port || 587}<br />from {email.from || 'Late Night Vibes <no-reply@latenightvibes.com>'}
+            {email.host}:{email.port || 587}<br />from {email.from || 'Chewing the Ceiling <no-reply@chewingtheceiling.com>'}
           </div>
           {email.lastError && <Note tone="error">Last failure {ago(email.lastError.ts)}: {email.lastError.message}</Note>}
         </div>
@@ -196,23 +393,24 @@ function StatusTab({ onShowLogs }) {
       </button>
     </Section>
 
-    <Section title="YouTube quota today" right={`${n(youtube.usedToday)} of ${n(youtube.dailyCap)} units`}>
-      <Bar value={youtube.usedToday} max={youtube.dailyCap} mark={youtube.crawlShare} />
-      <div style={{ fontFamily: SANS, fontSize: 12.5, color: TER, marginTop: 6 }}>Background channel crawls stop at {Math.round(youtube.crawlShare * 100)}%; the rest is kept for track searches (100 units each). Resets at midnight UTC.</div>
-    </Section>
+    <QuotaBalance y={youtube} />
 
     {data.services && <ServicesSection s={data.services} />}
+    {data.coverage && <CoverageSection c={data.coverage} />}
+    <FlowSection />
+    <MemorySection />
+    <BadLinksSection />
     {data.gaps && <GapsSection gaps={data.gaps} />}
 
     <Section title="Discogs catalogues" right={`${crawls.catalogues.length - openCrawls.length} of ${crawls.catalogues.length} done · ${n(database.catalogueRows)} releases`}>
       {crawls.catalogues.map(c => (
-        <div key={`${c.kind}:${c.entity_id}`} style={{ display: 'grid', gridTemplateColumns: '54px minmax(0, 1fr) 150px', gap: 10, alignItems: 'center', padding: '5px 0' }}>
+        <div key={`${c.kind}:${c.entity_id}`} style={{ display: 'grid', gridTemplateColumns: '54px minmax(0, 1fr) 210px', gap: 10, alignItems: 'center', padding: '5px 0' }}>
           <span style={{ fontFamily: MONO, fontSize: 10, textTransform: 'uppercase', color: TER, border: `1px solid ${LINE}`, borderRadius: 5, textAlign: 'center', padding: '2px 0' }}>{c.kind}</span>
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontFamily: SANS, fontWeight: 600, fontSize: 14, color: PRI, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
             {!c.done && <Bar value={c.have} max={c.total} />}
           </span>
-          <span style={{ fontFamily: MONO, fontSize: 12, color: c.done ? TER : SEC, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.done ? `${n(c.have)} · done` : `${n(c.have)} of ${n(c.total)}`}</span>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: c.stalled ? LEVEL.warn : c.done ? TER : SEC, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.done ? `${n(c.have)} · done` : `${n(c.have)} of ${n(c.total)}`}{c.skipped ? ` · ${c.skipped.split(',').length} page${c.skipped.includes(',') ? 's' : ''} skipped` : ''}{c.stalled ? ' · stalled' : ''}</span>
         </div>
       ))}
     </Section>

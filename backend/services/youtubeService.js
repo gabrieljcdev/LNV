@@ -1,6 +1,12 @@
 import fetch from 'node-fetch';
 import db from '../db/database.js';
 import { logEvent } from './logService.js';
+import { quotaDay } from './quotaDay.js';
+import { flaggedForSearch } from './badLinkStore.js';   // videos people flagged as the wrong track for a search
+
+// When each piece of stored YouTube API data was last fetched or confirmed (2026-10-22). YouTube's policy (III.E.4) lets
+// non-authorized API data be stored for 30 days, then it must be deleted or refreshed — services/youtubeRefresh.js does that.
+for (const t of ['release_track_links', 'youtube_cache', 'yt_channel_videos']) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN yt_refreshed_at TEXT`); } catch { /* already there */ } }
 
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -37,12 +43,21 @@ function normalize(str) {
   return (str || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// Very short track titles ("7", "Go") are inside almost every video title ("2017", "Goal"): they only count as a whole word (2026-10-23, "Meftah - 7" played a
+// football highlight). And a video that is plainly not music (sport, news, a trailer...) never fits a track, unless the track or artist is called that.
+// (Titles are normalised first, so they hold only letters, digits, underscores and spaces: no escaping is needed in the pattern.)
+const SHORT_TITLE = 5;
+const containsWord = (hay, needle) => (needle.length < SHORT_TITLE ? new RegExp('(^| )' + needle + '( |$)').test(hay) : hay.includes(needle));
+const NOT_MUSIC = /\b(goals?|highlights?|football|soccer|premier league|champions league|la liga|serie a|bundesliga|full match|match report|press conference|post match|breaking news|news report|interview|trailer|teaser|gameplay|walkthrough|tutorial|unboxing|reaction|podcast|lecture|vlog|speedrun|nba|nfl|ufc|wwe|boxing|cricket|tennis|golf)\b/;
+const looksLikeNotMusic = (videoTitle, ...own) => NOT_MUSIC.test(String(videoTitle || '').toLowerCase()) && !own.some(o => NOT_MUSIC.test(String(o || '').toLowerCase()));
+
 function matchScore(videoTitle, trackTitle, artist) {
   const vt = normalize(videoTitle);
   const tt = normalize(trackTitle);
   const ar = normalize(artist);
   let score = 0;
-  if (vt.includes(tt)) score += 50;
+  if (looksLikeNotMusic(videoTitle, trackTitle, artist)) return -100;
+  if (containsWord(vt, tt)) score += 50;
   else {
     const words = tt.split(' ').filter(w => w.length > 2);
     const matched = words.filter(w => vt.includes(w));
@@ -162,7 +177,7 @@ function setChannelCache(key, data) {
   } catch { /* ignore cache write errors */ }
 }
 
-async function ytApi(path, params) {
+export async function ytApi(path, params) {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) throw new Error('YOUTUBE_API_KEY is not set');
   const qs = new URLSearchParams({ ...params, key }).toString();
@@ -223,13 +238,14 @@ async function ensureChannel(videoId) {
 // pass on their own. An admin can mark a channel official, or not, by
 // name (channel_status), over the numbers.
 export const PROPER_CHANNEL = { minUploads: 50, minSubscribers: 1000, minAgeDays: 365 };
-const STATS_EVERY_DAYS = 30;
+const STATS_EVERY_DAYS = 25;   // YouTube's 30-day storage limit with a 5-day margin (youtubeRefresh.js clears what is still older than 30)
 
 function saveChannelStats(item) {
   const st = item?.statistics || {}, sn = item?.snippet || {};
-  db.prepare(`UPDATE yt_channels SET subscribers = ?, subs_hidden = ?, started_at = ?, handle = ?, total = COALESCE(?, total), stats_at = datetime('now')
+  db.prepare(`UPDATE yt_channels SET subscribers = ?, subs_hidden = ?, started_at = ?, handle = ?, total = COALESCE(?, total),
+      title = COALESCE(NULLIF(?, ''), title), thumb = COALESCE(?, thumb), stats_at = datetime('now')
     WHERE channel_id = ?`).run(st.hiddenSubscriberCount ? null : (Number(st.subscriberCount) || 0), st.hiddenSubscriberCount ? 1 : 0,
-    sn.publishedAt || null, sn.customUrl || null, Number(st.videoCount) || null, item.id);
+    sn.publishedAt || null, sn.customUrl || null, Number(st.videoCount) || null, sn.title || '', sn.thumbnails?.default?.url || null, item.id);
 }
 
 // Channels without numbers (or numbers older than STATS_EVERY_DAYS) get
@@ -239,8 +255,15 @@ export async function refreshChannelStats() {
     .all(`-${STATS_EVERY_DAYS} days`).map(r => r.channel_id);
   for (let i = 0; i < ids.length; i += 50) {
     if (!spendQuota(1)) return;
-    const ch = await ytApi('channels', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: '50' });
+    const batch = ids.slice(i, i + 50);
+    const ch = await ytApi('channels', { part: 'snippet,statistics', id: batch.join(','), maxResults: '50' });
     for (const item of ch.items || []) saveChannelStats(item);
+    // A channel the API no longer returns is gone (deleted or terminated): its stored details and uploads go too. Not when the answer was empty:
+    // that is more likely a hiccup than fifty channels vanishing at once.
+    if ((ch.items || []).length) {
+      const back = new Set(ch.items.map(it => it.id));
+      for (const id of batch) if (!back.has(id)) { db.prepare('DELETE FROM yt_channel_videos WHERE channel_id = ?').run(id); db.prepare('DELETE FROM yt_channels WHERE channel_id = ?').run(id); }
+    }
   }
 }
 
@@ -299,7 +322,7 @@ async function crawlPage(row, pageToken, { background = true } = {}) {
   const params = { part: 'snippet,contentDetails', playlistId: row.uploads_id, maxResults: '50' };
   if (pageToken) params.pageToken = pageToken;
   const pl = await ytApi('playlistItems', params);
-  const ins = db.prepare('INSERT OR IGNORE INTO yt_channel_videos (video_id, channel_id, title, published_at, thumb) VALUES (?, ?, ?, ?, ?)');
+  const ins = db.prepare("INSERT OR IGNORE INTO yt_channel_videos (video_id, channel_id, title, published_at, thumb, yt_refreshed_at) VALUES (?, ?, ?, ?, ?, datetime('now'))");
   let added = 0, known = 0;
   for (const it of pl.items || []) {
     const s = it.snippet || {};
@@ -527,15 +550,15 @@ export async function adoptChannelUrl(url) {
 const SEARCH_COST = 100;
 const SEARCH_HIT_RECHECK = 90 * 24 * 60 * 60 * 1000; // a hit this old is re-checked (free), not re-searched
 const SEARCH_MISS_TTL = 30 * 24 * 60 * 60 * 1000;
-const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
-const today = () => new Date().toISOString().slice(0, 10);
+export const dailyCap = () => Number(process.env.YOUTUBE_DAILY_UNIT_CAP) || 5000;
+const today = () => quotaDay();   // Google's quota day is Pacific, not UTC (services/quotaDay.js)
 
 export function quotaUsed(provider = 'youtube') {
   return db.prepare('SELECT units FROM api_quota WHERE provider = ? AND day = ?').get(provider, today())?.units || 0;
 }
 
 // Reserve units up front; false if that would cross the cap.
-function spendQuota(units, provider = 'youtube') {
+export function spendQuota(units, provider = 'youtube') {
   if (quotaUsed(provider) + units > dailyCap()) return false;
   db.prepare(`INSERT INTO api_quota (provider, day, units) VALUES (?, ?, ?)
               ON CONFLICT(provider, day) DO UPDATE SET units = units + excluded.units`)
@@ -591,7 +614,8 @@ export function linkVerdict({ fetchedTitle = '', author = '', trackTitle = '', a
   const tt = trackKey(coreTitle(trackTitle)), vt = trackKey(fetchedTitle), au = trackKey(author);
   if (!tt || !vt) return { verdict: 'rejected', reason: "We couldn't read that link's title." };
   const words = tt.split(' ').filter(w => w.length > 2);
-  const full = vt.includes(tt);
+  if (looksLikeNotMusic(fetchedTitle, trackTitle, artist)) return { verdict: 'rejected', reason: "That looks like a sport, news or other non-music video, not this track." };
+  const full = containsWord(vt, tt);
   const partial = !full && words.length > 0 && words.filter(w => vt.includes(w)).length / words.length >= 0.7;
   if (!full && !partial) return { verdict: 'rejected', reason: "That doesn't look like this track — its title is different." };
   const names = [...new Set([artist, ...String(artist || '').split(/\s*,\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with|and|x)\s+|\s*[&+]\s*/i)].map(trackKey).filter(n => n.length > 2))];
@@ -649,7 +673,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
   const row = getRow.get(cacheKey)
     || getRow.get(`search|${trackKey(a)}|${trackKey(rawTitle)}`)   // yesterday's key
     || getRow.get(`search|${a}|${rawTitle}`.toLowerCase());        // the original key
-  if (row) {
+  if (row && !(row.youtube_url && flaggedForSearch(cacheKey, row.youtube_url))) {
     const age = Date.now() - new Date(row.fetched_at).getTime();
     if (row.youtube_url) {
       // A found link is for keeping: only an old one is looked at again, for
@@ -678,6 +702,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
                             LIMIT 50`).all(title.toLowerCase(), near, near, byLabel);
   let localBest = null, localScore = -Infinity;
   for (const v of local) {
+    if (flaggedForSearch(cacheKey, `https://www.youtube.com/watch?v=${v.video_id}`)) continue;
     const sc = searchScore({ snippet: { title: v.title, channelTitle: v.channel } }, title, a, extras);
     if (sc > localScore) { localScore = sc; localBest = v; }
   }
@@ -704,6 +729,7 @@ export async function searchTrackVideo(artist, trackTitle, { label = '', catno =
 
   let best = null, bestScore = -Infinity;
   for (const item of data.items || []) {
+    if (flaggedForSearch(cacheKey, `https://www.youtube.com/watch?v=${item.id?.videoId}`)) continue;
     const s = searchScore(item, title, a, extras);
     if (s > bestScore) { bestScore = s; best = item; }
   }

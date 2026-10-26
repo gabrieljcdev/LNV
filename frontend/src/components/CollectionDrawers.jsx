@@ -4,7 +4,11 @@ import { useLayout } from '../context/LayoutContext'
 import { isLoggedIn } from '../lib/auth'
 import { useFeedMode, useFollowing, wallsApi, openWall, openPlaylistFeed, usePlaylists, playlistsApi, playlistLink, playlistInviteLink } from '../lib/collections'
 import { queue, useQueue, currentTrack } from '../lib/queue'
-import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading } from './Drawers'
+import { DrawerHead, DrawerBody, SectionHead, Row, Cover, Empty, Loading, NameLinks } from './Drawers'
+import { ReleaseListView } from './DiscogsLists'
+import { DiscogsStrip } from './DiscogsConnect'
+import { askText } from './Dialogs'
+import { hideApi } from '../lib/collections'
 
 // ── Walls and playlists drawers (2026-10-03) ─────────────────────────────────
 // Walls: your wall and the people you follow. Playlists: lists of tracks
@@ -122,8 +126,9 @@ function PlaylistView({ id, token, onBack }) {
   // Keep the queue in step when tracks are added, removed or moved.
   useEffect(() => { if (pid && data?.tracks) queue.sync(pid, data.tracks) }, [pid, data])
   const play = (i = 0) => queue.start(listMeta, tracks, i)
-  const owner = data?.role === 'owner'
-  const canEdit = !!data?.role
+  const mf = data?.kind === 'myfeeds' // My feeds: every track of your own posts, read-only, private
+  const owner = data?.role === 'owner' && !mf
+  const canEdit = !!data?.role && !mf
   const refresh = () => { qc.invalidateQueries({ queryKey: ['playlist'] }); qc.invalidateQueries({ queryKey: ['playlists'] }) }
   async function run(fn) { try { await fn(); refresh() } catch (err) { window.alert(err.message) } }
   const copy = (what, link) => navigator.clipboard?.writeText(link).then(() => { setCopied(what); setTimeout(() => setCopied(''), 2000) }, () => window.prompt('Copy this link:', link))
@@ -146,7 +151,7 @@ function PlaylistView({ id, token, onBack }) {
   return <>
     <DrawerHead title={data.name} count={plural(tracks.length, 'track')} crumb={onBack ? 'Playlists' : undefined} onBack={onBack}>
       <div style={{ fontFamily: SANS, fontSize: 13.5, color: SEC }}>
-        {owner ? 'yours' : `by ${data.owner}`}{data.member_count ? ` · ${plural(data.member_count, 'friend')} adding` : ''}{!canEdit ? ' · read-only' : ''}
+        {owner || mf ? 'yours' : `by ${data.owner}`}{mf ? ' · private, follows your posts' : ''}{data.member_count ? ` · ${plural(data.member_count, 'friend')} adding` : ''}{!canEdit ? ' · read-only' : ''}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <button onClick={() => play(0)} disabled={!tracks.length} style={{ ...pillOn, opacity: tracks.length ? 1 : 0.5 }} title="Plays straight through, one track after another">▶ play all</button>
@@ -161,7 +166,7 @@ function PlaylistView({ id, token, onBack }) {
       {owner && showMembers && (
         <div style={{ display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button onClick={() => { const n = window.prompt('Rename the playlist', data.name); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
+            <button onClick={async () => { const n = await askText({ title: 'Rename the playlist', value: data.name, ok: 'Rename', maxLength: 60 }); if (n && n.trim()) run(() => playlistsApi.rename(pid, n)) }} style={pill}>rename</button>
             {data.share_token && <button onClick={() => shareLink(true)} style={pill}>new share link</button>}
             {data.invite_token && <button onClick={() => inviteLinkCopy(true)} style={pill}>new invite link</button>}
             {/* The default playlist can't be deleted (2026-10-06) — only renamed. */}
@@ -180,7 +185,8 @@ function PlaylistView({ id, token, onBack }) {
       )}
     </DrawerHead>
     <DrawerBody>
-      {!tracks.length && <Empty>Empty for now — use “+ list” on a card, or + next to any track, to add some.</Empty>}
+      {!tracks.length && mf && <Empty>Nothing yet. The tracks of records you post show up here by themselves.</Empty>}
+      {!tracks.length && !mf && <Empty>Empty for now — use “+ list” on a card, or + next to any track, to add some.</Empty>}
       {tracks.map((t, i) => (
         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Row onClick={() => play(i)} style={{ flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px', padding: '6px 10px', background: t.id === playingId ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : undefined }}>
@@ -188,7 +194,7 @@ function PlaylistView({ id, token, onBack }) {
             <Cover src={t.cover} size={34} radius={8} />
             <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-              <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist}</span>
+              <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><NameLinks kind="artist" names={t.artist} /></span>
             </span>
             <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{t.duration || ''}</span>
           </Row>
@@ -204,16 +210,49 @@ function PlaylistView({ id, token, onBack }) {
   </>
 }
 
+// Hidden (2026-10-22): records you took out of your feed with Hide. Bring one back with Unhide.
+function HiddenList() {
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['hidden'], queryFn: () => hideApi.list(), staleTime: 0 })
+  const posts = data?.posts || []
+  if (!posts.length) return null
+  const unhide = async id => {
+    try { await hideApi.unhide(id); qc.invalidateQueries({ queryKey: ['hidden'] }); qc.invalidateQueries({ queryKey: ['posts'] }); qc.invalidateQueries({ queryKey: ['wall'] }) } catch (err) { window.alert(err.message) }
+  }
+  return <>
+    <SectionHead left={`Hidden from your feed (${posts.length})`} />
+    {posts.map(p => (
+      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+        <Cover src={p.thumb_image || p.cover_image} size={34} radius={8} />
+        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.post_title || p.title}</span>
+          <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>posted by {p.poster}</span>
+        </span>
+        <button onClick={() => unhide(p.id)} style={{ border: `1px solid ${LINE}`, background: 'none', color: PRI, borderRadius: 99, padding: '5px 12px', fontFamily: SANS, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Unhide</button>
+      </div>
+    ))}
+  </>
+}
+
 // `open`: a playlist id to open straight away; `token`: a shared playlist's
 // link (read-only unless you were invited).
-export function PlaylistsDrawer({ open: initialId, token }) {
+export function PlaylistsDrawer({ open: initialId, token, _n }) {
   const { playlists, isLoading } = usePlaylists()
   const qc = useQueryClient()
   const [openId, setOpenId] = useState(initialId || null)
+  const [cmd, setCmd] = useState(_n)
   const [shareToken, setShareToken] = useState(token || null)
+  // A playlist opened from a card, the queue bar or a link arrives as a new command (2026-10-22): the drawer is kept built, so it must follow it. An id opens that playlist
+  // and leaves any shared one; a share link opens that one. (It used to follow the id only, so a shared playlist never opened and a stale one could stay on top.)
+  if (_n !== cmd) {
+    setCmd(_n)
+    if (initialId) { setOpenId(initialId); setShareToken(null) } else if (token) setShareToken(token)
+  }
   const [name, setName] = useState('')
   if (shareToken) return <PlaylistView token={shareToken} onBack={isLoggedIn() ? () => setShareToken(null) : undefined} />
   if (!isLoggedIn()) return <SignedOut title="Playlists">Sign in to make playlists from the tracks on the feed, heart tracks, and invite friends to add to them.</SignedOut>
+  // Your Discogs collection / wantlist hold records, not tracks (DiscogsLists.jsx).
+  if (openId && playlists.find(p => p.id === openId)?.kind && ['collection', 'wantlist'].includes(playlists.find(p => p.id === openId).kind)) return <ReleaseListView id={openId} onBack={() => setOpenId(null)} />
   if (openId) return <PlaylistView id={openId} onBack={() => setOpenId(null)} />
   async function create(e) {
     e.preventDefault()
@@ -229,15 +268,16 @@ export function PlaylistsDrawer({ open: initialId, token }) {
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.is_default && <span style={{ fontFamily: MONO, fontWeight: 400, fontSize: 10.5, letterSpacing: '0.08em', color: 'var(--theme-text-ter)', marginLeft: 8 }}>DEFAULT</span>}</span>
         <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC }}>
-          {p.role === 'member' ? `by ${p.owner}` : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
+          {p.role === 'member' ? `by ${p.owner}` : p.release_count != null ? 'from Discogs · private' : p.share_token ? 'shared' : 'private'}{p.member_count ? ` · ${plural(p.member_count, 'friend')} adding` : ''}
         </span>
       </span>
-      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{plural(p.track_count, 'track')}</span>
+      <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>{p.release_count != null ? plural(p.release_count, 'record') : plural(p.track_count, 'track')}</span>
     </Row>
   )
   return <>
     <DrawerHead title="Playlists" count={plural(playlists.length, 'playlist')}><CollectNav current="playlists" /></DrawerHead>
     <DrawerBody>
+      <DiscogsStrip />
       <form onSubmit={create} style={{ display: 'flex', gap: 8, margin: '6px 0 14px' }}>
         <label style={{ flex: 1, display: 'flex', alignItems: 'center', background: FILL, border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 14px' }}>
           <input value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="Name a new playlist…" aria-label="New playlist name"
@@ -250,6 +290,7 @@ export function PlaylistsDrawer({ open: initialId, token }) {
         {mine.map(rowOf)}
         {theirs.length > 0 && <><SectionHead left="Friends’ playlists you add to" />{theirs.map(rowOf)}</>}
       </>}
+      <HiddenList />
     </DrawerBody>
   </>
 }

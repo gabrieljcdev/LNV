@@ -7,11 +7,28 @@ import { matchMissingDiscogs } from '../services/discogsMatcher.js';
 import { searchPostIds, suggest, parsePostNumber } from '../services/searchService.js';
 import { requireAuth, requireAdmin, canModify } from '../middleware/auth.js';
 import { logEvent } from '../services/logService.js';
+import { recordEvent, cleanOrigin } from '../db/activityDb.js';
+import { notify, recordMentions, mentionsOfPost, removeMyMention } from '../services/notifications.js';
+import rateLimit from 'express-rate-limit';
+import { recordRelatedReleases } from '../services/discogsService.js';
 import { firstFriend } from '../services/authService.js';
-import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage } from '../services/collectionsService.js';
+import { sharedFeedPage, sharedFeedAdders, memberRole, userByName, wallPage, homePage, hiddenIds, hidePost, unhidePost, hiddenPosts } from '../services/collectionsService.js';
 import { playlistRole, playlistFeedPostIds } from './playlists.js';
+import { remixersOf } from '../services/trackArtistNames.js';
+import { resolvedArtistIds, nameKey, learnFromRelease } from '../services/artistLookup.js';
+
+// A Discogs tracklist also has HEADING rows ("Phase I", "Disc 1", "SS026"): no position, nothing to play. They
+// are not tracks, so they are not saved as tracks (same rule as frontend/src/lib/tracklist.js).
+const withoutHeadings = list => (Array.isArray(list) ? list : []).filter(t => t && (t.position || !list.some(x => x?.position)));
 
 const router = express.Router();
+
+// A track's own artist: what the client sends as `artist`, or the names of the
+// Discogs track credits (`artists`). Null when it is just the release's artist.
+const trackArtist = t => (typeof t.artist === 'string' && t.artist.trim())
+  || (Array.isArray(t.artists) ? t.artists.map(a => a?.name).filter(Boolean).join(', ') : '')
+  || null;
+
 
 const SPOTLIGHT_EVERY = 10;
 
@@ -33,13 +50,32 @@ function getFullPost(postId) {
   const rawTracks = db.prepare('SELECT * FROM post_tracks WHERE post_id = ?').all(postId);
   // Every place each track can be played (services/trackSources.js), best first.
   const srcs = sourcesFor(rawTracks.map(t => t.id));
-  const tracks = rawTracks.map(t => ({ ...t, sources: srcs[t.id] || [] }));
+  // Who highlighted each track (names, earliest first; `highlightCount` is the whole count).
+  const hl = new Map();
+  if (rawTracks.length) {
+    const rows = db.prepare(`SELECT h.post_track_id AS tid, u.username FROM track_highlights h JOIN users u ON u.id = h.user_id WHERE h.post_track_id IN (${rawTracks.map(() => '?').join(',')}) ORDER BY h.created_at, h.user_id`).all(...rawTracks.map(t => t.id));
+    for (const r of rows) { if (!hl.has(r.tid)) hl.set(r.tid, []); hl.get(r.tid).push(r.username); }
+  }
+  const tracks = rawTracks.map(t => ({ ...t, sources: srcs[t.id] || [], highlightedBy: (hl.get(t.id) || []).slice(0, 12), highlightCount: (hl.get(t.id) || []).length }));
+  // The public lists (on someone's profile) that carry this record, newest first. Private lists, and the
+  // Discogs collection/wantlist, never show here.
+  const playlists = db.prepare(`
+    SELECT p.id, p.name, p.share_token AS token, u.username AS owner, (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) AS track_count
+    FROM playlists p JOIN users u ON u.id = p.owner_id
+    WHERE p.kind = 'list' AND p.on_profile = 1
+      AND EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id AND t.post_id = ?)
+    ORDER BY p.id DESC LIMIT 12`).all(postId);
   const user = db.prepare('SELECT id, username, display_name, avatar_url FROM users WHERE id = ?').get(post.user_id);
-  const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ?').get(postId).count;
+  const commentCount = db.prepare('SELECT COUNT(*) as count FROM comments WHERE post_id = ? AND private = 0').get(postId).count;
   // Everyone else who posted this release (joined it), first to latest.
   // Everyone else who has it on their wall (♥'d it), first to latest.
-  const alsoPostedBy = db.prepare('SELECT u.username FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId).map(r => r.username);
-  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy };
+  const joins = db.prepare('SELECT u.username, j.origin, j.origin_ref FROM post_joins j JOIN users u ON u.id = j.user_id WHERE j.post_id = ? ORDER BY j.created_at, j.user_id').all(postId);
+  const alsoPostedBy = joins.map(r => r.username);
+  // How each keeper found it ('digging' | 'user' | 'link', and where from), beside the names above; null on older keeps.
+  const alsoPostedHow = joins.map(r => ({ username: r.username, origin: r.origin, origin_ref: r.origin_ref }));
+  // The newest replies, oldest of them first, for the card's reply strip (it shows as many as fit).
+  const latestComments = db.prepare('SELECT c.id, c.content, c.created_at, u.username FROM comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? AND c.private = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT 6').all(postId).reverse();
+  const full = { ...post, artists, labels, genres, tracks, user, commentCount, alsoPostedBy, alsoPostedHow, mentions: mentionsOfPost(postId), playlists, latestComments };
   // Posted on a friend's wall: whose (cards show "on <name>'s wall").
   if (post.wall_user_id && post.wall_user_id !== post.user_id) {
     full.wallOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(post.wall_user_id)?.username || null;
@@ -105,7 +141,16 @@ function triggerSpotlights(postId) {
   }
 }
 
-router.get('/', (req, res, next) => {
+// Friction for scraping (2026-10-22): the two calls that return posts in bulk are limited per address for people who are not signed in
+// (signed-in people are not held by this, only by the general limit). Generous for a real visitor, slow for a copier.
+// ANON_BROWSE_MAX / ANON_LIST_MAX per 15 minutes; large on a developer's PC.
+const anonLimit = max => rateLimit({ windowMs: 15 * 60 * 1000, max, skip: req => !!req.user, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'That is a lot of reading for someone not signed in. Sign in to keep going, or try again in a few minutes.' } });
+const live = process.env.NODE_ENV === 'production';
+const anonBrowse = anonLimit(Number(process.env.ANON_BROWSE_MAX) || (live ? 60 : 20000));
+const anonList = anonLimit(Number(process.env.ANON_LIST_MAX) || (live ? 400 : 20000));
+
+router.get('/', anonList, (req, res, next) => {
   try {
     const { artist, label, genre, year, catno, user_id, discogs_id, search, page = 1, limit = 20 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
@@ -125,7 +170,7 @@ router.get('/', (req, res, next) => {
     if (req.query.wall) {
       const owner = userByName(req.query.wall);
       if (!owner) return res.status(404).json({ error: 'No such person.' });
-      const rows = wallPage(owner.id, { before: entryBefore, limit: lim });
+      const rows = wallPage(owner.id, { before: entryBefore, limit: lim, viewer: req.user?.id });
       const posts = rows.map(entryPost).filter(Boolean);
       return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
     }
@@ -141,7 +186,7 @@ router.get('/', (req, res, next) => {
       }
       // Friends' posts off (the profile's switch, 2026-10-06): just yours.
       if (req.query.friends === '0') {
-        const rows = wallPage(req.user.id, { before: entryBefore, limit: lim });
+        const rows = wallPage(req.user.id, { before: entryBefore, limit: lim, viewer: req.user.id });
         const posts = rows.map(entryPost).filter(Boolean);
         return res.json({ posts, page: 1, limit: lim, hasMore: rows.length === lim, cursor: rows.at(-1)?.cursor ?? null });
       }
@@ -204,10 +249,12 @@ router.get('/', (req, res, next) => {
         ? db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 AND id < ? ORDER BY id DESC LIMIT ?').all(before, Number(limit)).map(r => r.id)
         : db.prepare('SELECT id FROM posts WHERE is_spotlight = 0 ORDER BY id DESC LIMIT ? OFFSET ?').all(Number(limit), offset).map(r => r.id);
     }
-    const posts = postIds.map(id => getFullPost(id)).filter(Boolean);
+    // A full page means there may be more; the feed asks for the next one (counted before hidden posts are dropped).
+    const full = postIds.length === Number(limit);
+    const hidden = hiddenIds(req.user?.id);
+    const posts = postIds.filter(id => !hidden.has(id)).map(id => getFullPost(id)).filter(Boolean);
     const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE is_spotlight = 0').get().count;
-    // A full page means there may be more; the feed asks for the next one.
-    res.json({ posts, total, page: Number(page), limit: Number(limit), hasMore: postIds.length === Number(limit) });
+    res.json({ posts, total, page: Number(page), limit: Number(limit), hasMore: full });
   } catch (err) { next(err); }
 });
 
@@ -215,28 +262,73 @@ router.get('/', (req, res, next) => {
 // matching artists / labels / genres. Must sit above GET /:id.
 // Every post as a compact summary, for the browse drawers (artists, labels,
 // genres, live sets) — they group and filter on the client. Newest first.
-router.get('/browse', (req, res, next) => {
+router.get('/browse', anonBrowse, (req, res, next) => {
   try {
+    // What you have hidden (Hide on a card) is left out here too, so a hidden post does not turn up in the artist, label and genre lists (2026-10-23).
+    const hidden = hiddenIds(req.user?.id);
     const posts = db.prepare(`SELECT id, title, post_title, year, cover_image, thumb_image, post_type, channel, platform, stream_url, created_at, discogs_id
-      FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all();
+      FROM posts WHERE is_spotlight = 0 ORDER BY id DESC`).all().filter(p => !hidden.has(p.id));
     const by = (sql) => { const m = new Map(); for (const r of db.prepare(sql).all()) { if (!m.has(r.post_id)) m.set(r.post_id, []); m.get(r.post_id).push(r); } return m; };
     const artists = by('SELECT post_id, artist_name, discogs_artist_id FROM post_artists ORDER BY id');
     const labels = by('SELECT post_id, label_name, catalogue_number, discogs_label_id FROM post_labels ORDER BY id');
     const genres = by('SELECT post_id, genre FROM post_genres ORDER BY id');
     const tracks = new Map(db.prepare('SELECT post_id, COUNT(*) c FROM post_tracks GROUP BY post_id').all().map(r => [r.post_id, r.c]));
+    // Artists named on individual tracks (compilations): "Coldcut feat. Robert Owens" is two people, and
+    // both are "on the feed" through that post. Same split as the card's track lines (Feed.jsx shelfTrack).
+    const trackArtists = new Map();
+    // Tracks with no saved artist carry it in the name ("Artist - Title") on compilations, as the card reads it.
+    const SPLIT = /\s*,\s+|\s+(?:feat\.?|ft\.?|featuring|vs\.?|b2b)\s+/i;
+    const resolved = resolvedArtistIds(); // track artists / remixers whose Discogs id the sweep or the drawer found
+    const NAMED = /^(.{2,70}?)\s[-–—]\s(.+)$/;
+    const trackRows = new Map();
+    for (const r of db.prepare('SELECT post_id, title, artist FROM post_tracks').all()) {
+      if (!trackRows.has(r.post_id)) trackRows.set(r.post_id, []);
+      trackRows.get(r.post_id).push(r);
+    }
+    for (const p of posts) {
+      const rows = trackRows.get(p.id) || [];
+      const various = (artists.get(p.id) || []).some(a => /^various( artists)?$/i.test((a.artist_name || '').trim()));
+      const named = rows.filter(t => (t.artist || '').trim() || NAMED.test(t.title || '')).length;
+      const comp = various || (rows.length >= 5 && named / rows.length >= 0.6);
+      const set = new Set();
+      for (const t of rows) {
+        const a = (t.artist || '').trim() || (comp ? (NAMED.exec(t.title || '') || [])[1] || '' : '');
+        a.split(SPLIT).map(s => s.trim()).filter(Boolean).forEach(n => set.add(n));
+        remixersOf(t.title).forEach(n => set.add(n));
+      }
+      if (set.size) trackArtists.set(p.id, set);
+    }
     res.json(posts.map(p => ({
+      track_artists: [...(trackArtists.get(p.id) || [])],
       id: p.id, title: p.title, post_title: p.post_title, year: p.year,
       cover: p.thumb_image || p.cover_image || null, post_type: p.post_type,
       channel: p.channel, platform: p.platform, stream_url: p.stream_url, created_at: p.created_at,
       discogs_id: p.discogs_id || null,
       artists: (artists.get(p.id) || []).map(r => r.artist_name),
       // name -> Discogs id, for the drawers' full discography (2026-10-02)
-      artist_ids: Object.fromEntries((artists.get(p.id) || []).filter(r => r.discogs_artist_id).map(r => [r.artist_name, r.discogs_artist_id])),
+      artist_ids: {
+        ...Object.fromEntries([...(trackArtists.get(p.id) || [])].filter(n => resolved.has(nameKey(n))).map(n => [n, resolved.get(nameKey(n))])),
+        ...Object.fromEntries((artists.get(p.id) || []).filter(r => r.discogs_artist_id).map(r => [r.artist_name, r.discogs_artist_id])),
+      },
       labels: (labels.get(p.id) || []).map(r => ({ name: r.label_name, catno: r.catalogue_number, id: r.discogs_label_id || null })),
       genres: (genres.get(p.id) || []).map(r => r.genre),
       track_count: tracks.get(p.id) || 0,
     })));
   } catch (err) { next(err); }
+});
+
+// Hide a post from your own view, silently (2026-10-22). Above /:id.
+//   GET    /api/posts/hidden        what you have hidden, for the unhide list
+//   POST   /api/posts/:id/hide      hide it (not your own)
+//   DELETE /api/posts/:id/hide      bring it back
+router.get('/hidden', requireAuth, (req, res, next) => {
+  try { res.json({ posts: hiddenPosts(req.user.id) }); } catch (err) { next(err); }
+});
+router.post('/:id/hide', requireAuth, (req, res, next) => {
+  try { const r = hidePost(req.user.id, Number(req.params.id)); res.status(r.status || 200).json(r.error ? { error: r.error } : r); } catch (err) { next(err); }
+});
+router.delete('/:id/hide', requireAuth, (req, res, next) => {
+  try { res.json(unhidePost(req.user.id, Number(req.params.id))); } catch (err) { next(err); }
 });
 
 router.get('/suggest', (req, res, next) => {
@@ -259,8 +351,8 @@ router.post('/', requireAuth, (req, res, next) => {
     const {
       discogs_id, discogs_type = 'release',
       title, year, country, cover_image, thumb_image, notes, discogs_url,
-      stream_url, embed_url, platform, post_type = 'album', channel, post_title,
-      artists = [], labels = [], genres = [], tracks = [],
+      stream_url, embed_url, platform, post_type = 'album', channel, post_title, origin, origin_ref,
+      artists = [], labels = [], genres = [], tracks = [], related_releases = [],
     } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     // A post goes on its poster's wall (2026-10-03) and on the main feed.
@@ -282,14 +374,27 @@ router.post('/', requireAuth, (req, res, next) => {
       return res.status(409).json({ error: 'This release is already up — ♥ it to keep it in your feed.', postId: existing?.id ?? null });
     }
     const postId = result.lastInsertRowid;
+    // How it reached the site: from a drawer (digging), or pasted in (link, the default).
+    const org = cleanOrigin(origin || 'link', origin_ref);
+    db.prepare('UPDATE posts SET origin = ?, origin_ref = ? WHERE id = ?').run(org.origin, org.origin_ref, postId);
+    recordEvent('post', { userId: user_id, postId, origin: org.origin, originRef: org.origin_ref });
+    recordMentions({ postId, byUserId: user_id, texts: [post_title, notes] });   // @username in the short note or description
     const ia = db.prepare('INSERT INTO post_artists (post_id, artist_name, discogs_artist_id) VALUES (?, ?, ?)');
     for (const a of artists) ia.run(postId, a.name, a.id || null);
     const il = db.prepare('INSERT INTO post_labels (post_id, label_name, catalogue_number, discogs_label_id) VALUES (?, ?, ?, ?)');
     for (const l of labels) il.run(postId, l.name, l.catno || null, l.id || null);
+    // The other releases the link matched (compilations etc.): into the artists' and labels' catalogues.
+    if (Array.isArray(related_releases) && related_releases.length) {
+      try { recordRelatedReleases(artists, related_releases.slice(0, 10)); } catch (err) { logEvent('error', 'crawl', `Related releases of post ${postId}: ${err.message}`); }
+    }
     const ig = db.prepare('INSERT INTO post_genres (post_id, genre) VALUES (?, ?)');
     for (const g of genres) ig.run(postId, g);
-    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    for (const t of tracks) it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+    const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const pick = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)');
+    for (const t of withoutHeadings(tracks)) {
+      const row = it.run(postId, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+      if (t.highlight) pick.run(row.lastInsertRowid, user_id); // the track(s) the poster is posting the record for
+    }
     // A link that can't play (embedding switched off, removed) is cleared a moment after saving.
     setTimeout(() => checkPostLinks(postId).catch(() => {}), 1500);
     // Look for every free place the tracks can be played, in the background.
@@ -302,6 +407,8 @@ router.post('/', requireAuth, (req, res, next) => {
     // we want DB-persisted milestone spotlights back later.
     logEvent('info', 'post', `New post #${postId}: ${title}`, { req, detail: { platform: platform || null, post_type } });
     res.status(201).json(getFullPost(postId));
+    // Keep the Discogs ids of the release's credited track artists and remixers, so their drawers link (cached release: no extra cost).
+    if (resolvedDiscogsId) learnFromRelease(resolvedDiscogsId).catch(e => console.warn('[artist-ids]', e.message));
     // No release matched at compose time: look again in the background so
     // the post gets its Discogs / BUY links if Discogs has it.
     if (!resolvedDiscogsId && post_type !== 'livemix') {
@@ -348,12 +455,28 @@ router.patch('/:id', requireAuth, (req, res, next) => {
         for (const g of genres) if (g) ig.run(id, g);
       }
       if (Array.isArray(tracks)) {
+        // Everyone's highlights survive an edit (the tracks are re-added with new ids): remember them by position + title.
+        const saved = db.prepare('SELECT t.position, t.title, h.user_id, h.created_at FROM track_highlights h JOIN post_tracks t ON t.id = h.post_track_id WHERE t.post_id = ?').all(id);
         db.prepare('DELETE FROM post_tracks WHERE post_id = ?').run(id);
-        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        for (const t of tracks) if (t?.title) it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null);
+        const it = db.prepare('INSERT INTO post_tracks (post_id, position, title, duration, youtube_url, stream_url, embed_url, artist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        const restore = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id, created_at) VALUES (?, ?, ?)');
+        const byKey = new Map();
+        const editorIsPoster = req.user.id === post.user_id;
+        for (const t of withoutHeadings(tracks)) if (t?.title) {
+          const row = it.run(id, t.position || null, t.title, t.duration || null, t.youtube_url || t.stream_url || null, t.stream_url || t.youtube_url || null, t.embed_url || null, trackArtist(t));
+          byKey.set(`${t.position || ''}|${t.title}`, row.lastInsertRowid);
+          // The poster's own picks come from the edit form when the poster is the one editing.
+          if (editorIsPoster && t.highlight) restore.run(row.lastInsertRowid, post.user_id, new Date().toISOString().slice(0, 19).replace('T', ' '));
+        }
+        for (const h of saved) {
+          if (editorIsPoster && h.user_id === post.user_id) continue; // decided by the form above
+          const nid = byKey.get(`${h.position || ''}|${h.title}`);
+          if (nid) restore.run(nid, h.user_id, h.created_at);
+        }
         setTimeout(() => checkPostLinks(id).catch(() => {}), 1500);
       }
     })();
+    if (updates.length) { const now = db.prepare('SELECT post_title, notes FROM posts WHERE id = ?').get(id); recordMentions({ postId: id, byUserId: post.user_id, texts: [now?.post_title, now?.notes] }); }   // only people newly tagged are told
     logEvent('info', 'post', `Edited post #${id}: ${post.title}`, { req, detail: { by_author: post.user_id === req.user.id } });
     res.json(getFullPost(id));
   } catch (err) { next(err); }
@@ -388,33 +511,105 @@ router.post('/:id/join', requireAuth, (req, res, next) => {
     const post = db.prepare('SELECT id, user_id, title FROM posts WHERE id = ? AND is_spotlight = 0').get(Number(req.params.id));
     if (!post) return res.status(404).json({ error: 'Post not found' });
     if (post.user_id === req.user.id) return res.status(400).json({ error: 'You posted this — it’s already in your feed.' });
-    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind) VALUES (?, ?, 'also')").run(post.id, req.user.id).changes;
-    if (added) logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
+    // Kept from someone's feed or wall ('user', origin_ref = their username), or from a drawer ('digging').
+    const org = cleanOrigin(req.body?.origin || 'user', req.body?.origin_ref);
+    const added = db.prepare("INSERT OR IGNORE INTO post_joins (post_id, user_id, kind, origin, origin_ref) VALUES (?, ?, 'also', ?, ?)").run(post.id, req.user.id, org.origin, org.origin_ref).changes;
+    if (added) {
+      logEvent('info', 'post', `Also posted #${post.id}: ${post.title}`, { req });
+      recordEvent('keep', { userId: req.user.id, postId: post.id, origin: org.origin, originRef: org.origin_ref });
+      notify(post.user_id, 'keep', { actorId: req.user.id, postId: post.id });
+    }
     res.json(getFullPost(post.id));
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/join', requireAuth, (req, res, next) => {
   try {
-    db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id);
+    const gone = db.prepare("DELETE FROM post_joins WHERE post_id = ? AND user_id = ? AND kind = 'also'").run(Number(req.params.id), req.user.id).changes;
+    if (gone) recordEvent('unkeep', { userId: req.user.id, postId: Number(req.params.id) });
     res.json(getFullPost(Number(req.params.id)));
+  } catch (err) { next(err); }
+});
+
+// Highlight / un-highlight a track on a post (the card's star). Returns the track's new state.
+const highlightState = trackId => {
+  const names = db.prepare('SELECT u.username FROM track_highlights h JOIN users u ON u.id = h.user_id WHERE h.post_track_id = ? ORDER BY h.created_at, h.user_id').all(trackId).map(r => r.username);
+  return { trackId, highlightedBy: names.slice(0, 12), highlightCount: names.length };
+};
+router.put('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) => {
+  try {
+    const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'Track not found' });
+    const added = db.prepare('INSERT OR IGNORE INTO track_highlights (post_track_id, user_id) VALUES (?, ?)').run(t.id, req.user.id).changes;
+    if (added) recordEvent('highlight', { userId: req.user.id, postId: Number(req.params.id), trackId: t.id });
+    res.json(highlightState(t.id));
+  } catch (err) { next(err); }
+});
+router.delete('/:id/tracks/:trackId/highlight', requireAuth, (req, res, next) => {
+  try {
+    const t = db.prepare('SELECT id FROM post_tracks WHERE id = ? AND post_id = ?').get(Number(req.params.trackId), Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'Track not found' });
+    const gone = db.prepare('DELETE FROM track_highlights WHERE post_track_id = ? AND user_id = ?').run(t.id, req.user.id).changes;
+    if (gone) recordEvent('unhighlight', { userId: req.user.id, postId: Number(req.params.id), trackId: t.id });
+    res.json(highlightState(t.id));
   } catch (err) { next(err); }
 });
 
 router.get('/:id/comments', (req, res, next) => {
   try {
-    const comments = db.prepare('SELECT c.*, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC').all(Number(req.params.id));
-    res.json(comments);
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post) return res.json([]);
+    const all = db.prepare('SELECT c.*, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC, c.id ASC').all(post.id);
+    // A private comment is seen by whoever wrote it, and by the post's owner (or an admin).
+    const sees = c => !c.private || (req.user && (c.user_id === req.user.id || canModify(post, req.user)));
+    res.json(all.filter(sees));
   } catch (err) { next(err); }
+});
+
+// How many private comments the owner has waiting on a post (owner / admin only, else 0).
+router.get('/:id/comments/private-count', (req, res, next) => {
+  try {
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post || !req.user || !canModify(post, req.user)) return res.json({ private: 0 });
+    res.json({ private: db.prepare('SELECT COUNT(*) AS c FROM comments WHERE post_id = ? AND private = 1').get(post.id).c });
+  } catch (err) { next(err); }
+});
+
+// Delete a comment: its author, the post's owner, or an admin.
+router.delete('/:id/comments/:commentId', requireAuth, (req, res, next) => {
+  try {
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    const c = post && db.prepare('SELECT id, user_id FROM comments WHERE id = ? AND post_id = ?').get(Number(req.params.commentId), post.id);
+    if (!c) return res.status(404).json({ error: 'Comment not found' });
+    if (c.user_id !== req.user.id && !canModify(post, req.user)) return res.status(403).json({ error: 'You can only delete your own comments, or comments on your own post.' });
+    db.prepare('DELETE FROM comments WHERE id = ?').run(c.id);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Take your own tag off a post, or off a reply (services/notifications.js). Yours only: nobody else's tag is touched.
+router.delete('/:id/mentions/me', requireAuth, (req, res, next) => {
+  try { res.json({ removed: removeMyMention(req.user.id, Number(req.params.id), 0) }); } catch (err) { next(err); }
+});
+router.delete('/:id/comments/:commentId/mentions/me', requireAuth, (req, res, next) => {
+  try { res.json({ removed: removeMyMention(req.user.id, Number(req.params.id), Number(req.params.commentId)) }); } catch (err) { next(err); }
 });
 
 router.post('/:id/comments', requireAuth, (req, res, next) => {
   try {
     const user_id = req.user.id;
-    const { content } = req.body;
+    const content = String(req.body.content || '').trim().slice(0, 300);
     if (!content) return res.status(400).json({ error: 'Content is required' });
-    const result = db.prepare('INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)').run(Number(req.params.id), user_id, content);
+    const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(Number(req.params.id));
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    // Private = only you and the post's owner see it. Pointless on your own post, so it stays public there.
+    const priv = req.body.private && post.user_id !== user_id ? 1 : 0;
+    const result = db.prepare('INSERT INTO comments (post_id, user_id, content, private) VALUES (?, ?, ?, ?)').run(post.id, user_id, content, priv);
     const comment = db.prepare('SELECT c.*, u.username, u.display_name FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?').get(result.lastInsertRowid);
+    recordEvent('reply', { userId: user_id, postId: post.id, meta: priv ? { private: true } : null }); // ids only, never the text
+    notify(post.user_id, 'reply', { actorId: user_id, postId: post.id, commentId: result.lastInsertRowid });
+    // Replies can tag people too, public ones only: a private reply is between two people. The post's owner is told of the reply itself.
+    if (!priv) recordMentions({ postId: post.id, commentId: Number(result.lastInsertRowid), byUserId: user_id, texts: [content], skipUserIds: [post.user_id] });
     res.status(201).json(comment);
   } catch (err) { next(err); }
 });

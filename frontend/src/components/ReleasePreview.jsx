@@ -4,7 +4,7 @@ import TrackPlayer from './TrackPlayer'
 import { AddToPlaylistButton } from './Collect'
 import { toEmbedSrc } from '../lib/embeds'
 import { withoutHeadings, linkKeys } from '../lib/tracklist'
-import { AddLinkRow, UserLinkNote } from './TrackLinkAdd'
+import { AddLinkRow, UserLinkNote, WrongLinkRow } from './TrackLinkAdd'
 
 // A Discogs release opened in place (2026-10-06, gabriel: "like on the
 // spotlights, see the release tracklist and embeds here to keep traffic on
@@ -21,7 +21,8 @@ const PRI = 'var(--theme-text-pri)', SEC = 'var(--theme-text-sec)', TER = 'var(-
 const LINE = 'var(--theme-border)'
 const normT = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-export default function ReleasePreview({ release, artistName = '' }) {
+// `digRef`: where it is being looked at (the artist, label or list a drawer is showing), sent along as "found digging in <digRef>" when it is added to the feed.
+export default function ReleasePreview({ release, artistName = '', digRef = '' }) {
   const qc = useQueryClient()
   const [playing, setPlaying] = useState(null)  // { i, url }
   const [found, setFound] = useState({})        // i -> url | 'none' | 'capped'
@@ -112,7 +113,7 @@ export default function ReleasePreview({ release, artistName = '' }) {
             {[full?.labels?.[0]?.name, full?.labels?.[0]?.catno, full?.year || release.year, full?.country].filter(x => x && !/^none$/i.test(x)).join(' · ')}
           </span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl } }))}
+            <button onClick={() => window.dispatchEvent(new CustomEvent('lnv:compose', { detail: { url: discogsUrl, origin: 'digging', origin_ref: digRef || artistName || '' } }))}
               style={{ ...btn, border: 0, background: 'var(--theme-accent)', color: '#fff' }}>+ add to my feed</button>
             <a href={discogsUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn, fontWeight: 400, color: SEC }}>Discogs ↗</a>
             {/* Folded pressings (the duplicate comber): all of them, on Discogs. */}
@@ -151,6 +152,11 @@ export default function ReleasePreview({ release, artistName = '' }) {
                 )}
                 {url && t.added && (
                   <UserLinkNote by={t.added.by} submissionId={t.added.id} onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
+                )}
+                {isPlaying && url && !t.added && t.linkKey && (
+                  <WrongLinkRow releaseId={releaseId} linkKey={t.linkKey} url={url} title={t.title}
+                    artist={(t.artists || []).map(a => a.name).join(', ') || (full.artists || []).map(a => a.name).join(', ') || artistName}
+                    onDone={() => qc.invalidateQueries({ queryKey: ['release-track-links', releaseId] })} />
                 )}
                 {isPlaying && toEmbedSrc(playing.url) && (
                   <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 260, margin: '8px 0 10px', borderRadius: 12, overflow: 'hidden' }}>
