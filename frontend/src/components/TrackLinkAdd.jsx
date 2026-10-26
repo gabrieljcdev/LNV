@@ -25,9 +25,9 @@ const text = { background: 'none', border: 0, padding: 0, cursor: 'pointer', fon
 const pill = (on = true) => ({ border: `1px solid ${LINE}`, borderRadius: 99, padding: '4px 12px', background: 'none', color: PRI, fontFamily: SANS, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.5 })
 
 // Under a track with no link.
-export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone, prompt, signInText, indent }) {
+export function AddLinkRow({ releaseId, linkKey, title, artist, suggestion, mine, onDone, prompt, signInText, indent, startOpen }) {
   const box = indent == null ? wrap : { ...wrap, paddingLeft: indent }
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(!!startOpen)
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [check, setCheck] = useState(null)   // what the server made of the link

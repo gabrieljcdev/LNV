@@ -2463,6 +2463,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
   const [plPop, setPlPop] = useState(null)
   const [wheel, setWheel] = useState(null) // blocks card: the playlist wheels ({ kind: 'add', at, tracks, title } from a track's +, { kind: 'others', at } from the wheel in Details)
   const [sleeveOpen, setSleeveOpen] = useState(false) // sleeve card: the olive box is in front of the media
+  const [linkFor, setLinkFor] = useState(null) // module / sleeve card: the row (a track with no link) whose add-a-link box is open
   const [wash, setWash] = useState(null) // blocks card: the source colour flooding Plays from
   const chatId = useChatPost() // the notes card's replies pop-out: one open at a time, it stays with you for a few posts
   const notesReply = chatId === post.id
@@ -2721,20 +2722,21 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
       return (
         <div key={i}>
           <div className="mod-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
-            <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
-            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500 }}>
+            style={{ display: 'grid', gridTemplateColumns: ph ? '24px minmax(0, 1fr) 22px 24px' : '30px minmax(0, 1fr) 46px 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', color: undefined, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+            <span style={{ ...mono, fontSize: 10.5, opacity: u ? 0.65 : 0.35 }}>{active ? '▶' : (t.position || i + 1)}</span>
+            <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500, opacity: u ? 1 : 0.5 }}>
               {v.title}
               {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
             </span>
             {!ph && <span style={{ ...mono, fontSize: 11, textAlign: 'right', opacity: 0.6 }}>{t.duration || ''}</span>}
-            <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+            <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : (post.discogs_id && linkKeyList[i] ? <button onClick={e => { e.stopPropagation(); setLinkFor(linkFor === i ? null : i) }} title="No link yet. Know where this is? Add one" aria-label={`Add a link for ${t.title}`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.8, fontSize: 14, lineHeight: 1 }}>🔗</button> : null)}</span>
             <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
               aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
               title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
               style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: lit ? 18 : 15, color: lit ? 'var(--theme-accent)' : 'inherit', opacity: lit ? 1 : 0.4 }}>{lit ? '★' : '☆'}</button>
           </div>
           {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+          {!u && linkFor === i && post.discogs_id && linkKeyList[i] && <AddLinkRow startOpen releaseId={post.discogs_id} linkKey={linkKeyList[i]} title={t.title} artist={artist} indent={34} onDone={() => qcPriv.invalidateQueries({ queryKey: ['posts'] })} />}
         </div>
       )
     }
@@ -2753,19 +2755,20 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false }) {
         return (
           <div key={i}>
             <div className="mod-tr" onClick={e => { e.stopPropagation(); if (u) setActiveUrl(active ? null : u) }}
-              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', opacity: u ? 1 : 0.5, background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
-              <span style={{ ...mono, fontSize: 10.5, opacity: 0.65 }}>{active ? '▶' : (t.position || i + 1)}</span>
-              <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500 }}>
+              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) 22px 24px', gap: 10, alignItems: 'center', minHeight: 40, borderBottom: '1px solid color-mix(in srgb, var(--lv-pri) 14%, transparent)', cursor: u ? 'pointer' : 'default', background: active ? 'color-mix(in srgb, var(--theme-accent) 30%, transparent)' : lit ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 38%, transparent), color-mix(in srgb, var(--theme-accent) 8%, transparent))' : undefined, boxShadow: lit ? 'inset 3px 0 0 var(--theme-accent)' : undefined, fontFamily: d.bodyFf, fontSize: 14.5, lineHeight: 1.2 }}>
+              <span style={{ ...mono, fontSize: 10.5, opacity: u ? 0.65 : 0.35 }}>{active ? '▶' : (t.position || i + 1)}</span>
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere', fontWeight: lit ? 700 : 500, opacity: u ? 1 : 0.5 }}>
                 {v.title}
                 {(v.artists.length > 0 || v.remixers.length > 0) && <span style={{ fontWeight: 400, opacity: 0.6 }}> – {[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</span>}
               </span>
-              <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : null}</span>
+              <span style={{ display: 'grid', placeItems: 'center' }}>{u ? <button onClick={e => { e.stopPropagation(); setWheel({ kind: 'add', at: at(e), tracks: [trackFrom(post, t)], title: v.title }) }} title="Add to one of your playlists" aria-label={`Add ${t.title} to a playlist`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.45, fontFamily: d.monoFf, fontSize: 16, lineHeight: 1 }}>+</button> : (post.discogs_id && linkKeyList[i] ? <button onClick={e => { e.stopPropagation(); setLinkFor(linkFor === i ? null : i) }} title="No link yet. Know where this is? Add one" aria-label={`Add a link for ${t.title}`} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', opacity: 0.8, fontSize: 14, lineHeight: 1 }}>🔗</button> : null)}</span>
               <button onClick={e => { e.stopPropagation(); toggleHighlight(t) }} aria-pressed={mine}
                 aria-label={me ? `${mine ? 'Remove your highlight from' : 'Highlight'} ${t.title}` : 'Sign in to highlight tracks'}
                 title={h.n ? `Highlighted by ${h.by.join(', ')}${h.n > h.by.length ? ` +${h.n - h.by.length}` : ''}` : (me ? 'Highlight this track' : 'Sign in to highlight tracks')}
                 style={{ background: 'none', border: 'none', padding: 0, cursor: me ? 'pointer' : 'default', fontSize: lit ? 18 : 15, color: lit ? 'var(--theme-accent)' : 'inherit', opacity: lit ? 1 : 0.4 }}>{lit ? '★' : '☆'}</button>
             </div>
             {active && <PreviewPrompt post={post} track={t} linkKey={linkKeyList[i]} activeUrl={activeUrl} indent={34} />}
+            {!u && linkFor === i && post.discogs_id && linkKeyList[i] && <AddLinkRow startOpen releaseId={post.discogs_id} linkKey={linkKeyList[i]} title={t.title} artist={artist} indent={34} onDone={() => qcPriv.invalidateQueries({ queryKey: ['posts'] })} />}
           </div>
         )
       }
