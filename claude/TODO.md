@@ -45,6 +45,8 @@ Only open items are listed here. Everything finished lives in the handovers and 
 6. **The shelf shifts one card** when a post is added at the front (the same as before; not compensated).
 7. **Server log:** confirm "[comber] Failed to fetch release … 404" has stopped (fixed 23 Oct); older YouTube matches saved before the stricter short-title rule are not re-checked.
 8. Live admin account's display name in the database is still "Late Night Vibes"; `deploy/HOSTING.md` and the old notes still use the old names.
+9. **Tracks with no link on the module and sleeve cards (26 Oct):** they had no way to add a link (only the spotlight and the release preview did). Fixed in `46584e7`: a 🔗 on the row opens "add a link" straight onto the input (needs a Discogs release). **Committed and pushed, NOT yet deployed** (the deploy needs your go-ahead).
+10. **Large albums populate poorly (26 Oct):** compose searches track by track in turn, each paid YouTube search is capped at 3 per release (`PAID_SEARCHES_PER_RELEASE`, `services/searchBudget.js`), the daily cap stops the run (`capped`), and only the free sources fill the rest, so a 28-track compilation ends up with many empty rows. Options: raise the per-release cap for long releases, run the free-source lookups for all tracks at once and in parallel, keep retrying the empty ones in the background, and show the poster which rows are still empty with a one-tap add-a-link. Needs a decision on spending quota.
 
 ## 4. Build next
 ### Passwords and sign-in
@@ -55,6 +57,7 @@ Only open items are listed here. Everything finished lives in the handovers and 
 - "Play all / shuffle" for Discogs lists (resolve each record only on its turn, free sources first).
 - Starting a track anywhere closes every other open player (Spotify was fixed; re-check everything).
 - **"Listening to now"** box on someone's profile, with a play-it-too button. Needs the opt-in rules first.
+- **Session setlist** (gabriel, 26 Oct): a playlist of what you played this session. The live list does not persist (gone when you leave), but a record of it is kept as "your personal setlist" (name to be decided). Likely already possible: opt-in listening history exists (`services/listeningHistory.js`, `/api/activity/listening`, "Your data"), so after the first day the setlist can just read the play events from it, grouped by session (a gap of e.g. 30 min starts a new one), with a keep-as-playlist button. Needs: the "Keep listening history" opt-in respected (no history, no setlist), a setlist view in Your data or the playlists drawer, and the research-only rule (never used to pick what people hear).
 ### Links and playback
 - Nightly job seeded from crawled channels (step 4 of the 7 Oct link plan); "Tracks with nothing to play" are only counted, not chased; Tidal links in cards; Last.fm as a free match check (minor).
 ### Feed and cards
