@@ -38,6 +38,7 @@ const PLATFORMS = [
  { id: 'bandcamp', label: 'BANDCAMP', color: '#1da0c3', textColor: '#fff', icon: '◎', re: /bandcamp\.com/i },
  { id: 'spotify', label: 'SPOTIFY', color: '#1db954', textColor: '#fff', icon: '◉', re: /open\.spotify\.com/i },
  { id: 'mixcloud', label: 'MIXCLOUD', color: '#5000ff', textColor: '#fff', icon: '∿', re: /mixcloud\.com/i },
+ { id: 'nts', label: 'NTS', color: '#fff', textColor: '#000', icon: '◐', re: /nts\.live/i },
  { id: 'deezer', label: 'DEEZER', color: '#a238ff', textColor: '#fff', icon: '◈', re: /deezer\.com/i },
  { id: 'applemusic', label: 'APPLE MUSIC', color: '#fc3c44', textColor: '#fff', icon: '', re: /music\.apple\.com/i },
  { id: 'tidal', label: 'TIDAL', color: '#000', textColor: '#fff', icon: '~', re: /tidal\.com/i },

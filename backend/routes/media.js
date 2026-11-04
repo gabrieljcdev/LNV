@@ -1787,6 +1787,44 @@ async function resolveMixcloud(url) {
   };
 }
 
+// ─── NTS ──────────────────────────────────────────────────────────────────────
+// NTS's own API names the episode, its cover, tracklist and where it can be played (Mixcloud, else SoundCloud), so the
+// post's stream link is that playable one and the existing embeds take it from there.
+
+async function resolveNTS(url) {
+  const m = new URL(url).pathname.match(/^\/shows\/([^/]+)\/episodes\/([^/?#]+)/);
+  if (!m) throw new Error('Paste an NTS episode link (nts.live/shows/…/episodes/…)');
+  const r = await fetch(`https://www.nts.live/api/v2/shows/${m[1]}/episodes/${m[2]}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!r.ok) throw new Error('NTS episode not found');
+  const d = await r.json();
+  const sc = (d.audio_sources || []).find(a => a.source === 'soundcloud')?.url?.split('?')[0];
+  const playable = d.mixcloud || sc || null;
+  const tracks = (d.embeds?.tracklist?.results || []).map(t => ({
+    title: `${t.artist || ''} - ${t.title || ''}`.trim().replace(/^-\s*/, ''),
+    position: t.offset != null ? String(t.offset) : '',
+    duration: t.duration || '',
+  }));
+  const show = m[1].replace(/-/g, ' ');
+  return {
+    platform: 'nts',
+    detected_type: 'livemix',
+    stream_url: playable || url,
+    embed_url: null,
+    cover_image: d.media?.picture_large || d.media?.background_large || null,
+    year: d.broadcast ? Number(d.broadcast.slice(0, 4)) : null,
+    tracks,
+    artists: [],
+    artist: show,
+    channel: 'NTS',
+    title: d.name || show,
+    label: '',
+    catNo: '',
+    genres: (d.genres || []).map(g => g.value).filter(Boolean).length ? d.genres.map(g => g.value) : ['Electronic'],
+    discogs_id: null,
+    source: 'platform',
+  };
+}
+
 // ─── Deezer ───────────────────────────────────────────────────────────────────
 // Public API, no key. A track gives its album id; the album gives label, UPC
 // barcode, record_type (album/ep/single), genres and the tracklist.
@@ -2154,6 +2192,7 @@ function detectPlatform(url) {
   if (/bandcamp\.com/.test(url)) return 'bandcamp';
   if (/open\.spotify\.com/.test(url)) return 'spotify';
   if (/mixcloud\.com/.test(url)) return 'mixcloud';
+  if (/(^|\/\/)(www\.)?nts\.live\//.test(url)) return 'nts';
   if (/deezer\.com/.test(url)) return 'deezer';
   if (/music\.apple\.com/.test(url)) return 'applemusic';
   if (/tidal\.com/.test(url)) return 'tidal';
@@ -2181,6 +2220,7 @@ router.get('/resolve', async (req, res) => {
       case 'bandcamp':    result = await resolveBandcamp(url);    break;
       case 'spotify':     result = await resolveSpotify(url);     break;
       case 'mixcloud':    result = await resolveMixcloud(url);    break;
+      case 'nts':         result = await resolveNTS(url);         break;
       case 'deezer':      result = await resolveDeezer(url);      break;
       case 'applemusic':  result = await resolveAppleMusic(url);  break;
       case 'tidal':       result = await resolveTidal(url);       break;
