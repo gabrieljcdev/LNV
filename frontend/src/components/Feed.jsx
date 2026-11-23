@@ -368,7 +368,7 @@ const FEED_SURFACE = 'var(--theme-bg)'
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
-function FloatSlot({ children, bare = false, sleeve = false, nextBg }) {
+function FloatSlot({ children, bare = false, sleeve = false, nextBg, flushBg }) {
   const cardWrapRef = useRef(null)
   const [ink, setInk] = useState(null)
   useLayoutEffect(() => {
@@ -381,6 +381,14 @@ function FloatSlot({ children, bare = false, sleeve = false, nextBg }) {
     return () => { mo.disconnect(); clearTimeout(t) }
   }, [])
   // The scrolling sleeve shelf (23 Nov 2026): the card is a sleeve like the posts (curved right corners, no gap, no shadow); the next card's colour sits behind the curve.
+  // The welcome / profile card sits on the same sleeve as the first card: that card's colour, square on the right, flush against it (no curve, no notch).
+  if (sleeve && flushBg) return (
+    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', background: flushBg }}>
+      <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', ...ink }}>
+        {children}
+      </div>
+    </div>
+  )
   if (sleeve) return (
     <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', position: 'relative' }}>
       <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: FLOAT_RADIUS, background: nextBg || 'var(--theme-bg)' }} />
@@ -2777,9 +2785,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = n
         return (
           <div key={i} style={{ breakInside: 'avoid', marginBottom: 4 }}>
             <div className="sl-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-              style={{ display: 'grid', gridTemplateColumns: '24px 38px minmax(0, 1fr) auto 20px 24px', gap: 10, alignItems: 'center', minHeight: 52, padding: '0 14px', borderRadius: 12, cursor: u ? 'pointer' : 'default', background: active || lit ? `color-mix(in srgb, ${ACC} 14%, transparent)` : undefined, fontFamily: d.bodyFf }}>
+              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto 20px 24px', gap: 10, alignItems: 'center', minHeight: 46, padding: '0 14px', borderRadius: 12, cursor: u ? 'pointer' : 'default', background: active || lit ? `color-mix(in srgb, ${ACC} 14%, transparent)` : undefined, fontFamily: d.bodyFf }}>
               <span style={{ ...mono, fontSize: 11, textAlign: 'center', color: active ? ACC : undefined, opacity: active ? 1 : (u ? 0.65 : 0.35) }}>{active ? '▶' : (t.position || i + 1)}</span>
-              <span style={{ width: 38, height: 38, borderRadius: 10, overflow: 'hidden', background: 'var(--theme-dark3)', display: 'block', opacity: u ? 1 : 0.5 }}>{cover && <img src={cover} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}</span>
               <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', opacity: u ? 1 : 0.55 }}>
                 <b style={{ fontWeight: lit || active ? 700 : 600, fontSize: 14.5, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</b>
                 {(v.artists.length > 0 || v.remixers.length > 0) && <i style={{ fontSize: 12.5, lineHeight: 1.2, color: 'var(--lv-sec)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[...v.artists, ...v.remixers].map((n, k) => <span key={n}>{k > 0 && ', '}{artistLink(n)}</span>)}</i>}
@@ -6078,6 +6085,10 @@ export default function Feed() {
   // var(--theme-bg) — which is now the surface itself, so they'd vanish into
   // it — and take POST_BG_CYCLE (dark1/dark2/dark3) instead, the tint the
   // note above always meant for them. (White cards were tried briefly.)
+  // The scrolling sleeve shelf: the welcome / profile card is a sleeve too, with its boxes sitting on it; the first card's colour sits behind its curve.
+  const sleeveTop = SLEEVE_SCROLL && MODULE_CARDS && !phone
+  const first = shelfList[0]
+  const firstBg = !first ? 'var(--theme-bg)' : (first.kind === 'spotlight' || first.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(first.post) ? 'var(--theme-bg)' : solid(moduleLook(0).base)[0]
   function getCardBg(idx, item) {
     if (item?.kind === 'spotlight' || item?.kind === 'intro') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
@@ -6182,11 +6193,11 @@ export default function Feed() {
         {/* No posts: the button rides with the first card there is (your profile / the welcome), in its lower-left corner. */}
         {!posts.length && !railTools && composeAnchor}
         {/* A wall opens on its owner's card (2026-10-05). */}
-        {feedMode.type === 'wall' && !search && <FloatSlot bare={BLOCKS_CARDS} key={`wall-${feedMode.username}`}><WallCard username={feedMode.username} /></FloatSlot>}
+        {feedMode.type === 'wall' && !search && <FloatSlot bare={BLOCKS_CARDS} sleeve={sleeveTop} nextBg={firstBg} flushBg={first ? firstBg : undefined} key={`wall-${feedMode.username}`}><WallCard onSleeve={sleeveTop && !!first} username={feedMode.username} /></FloatSlot>}
         {/* My feed opens on your profile, with its friends switch (2026-10-06). */}
-        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="wall-me"><WallCard username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
+        {feedMode.type === 'home' && isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} sleeve={sleeveTop} nextBg={firstBg} flushBg={first ? firstBg : undefined} key="wall-me"><WallCard onSleeve={sleeveTop && !!first} username={getUser()} friends={myFeedSwitch} /></FloatSlot>}
         {/* Signed out, the front page opens on a welcome instead (2026-10-05). */}
-        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} key="welcome">{MODULE_CARDS && authTab ? <Login embedded startTab={authTab} onClose={() => setAuthTab(null)} /> : <WelcomeCard onAuth={MODULE_CARDS ? setAuthTab : undefined} />}</FloatSlot>}
+        {feedMode.type === 'home' && !isLoggedIn() && !search && <FloatSlot bare={BLOCKS_CARDS} sleeve={sleeveTop} nextBg={firstBg} flushBg={first ? firstBg : undefined} key="welcome">{MODULE_CARDS && authTab ? <Login embedded startTab={authTab} onClose={() => setAuthTab(null)} /> : <WelcomeCard onSleeve={sleeveTop && !!first} onAuth={MODULE_CARDS ? setAuthTab : undefined} />}</FloatSlot>}
         {!posts.length && (
           // A card-width panel, not flex:1 — the intro already fills the
           // viewport, so flex:1 squeezed this to ~40px just off-screen.

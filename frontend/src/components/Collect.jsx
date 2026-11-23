@@ -439,7 +439,7 @@ export function FollowButton({ username }) {
 //   numbers only they see, and "View as visitor" to check the public card.
 // Everything about someone's taste comes from what they chose to post.
 // `compact` stacks it for phones.
-export function WallCard({ username, compact = false, friends }) {
+export function WallCard({ username, compact = false, friends, onSleeve = false }) {
   const later = useLater() // "For later": private, shown on your own profile only
   const qc = useQueryClient()
   const { openD3, jumpToPost } = useLayout() || {}
@@ -466,7 +466,7 @@ export function WallCard({ username, compact = false, friends }) {
   const tone = t => (MOD ? solidBg({ showcase: ML.a1, accent: ML.a2, dark3: ML.cover }[t] || ML.base) : [`var(--theme-${t})`, `var(--theme-${t})`])
   const shell = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, color: pri, fontFamily: SANS, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : 0, overflowY: 'auto', background: 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : 0, overflowY: 'auto', background: onSleeve ? 'transparent' : 'var(--theme-bg)', transition: 'background 0.8s', color: pri, fontFamily: SANS, scrollbarWidth: 'none' }
   const cardTag = { 'data-profile-card': username === getUser() ? 'me' : 'other' } // "My profile" scrolls here (Feed.jsx)
   if (!p) return <div {...cardTag} style={shell}><div style={{ fontFamily: MONO, fontSize: 11, color: ter }}>…</div></div>
 
@@ -820,7 +820,7 @@ export function WallCard({ username, compact = false, friends }) {
 // this card where your profile would be — what the site is, how it works,
 // what an account adds, and the way in (create an account / log in).
 // Same shell as WallCard; `compact` is the phone slide.
-export function WelcomeCard({ compact = false, onAuth }) {
+export function WelcomeCard({ compact = false, onAuth, onSleeve = false }) {
   const { openD3 } = useLayout() || {}
   const owner = useFrontPageOwner()
   const pri = 'var(--theme-text-pri)', sec = 'var(--theme-text-sec)'
@@ -837,7 +837,7 @@ export function WelcomeCard({ compact = false, onAuth }) {
   const outline = { ...solid, background: 'transparent', color: pri, border: `1.5px solid ${pri}` }
   const root = compact
     ? { display: 'flex', flexDirection: 'column', gap: 6, fontFamily: SANS, color: pri, padding: '0 0 24px' }
-    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
+    : { width: 800, height: '100%', boxSizing: 'border-box', padding: MOD ? '14px 0' : '56px 20px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, background: onSleeve ? 'transparent' : 'var(--theme-bg)', transition: 'background 0.8s', fontFamily: SANS, color: pri, scrollbarWidth: 'none' }
   const pad = compact ? '22px 20px 24px' : '26px 30px 30px'
   return (
     <div data-profile-card="welcome" style={root}>
