@@ -368,7 +368,7 @@ const FEED_SURFACE = 'var(--theme-bg)'
 
 // One floating card: FLOAT_INSET_Y of surface above and below, half the gap
 // either side, and the card itself rounded and lifted (FLOAT_SHADOW).
-function FloatSlot({ children, bare = false }) {
+function FloatSlot({ children, bare = false, sleeve = false, nextBg }) {
   const cardWrapRef = useRef(null)
   const [ink, setInk] = useState(null)
   useLayoutEffect(() => {
@@ -380,6 +380,15 @@ function FloatSlot({ children, bare = false }) {
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
     return () => { mo.disconnect(); clearTimeout(t) }
   }, [])
+  // The scrolling sleeve shelf (23 Nov 2026): the card is a sleeve like the posts (curved right corners, no gap, no shadow); the next card's colour sits behind the curve.
+  if (sleeve) return (
+    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', position: 'relative' }}>
+      <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: FLOAT_RADIUS, background: nextBg || 'var(--theme-bg)' }} />
+      <div ref={cardWrapRef} style={{ position: 'relative', flexShrink: 0, height: '100%', display: 'flex', borderRadius: `0 ${FLOAT_RADIUS}px ${FLOAT_RADIUS}px 0`, overflow: 'hidden', ...ink }}>
+        {children}
+      </div>
+    </div>
+  )
   return (
     <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', padding: `${FLOAT_INSET_Y}px ${FLOAT_GAP / 2}px` }}>
       <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', ...(bare ? null : { borderRadius: FLOAT_RADIUS, overflow: 'hidden', boxShadow: FLOAT_SHADOW }), ...ink }}>
@@ -2457,7 +2466,7 @@ function SizedBox({ refCb, style, className, children }) {
   return <div ref={n => { el.current = n; refCb?.(n) }} className={className} style={style}>{h > 0 ? children(h) : null}</div>
 }
 
-function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = null }) {
+function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = null }) {
   useThemeTick() // the blocks' hand-coloured spectrum is per palette: look again when the palette changes
   const { registerPostRef, openD3 } = useLayout() || {}
   const { canModify, deleting, deletePost } = usePostActions(post)
@@ -2748,7 +2757,6 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = 
       // The scrolling sleeve (23 Nov 2026, gabriel's mockup67): a full-height sleeve with its right corners curved like the nav strip, sleeves side by side so the
       // feed scrolls as one shelf under the strip. The next post's colour sits behind the curve, so there is no gap and no overlap. The cover art is always there;
       // the player sits on top of it, and the actions float on the art as plain text.
-      const NEXT = nextIdx == null ? null : solid(moduleLook(nextIdx).base)
       const bigCover = rightSizedCover(post.cover_image || post.coverImage || post.thumb_image || post.thumbImage || post.cover_art || '', 640) // the sleeve's media is bigger than the 330 px the other cards use
       const hdrNum = num.length <= 2 ? 84 : num.length === 3 ? 66 : num.length === 4 ? 52 : 40
       const dateStr = stampOf(post.created_at).split(' · ')[0]
@@ -2792,14 +2800,17 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = 
         <SizedBox refCb={el => { cardEl.current = el; registerPostRef?.(post.id, el) }} className="lnv-blocks" style={{ position: 'relative', flexShrink: 0, width: SLEEVE_W, height: '100%' }}>
           {SH => {
             // The cover is as big as the page allows (540 at most); the tracklist takes what is left and scrolls, with a hard gap above the footer.
-            const M = Math.max(260, Math.min(540, SH - 118 - 96 - 24 - 150 - 28))
+            const S = Math.max(0.7, Math.min(1, SH / 880)) // short screens: the whole sleeve scales down together, so every size keeps its proportion
+const IH = SH / S, P = 36, G = 28 // inner height; the same padding top and bottom and one gap between every band
+const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
             return (
               <div style={{ position: 'relative', width: '100%', height: SH }}>
+                <div style={{ position: 'relative', zoom: S, width: SLEEVE_W / S, height: IH }}>
                 <style>{'.sl-tr{transition:background .2s}.sl-tr:hover{background:color-mix(in srgb,var(--theme-accent) 14%,transparent)}'}</style>
-                <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: R, background: NEXT ? NEXT[0] : 'var(--theme-bg)' }} />
-                <Blk bg={BASE} className="lnv-still" style={{ position: 'absolute', inset: 0, borderRadius: `0 ${R}px ${R}px 0`, padding: '26px 40px 18px 28px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+                <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: R, background: nextBg || 'var(--theme-bg)' }} />
+                <Blk bg={BASE} className="lnv-still" style={{ position: 'absolute', inset: 0, borderRadius: `0 ${R}px ${R}px 0`, padding: `${P}px 40px ${P}px ${P}px`, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
                   {/* title, and the big post number with its type and date */}
-                  <div style={{ position: 'relative', height: 92, flexShrink: 0, margin: '0 -4px 0 8px' }}>
+                  <div style={{ position: 'relative', height: 92, flexShrink: 0 }}>
                     <div style={{ position: 'absolute', left: 0, top: 0, right: 150 }}>
                       <div style={{ fontFamily: d.bodyFf, fontWeight: 500, fontSize: 20, lineHeight: 1.15, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}
@@ -2813,7 +2824,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = 
                     </div>
                   </div>
                   {/* the media and the details */}
-                  <div style={{ display: 'flex', gap: 28, height: M, flexShrink: 0, marginTop: 18 }}>
+                  <div style={{ display: 'flex', gap: 28, height: M, flexShrink: 0, marginTop: G }}>
                     <div onClick={() => { if (!playingSrc && firstUrl) setActiveUrl(firstUrl) }} style={{ position: 'relative', width: M, height: M, flexShrink: 0, borderRadius: R, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: !playingSrc && firstUrl ? 'pointer' : 'default' }}>
                       {bigCover && <img src={bigCover} alt="" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                       <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: `rgba(6,8,24,${playingSrc ? 0.38 : 0.2})`, transition: 'background .3s' }} />
@@ -2856,7 +2867,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = 
                     </div>
                   </div>
                   {/* the tracklist: scrolls when it is long; a hard gap above the footer */}
-                  <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, margin: '24px 0 28px', overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
+                  <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, margin: `${G}px 0`, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
                     <div style={{ columnCount: 2, columnGap: 20 }}>{tracks.map((t, i) => srow2(t, i))}</div>
                   </div>
                   {/* playing on, kept by, playlists */}
@@ -2878,6 +2889,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextIdx = 
                     </div>
                   </div>
                 </Blk>
+                </div>
                 {notesReply && createPortal(<NoteReplies fun sheet={false} post={post} posterName={posterName} size={Math.max(Math.round(d.artSize * 0.75), 340)} d={d} cardBg="var(--theme-sidebar)" onClose={() => setNotesReply(false)} onCount={setCommentCount} />, document.body)}
                 {wheel?.kind === 'add' && <PlaylistWheelPop post={post} tracks={wheel.tracks} title={wheel.title} at={wheel.at} onClose={() => setWheel(null)} />}
                 {wheel?.kind === 'others' && <OthersWheelPop post={post} at={wheel.at} onClose={() => setWheel(null)} />}
@@ -6197,8 +6209,12 @@ export default function Feed() {
           let postIdx = -1 // posts only (no spotlights or live sets): the blocks card walks its colour spectrum by this
           const shownList = shelfList.slice(0, mountCap)
           shownList.forEach((item, k) => {
+            // What sits behind this card's curved right corners in the sleeve shelf: the next card's colour.
+            const nxt = shownList[k + 1]
+            const nextBgOf = pi => !nxt ? 'var(--theme-bg)' : (nxt.kind === 'spotlight' || nxt.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(nxt.post) ? 'var(--theme-bg)' : solid(moduleLook(pi + 1).base)[0]
+            const sleeveShelf = SLEEVE_SCROLL && MODULE_CARDS && !phone
             if (item.kind === 'intro') {
-              nodes.push(<FloatSlot key={item.key}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
+              nodes.push(<FloatSlot key={item.key} sleeve={sleeveShelf} nextBg={nextBgOf(postIdx)}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
               return
             }
             idx++
@@ -6209,7 +6225,7 @@ export default function Feed() {
               : isLiveSetPost(item.post)
                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : SHELF_CARDS
-                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} idx={postIdx} nextIdx={(() => { const nx = shownList[k + 1]; return nx && nx.kind !== 'intro' && nx.kind !== 'spotlight' && !isLiveSetPost(nx.post) ? postIdx + 1 : null })()} />
+                ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} idx={postIdx} nextBg={nextBgOf(postIdx)} />
                 : isAlbumPost(item.post)
                 ? <AlbumCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} />
                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
@@ -6217,7 +6233,7 @@ export default function Feed() {
             // Floating card — rounded and lifted off the surface (FloatSlot).
             nodes.push(SLEEVE_SCROLL && MODULE_CARDS && !phone && item.kind !== 'spotlight' && !isLiveSetPost(item.post)
               ? <div key={item.key} data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex' }}>{card}</div>
-              : <FloatSlot key={item.key} bare={BLOCKS_CARDS && SHELF_CARDS && item.kind !== 'spotlight' && !isLiveSetPost(item.post)}>{card}</FloatSlot>)
+              : <FloatSlot key={item.key} sleeve={sleeveShelf} nextBg={nextBgOf(postIdx)} bare={BLOCKS_CARDS && SHELF_CARDS && item.kind !== 'spotlight' && !isLiveSetPost(item.post)}>{card}</FloatSlot>)
           })
           // Empty feed: the row after the clock panel is only the profile/welcome card slot + the empty panel
           // (about 1,628px), shorter than a wide screen, so the scroll ran out with the clock still half in view.
