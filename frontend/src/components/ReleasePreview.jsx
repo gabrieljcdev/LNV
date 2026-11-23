@@ -135,7 +135,7 @@ export default function ReleasePreview({ release, artistName = '', digRef = '' }
             const tr = { post_id: null, position: t.position || null, title: t.title, artist: (t.artists || []).map(a => a.name).join(', ') || (full.artists || []).map(a => a.name).join(', ') || artistName, url, embed_url: null, duration: t.duration || null, cover }
             return (
               <div key={i}>
-                <div style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr) 46px 18px 26px', gap: 10, alignItems: 'baseline', padding: '5px 0', borderBottom: `1px dotted ${LINE}`, background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr) 46px 18px 26px', gap: 10, alignItems: 'baseline', padding: '6px 14px', margin: '0 -14px', borderBottom: isPlaying ? '1px solid transparent' : `1px dotted ${LINE}`, borderRadius: 12, background: isPlaying ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : 'transparent' }}>
                   <span style={{ fontFamily: MONO, fontSize: 11.5, color: TER }}>{t.position || i + 1}</span>
                   <button onClick={() => { if (!miss) play(t, i) }} disabled={miss}
                     title={miss ? 'no YouTube link found' : found[i] === 'capped' ? "today's YouTube search limit is reached" : url ? 'play' : 'find on YouTube and play'}

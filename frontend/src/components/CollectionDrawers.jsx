@@ -189,7 +189,7 @@ function PlaylistView({ id, token, onBack }) {
       {!tracks.length && !mf && <Empty>Empty for now — use “+ list” on a card, or + next to any track, to add some.</Empty>}
       {tracks.map((t, i) => (
         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Row onClick={() => play(i)} style={{ flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px', padding: '6px 10px', background: t.id === playingId ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : undefined }}>
+          <Row onClick={() => play(i)} style={{ flex: 1, minWidth: 0, width: 'auto', margin: '0 0 0 -10px', padding: '6px 14px', borderRadius: 12, background: t.id === playingId ? 'color-mix(in srgb, var(--theme-accent) 14%, transparent)' : undefined }}>
             <span style={{ fontFamily: MONO, fontSize: 12, color: t.id === playingId ? 'var(--theme-accent)' : TER, minWidth: 24 }}>{t.id === playingId ? '▶' : i + 1}</span>
             <Cover src={t.cover} size={34} radius={8} />
             <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
