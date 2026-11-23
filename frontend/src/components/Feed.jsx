@@ -2432,8 +2432,9 @@ const SLEEVE_CARDS = (() => {
     return new URLSearchParams(window.location.search).get('cards') === 'sleeve'
   } catch { return false }
 })()
-// The scrolling sleeve (23 Nov 2026, gabriel): ?cards=scroll (this page load only). Full-height sleeves with curved right corners, side by side, scrolling under the strip.
-const SLEEVE_SCROLL = (() => { try { return new URLSearchParams(window.location.search).get('cards') === 'scroll' } catch { return false } })()
+// The scrolling sleeve (23 Nov 2026, gabriel): the default desktop post card. Full-height sleeves with curved right corners, side by side, scrolling under the strip.
+// ?cards=module (or sleeve / blocks / old / new / paired / notes) opens the page with an older card instead.
+const SLEEVE_SCROLL = (() => { try { const q = new URLSearchParams(window.location.search).get('cards'); return q === null || q === 'scroll' } catch { return true } })()
 const SLEEVE_W = 940
 // The olive box: a tall block, a bar along the bottom, and every round corner the nav strip's 40. One command layout always, so it can animate between sizes.
 function sleevePath(w, h, nx, ny, o = {}) {
