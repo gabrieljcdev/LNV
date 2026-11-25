@@ -2811,6 +2811,34 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = n
             const S = Math.max(0.7, Math.min(1, SH / 880)) // short screens: the whole sleeve scales down together, so every size keeps its proportion
 const IH = SH / S, P = 36, G = 28 // inner height; the same padding top and bottom and one gap between every band
 const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.length ? 140 : 36))) // no tracklist (a live set): the media takes the room
+            const MH = Math.max(240, Math.min(484, IH - 2 * P - 92 - 52 - 3 * G - 190)) // a live set's media is a wide frame across the sleeve; the details and the tracklist sit under it
+            const detailsEl = (
+                    <div data-inner-scroll={live ? undefined : ''} style={live ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: '0 32px', alignItems: 'start' } : { flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 4, ...INNER_SCROLL_STYLE }}>
+<div>
+                      {live && channelName(post) && <div style={{ marginBottom: 20 }}><span style={lab}>Channel</span><div style={fval}>{channelName(post)}</div></div>}
+                      {label && <div style={{ marginBottom: 20 }}><span style={lab}>Label</span><div style={fval}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></div></div>}
+                      {(catNo || post.year) && <div style={{ marginBottom: 20 }}><span style={lab}>Cat. no. · Year</span><div style={fval}>{[catNo, post.year].filter(Boolean).join(' · ')}</div></div>}
+                      {post.genres?.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>Genres</span><div style={{ ...fval, fontWeight: 400, fontSize: 17, lineHeight: 1.4, color: 'var(--lv-sec)' }}>{post.genres.map((g, k) => <span key={g}>{k > 0 && ', '}<DrawerLink kind="genres" name={g} quiet style={{ textDecoration: 'underline', textDecorationColor: 'color-mix(in srgb, currentColor 35%, transparent)', textUnderlineOffset: 3 }}>{g}</DrawerLink></span>)}</div></div>}
+                      {(post.mentions?.length > 0 || post.origin === 'digging' || (post.origin === 'user' && post.origin_ref) || (post.alsoPostedHow || []).some(h => h.origin)) && <div style={{ marginBottom: 20 }}><span style={lab}>Found / tagged</span><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', textTransform: 'none' }}><FoundVia post={post} style={{ whiteSpace: 'normal' }} /><TagChips post={post} /></div></div>}
+                      {contributors.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>With</span><div style={{ ...fval, fontSize: 15, fontWeight: 400, color: 'var(--lv-sec)' }}>{contributors.slice(0, 6).join(' · ')}{contributors.length > 6 && ` +${contributors.length - 6}`}</div></div>}
+                      </div>
+<div style={{ marginTop: live ? 0 : 14, paddingTop: live ? 0 : 22, borderTop: live ? 'none' : '1px solid color-mix(in srgb, var(--lv-pri) 16%, transparent)' }}>
+                        <span style={lab}>The post</span>
+                        {quote ? <p title={quote} style={{ margin: '0 0 12px', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 15, lineHeight: 1.65, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>“{quote}”</p>
+                          : <p style={{ margin: '0 0 12px', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', ...mono, fontSize: 11, letterSpacing: '0.08em' }}>
+                          {posterName && <UserChip name={posterName} d={d} />}
+                          <span style={{ color: 'var(--lv-sec)' }} title={stampOf(post.created_at)}>{dateStr}</span>
+                          {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, at(e)); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ ...linkBtn, textDecoration: 'none', color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
+                          <button onClick={e => setNotesReply(v => !v, at(e))} aria-expanded={notesReply} style={{ ...linkBtn, ...mono, fontSize: 11, letterSpacing: '0.08em' }}>{commentCount > 0 ? `${commentCount} repl${commentCount === 1 ? 'y' : 'ies'}` : '↩ Reply'}</button>
+                          {canModify && <>
+                            <button onClick={() => onEdit?.(post)} style={{ ...linkBtn, textDecoration: 'none', color: 'var(--lv-sec)' }}>edit</button>
+                            <button onClick={deletePost} disabled={deleting} style={{ ...linkBtn, textDecoration: 'none', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? '…' : 'delete'}</button>
+                          </>}
+                        </div>
+                      </div>
+                    </div>
+            )
             return (
               <div style={{ position: 'relative', width: '100%', height: SH }}>
                 <div style={{ position: 'relative', zoom: S, width: SLEEVE_W / S, height: IH }}>
@@ -2832,12 +2860,12 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.len
                     </div>
                   </div>
                   {/* the media and the details */}
-                  <div style={{ display: 'flex', gap: 28, height: M, flexShrink: 0, marginTop: G }}>
-                    <div onClick={() => { if (!playingSrc && firstUrl) setActiveUrl(firstUrl) }} style={{ position: 'relative', width: M, height: M, flexShrink: 0, borderRadius: R, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: !playingSrc && firstUrl ? 'pointer' : 'default' }}>
+                  <div style={{ display: 'flex', gap: 28, height: live ? MH : M, flexShrink: 0, marginTop: G }}>
+                    <div onClick={() => { if (!playingSrc && firstUrl) setActiveUrl(firstUrl) }} style={{ position: 'relative', width: live ? '100%' : M, height: live ? MH : M, flexShrink: 0, borderRadius: R, overflow: 'hidden', background: 'var(--theme-dark3)', cursor: !playingSrc && firstUrl ? 'pointer' : 'default' }}>
                       {bigCover && <img src={bigCover} alt="" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                       <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: `rgba(6,8,24,${playingSrc ? 0.38 : 0.2})`, transition: 'background .3s' }} />
                       {playingSrc ? (
-                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: 22, right: 22, top: 22, height: isVideo ? Math.round((M - 44) * 9 / 16) : M - 22 - 66, borderRadius: 16, overflow: 'hidden', background: '#000', boxShadow: '0 14px 40px rgba(0,0,0,.45)' }}>
+                        <div onClick={e => e.stopPropagation()} style={live ? { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 22, height: MH - 22 - 66, width: Math.round((MH - 22 - 66) * 16 / 9), borderRadius: 16, overflow: 'hidden', background: '#000', boxShadow: '0 14px 40px rgba(0,0,0,.45)' } : { position: 'absolute', left: 22, right: 22, top: 22, height: isVideo ? Math.round((M - 44) * 9 / 16) : M - 22 - 66, borderRadius: 16, overflow: 'hidden', background: '#000', boxShadow: '0 14px 40px rgba(0,0,0,.45)' }}>
                           <TrackPlayer key={playingSrc} src={playingSrc} title={post.title} autoplay onEnded={playNext} />
                         </div>
                       ) : firstUrl && <span aria-hidden="true" style={{ position: 'absolute', right: 22, bottom: 62, width: 68, height: 68, borderRadius: '50%', background: 'var(--theme-accent)', color: '#111', display: 'grid', placeItems: 'center', fontSize: 24, boxShadow: '0 10px 30px rgba(0,0,0,.35)' }}>▶</span>}
@@ -2855,34 +2883,16 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.len
                           </>}
                       </div>
                     </div>
-                    <div data-inner-scroll="" style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 4, ...INNER_SCROLL_STYLE }}>
-                      {live && channelName(post) && <div style={{ marginBottom: 20 }}><span style={lab}>Channel</span><div style={fval}>{channelName(post)}</div></div>}
-                      {label && <div style={{ marginBottom: 20 }}><span style={lab}>Label</span><div style={fval}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></div></div>}
-                      {(catNo || post.year) && <div style={{ marginBottom: 20 }}><span style={lab}>Cat. no. · Year</span><div style={fval}>{[catNo, post.year].filter(Boolean).join(' · ')}</div></div>}
-                      {post.genres?.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>Genres</span><div style={{ ...fval, fontWeight: 400, fontSize: 17, lineHeight: 1.4, color: 'var(--lv-sec)' }}>{post.genres.map((g, k) => <span key={g}>{k > 0 && ', '}<DrawerLink kind="genres" name={g} quiet style={{ textDecoration: 'underline', textDecorationColor: 'color-mix(in srgb, currentColor 35%, transparent)', textUnderlineOffset: 3 }}>{g}</DrawerLink></span>)}</div></div>}
-                      {(post.mentions?.length > 0 || post.origin === 'digging' || (post.origin === 'user' && post.origin_ref) || (post.alsoPostedHow || []).some(h => h.origin)) && <div style={{ marginBottom: 20 }}><span style={lab}>Found / tagged</span><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', textTransform: 'none' }}><FoundVia post={post} style={{ whiteSpace: 'normal' }} /><TagChips post={post} /></div></div>}
-                      {contributors.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>With</span><div style={{ ...fval, fontSize: 15, fontWeight: 400, color: 'var(--lv-sec)' }}>{contributors.slice(0, 6).join(' · ')}{contributors.length > 6 && ` +${contributors.length - 6}`}</div></div>}
-                      <div style={{ marginTop: 14, paddingTop: 22, borderTop: '1px solid color-mix(in srgb, var(--lv-pri) 16%, transparent)' }}>
-                        <span style={lab}>The post</span>
-                        {quote ? <p title={quote} style={{ margin: '0 0 12px', fontFamily: d.bodyFf, fontStyle: 'italic', fontWeight: 400, fontSize: 15, lineHeight: 1.65, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>“{quote}”</p>
-                          : <p style={{ margin: '0 0 12px', fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-ter)' }}>No post text.</p>}
-                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', ...mono, fontSize: 11, letterSpacing: '0.08em' }}>
-                          {posterName && <UserChip name={posterName} d={d} />}
-                          <span style={{ color: 'var(--lv-sec)' }} title={stampOf(post.created_at)}>{dateStr}</span>
-                          {privateWaiting > 0 && <button onClick={e => { setNotesReply(true, at(e)); qcPriv.invalidateQueries({ queryKey: ['private-count', post.id] }) }} title="Private replies, only you can see them" style={{ ...linkBtn, textDecoration: 'none', color: 'var(--theme-accent)' }}>🔒 {privateWaiting}</button>}
-                          <button onClick={e => setNotesReply(v => !v, at(e))} aria-expanded={notesReply} style={{ ...linkBtn, ...mono, fontSize: 11, letterSpacing: '0.08em' }}>{commentCount > 0 ? `${commentCount} repl${commentCount === 1 ? 'y' : 'ies'}` : '↩ Reply'}</button>
-                          {canModify && <>
-                            <button onClick={() => onEdit?.(post)} style={{ ...linkBtn, textDecoration: 'none', color: 'var(--lv-sec)' }}>edit</button>
-                            <button onClick={deletePost} disabled={deleting} style={{ ...linkBtn, textDecoration: 'none', color: 'var(--lv-ter)', opacity: deleting ? 0.5 : 1 }}>{deleting ? '…' : 'delete'}</button>
-                          </>}
-                        </div>
-                      </div>
-                    </div>
+                    {!live && detailsEl}
                   </div>
                   {/* the tracklist: scrolls when it is long; a hard gap above the footer */}
+                  {live
+                    ? <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, margin: `${G}px 0`, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>{detailsEl}{tracks.length > 0 && <div style={{ columnCount: 2, columnGap: 20, marginTop: G }}>{tracks.map((t, i) => srow2(t, i))}</div>}</div>
+                    : <>
                   <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, margin: `${G}px 0`, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
                     {tracks.length === 0 ? <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>{live ? 'No tracklist for this set yet.' : 'No tracklist.'}</p> : <div style={{ columnCount: 2, columnGap: 20 }}>{tracks.map((t, i) => srow2(t, i))}</div>}
                   </div>
+                    </>}
                   {/* playing on, kept by, playlists */}
                   <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, fontFamily: d.bodyFf, fontSize: 14 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap' }}>
