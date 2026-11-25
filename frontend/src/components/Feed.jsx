@@ -383,7 +383,7 @@ function FloatSlot({ children, bare = false, sleeve = false, nextBg, flushBg }) 
   // The scrolling sleeve shelf (23 Nov 2026): the card is a sleeve like the posts (curved right corners, no gap, no shadow); the next card's colour sits behind the curve.
   // The welcome / profile card sits on the same sleeve as the first card: that card's colour, square on the right, flush against it (no curve, no notch).
   if (sleeve && flushBg) return (
-    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', background: flushBg }}>
+    <div data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex', background: flushBg, paddingLeft: FLOAT_RADIUS, marginLeft: -FLOAT_RADIUS }}>
       <div ref={cardWrapRef} style={{ flexShrink: 0, height: '100%', display: 'flex', ...ink }}>
         {children}
       </div>
@@ -6088,7 +6088,7 @@ export default function Feed() {
   // The scrolling sleeve shelf: the welcome / profile card is a sleeve too, with its boxes sitting on it; the first card's colour sits behind its curve.
   const sleeveTop = SLEEVE_SCROLL && MODULE_CARDS && !phone
   const first = shelfList[0]
-  const firstBg = !first ? 'var(--theme-bg)' : (first.kind === 'spotlight' || first.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(first.post) ? 'var(--theme-bg)' : solid(moduleLook(0).base)[0]
+  const firstBg = !first ? 'var(--theme-bg)' : (first.kind === 'spotlight' || first.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(first.post) && !sleeveTop ? 'var(--theme-bg)' : solid(moduleLook(0).base)[0]
   function getCardBg(idx, item) {
     if (item?.kind === 'spotlight' || item?.kind === 'intro') return 'var(--theme-showcase)'
     if (idx >= SPECTRUM_START) return spectrumBg(idx, currentPalette.name)
@@ -6222,15 +6222,15 @@ export default function Feed() {
           shownList.forEach((item, k) => {
             // What sits behind this card's curved right corners in the sleeve shelf: the next card's colour.
             const nxt = shownList[k + 1]
-            const nextBgOf = pi => !nxt ? 'var(--theme-bg)' : (nxt.kind === 'spotlight' || nxt.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(nxt.post) ? 'var(--theme-bg)' : solid(moduleLook(pi + 1).base)[0]
+            const nextBgOf = pi => !nxt ? 'var(--theme-bg)' : (nxt.kind === 'spotlight' || nxt.kind === 'intro') ? 'var(--theme-showcase)' : isLiveSetPost(nxt.post) && !sleeveTop ? 'var(--theme-bg)' : solid(moduleLook(pi + 1).base)[0]
             const sleeveShelf = SLEEVE_SCROLL && MODULE_CARDS && !phone
             if (item.kind === 'intro') {
               nodes.push(<FloatSlot key={item.key} sleeve={sleeveShelf} nextBg={nextBgOf(postIdx)}><IntroCard intro={item.intro} placeholder={!!item.intro.placeholder} /></FloatSlot>)
               return
             }
             idx++
-            if (item.kind !== 'spotlight' && !isLiveSetPost(item.post)) postIdx++
-            const cardBg = getCardBg(idx, item)
+            if (item.kind !== 'spotlight' && (!isLiveSetPost(item.post) || sleeveShelf)) postIdx++ // on the sleeve shelf a live set takes its own colour from the same walk as the posts
+            const cardBg = sleeveShelf && item.kind !== 'spotlight' && isLiveSetPost(item.post) ? solid(moduleLook(postIdx).base)[0] : getCardBg(idx, item)
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
               : isLiveSetPost(item.post)
