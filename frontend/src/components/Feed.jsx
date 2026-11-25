@@ -2820,7 +2820,7 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
                   <div style={{ position: 'relative', height: 92, flexShrink: 0 }}>
                     <div style={{ position: 'absolute', left: 0, top: 0, right: 150 }}>
                       <div style={{ fontFamily: d.bodyFf, fontWeight: 500, fontSize: 20, lineHeight: 1.15, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit' }}>{artist}</DrawerLink> : (artist || post.title)}
+                        {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || post.title)}
                       </div>
                       <h2 title={post.title} style={{ margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</h2>
                     </div>
