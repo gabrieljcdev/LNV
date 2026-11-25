@@ -2785,7 +2785,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = n
         return (
           <div key={i} style={{ breakInside: 'avoid', marginBottom: 4 }}>
             <div className="sl-tr" onClick={() => { if (u) setActiveUrl(active ? null : u) }}
-              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto 20px 24px', gap: 10, alignItems: 'center', minHeight: 46, padding: '0 14px', borderRadius: 12, cursor: u ? 'pointer' : 'default', background: active || lit ? `color-mix(in srgb, ${ACC} 14%, transparent)` : undefined, fontFamily: d.bodyFf }}>
+              style={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr) auto 20px 24px', gap: 10, alignItems: 'center', minHeight: v.artists.length > 0 || v.remixers.length > 0 ? 46 : 34, padding: '0 14px', borderRadius: 12, cursor: u ? 'pointer' : 'default', background: active || lit ? `color-mix(in srgb, ${ACC} 14%, transparent)` : undefined, fontFamily: d.bodyFf }}>
               <span style={{ ...mono, fontSize: 11, textAlign: 'center', color: active ? ACC : undefined, opacity: active ? 1 : (u ? 0.65 : 0.35) }}>{active ? '▶' : (t.position || i + 1)}</span>
               <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', opacity: u ? 1 : 0.55 }}>
                 <b style={{ fontWeight: lit || active ? 700 : 600, fontSize: 14.5, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</b>
