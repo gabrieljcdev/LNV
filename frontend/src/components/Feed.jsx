@@ -2535,7 +2535,8 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = n
   const cover = coverSrc(post)
   const comp = isCompilation(post, tracks)
   const single = tracks.length <= 2 && !/album|lp|ep/i.test(post.post_type || '')
-  const kind = comp ? 'compilation' : (single ? 'single' : (post.post_type || 'album'))
+  const live = isLiveSetPost(post)
+  const kind = live ? 'live set' : comp ? 'compilation' : (single ? 'single' : (post.post_type || 'album'))
   const locations = shelfLocations(post, tracks)
   const contributors = comp ? [...new Set(tracks.flatMap(t => { const v = shelfTrack(t, true); return [...v.artists, ...v.remixers] }))] : []
   const descRef = useRef(null)
@@ -2809,7 +2810,7 @@ function ShelfCard({ post, cardBg, d, onEdit, idx = 0, phone = false, nextBg = n
             // The cover is as big as the page allows (540 at most); the tracklist takes what is left and scrolls, with a hard gap above the footer.
             const S = Math.max(0.7, Math.min(1, SH / 880)) // short screens: the whole sleeve scales down together, so every size keeps its proportion
 const IH = SH / S, P = 36, G = 28 // inner height; the same padding top and bottom and one gap between every band
-const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
+const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.length ? 140 : 36))) // no tracklist (a live set): the media takes the room
             return (
               <div style={{ position: 'relative', width: '100%', height: SH }}>
                 <div style={{ position: 'relative', zoom: S, width: SLEEVE_W / S, height: IH }}>
@@ -2820,13 +2821,13 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
                   <div style={{ position: 'relative', height: 92, flexShrink: 0 }}>
                     <div style={{ position: 'absolute', left: 0, top: 0, right: 150 }}>
                       <div style={{ fontFamily: d.bodyFf, fontWeight: 500, fontSize: 20, lineHeight: 1.15, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || post.title)}
+                        {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || (live ? channelName(post) : post.title))}
                       </div>
                       <h2 title={post.title} style={{ margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</h2>
                     </div>
                     <div aria-label={`Post ${num}`} style={{ position: 'absolute', right: 0, top: -12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                       <b style={{ fontFamily: d.bodyFf, fontWeight: 700, fontSize: hdrNum, lineHeight: 0.9, letterSpacing: '-0.04em' }}>{num}</b>
-                      <span style={{ ...mono, fontSize: 11, letterSpacing: '0.14em', color: 'var(--lv-sec)' }}>{`${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}`}</span>
+                      <span style={{ ...mono, fontSize: 11, letterSpacing: '0.14em', color: 'var(--lv-sec)' }}>{tracks.length > 0 ? `${kind} · ${tracks.length} track${tracks.length === 1 ? '' : 's'}` : kind}</span>
                       <span style={{ ...mono, fontSize: 11, letterSpacing: '0.14em', color: 'var(--lv-sec)' }}>{dateStr}</span>
                     </div>
                   </div>
@@ -2846,11 +2847,16 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
                         {dAcct?.linked && discogsExact && [['collection', inColl], ['wantlist', inWant]].map(([k, on]) => (on ? <span key={k} style={{ ...txt, cursor: 'default', opacity: 0.85 }}>✓ {k}</span> : <a key={k} href={discogsExact} target="_blank" rel="noopener noreferrer" style={txt}>+ {k} ↗</a>))}
                         <span style={{ flex: 1 }} />
                         <HideButton post={post} label="Hide" style={txt} />
-                        <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={txt}>Discogs ↗</a>
-                        {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={txt}>Buy ↗</a>}
+                        {live
+                          ? post.stream_url && <a href={post.stream_url} target="_blank" rel="noopener noreferrer" title="Open the set where it is hosted" style={txt}>Open on {SOURCE_NAME[platformOf(post.stream_url)] || 'source'} ↗</a>
+                          : <>
+                            <a href={discogsHref} target="_blank" rel="noopener noreferrer" title={discogsExact ? 'Open release on Discogs' : 'Search Discogs'} style={txt}>Discogs ↗</a>
+                            {buyHref && <a href={buyHref} target="_blank" rel="noopener noreferrer" style={txt}>Buy ↗</a>}
+                          </>}
                       </div>
                     </div>
                     <div data-inner-scroll="" style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 4, ...INNER_SCROLL_STYLE }}>
+                      {live && channelName(post) && <div style={{ marginBottom: 20 }}><span style={lab}>Channel</span><div style={fval}>{channelName(post)}</div></div>}
                       {label && <div style={{ marginBottom: 20 }}><span style={lab}>Label</span><div style={fval}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></div></div>}
                       {(catNo || post.year) && <div style={{ marginBottom: 20 }}><span style={lab}>Cat. no. · Year</span><div style={fval}>{[catNo, post.year].filter(Boolean).join(' · ')}</div></div>}
                       {post.genres?.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>Genres</span><div style={{ ...fval, fontWeight: 400, fontSize: 17, lineHeight: 1.4, color: 'var(--lv-sec)' }}>{post.genres.map((g, k) => <span key={g}>{k > 0 && ', '}<DrawerLink kind="genres" name={g} quiet style={{ textDecoration: 'underline', textDecorationColor: 'color-mix(in srgb, currentColor 35%, transparent)', textUnderlineOffset: 3 }}>{g}</DrawerLink></span>)}</div></div>}
@@ -2875,7 +2881,7 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
                   </div>
                   {/* the tracklist: scrolls when it is long; a hard gap above the footer */}
                   <div data-inner-scroll="" style={{ flex: '1 1 0', minHeight: 0, margin: `${G}px 0`, overflowY: 'auto', ...INNER_SCROLL_STYLE }}>
-                    <div style={{ columnCount: 2, columnGap: 20 }}>{tracks.map((t, i) => srow2(t, i))}</div>
+                    {tracks.length === 0 ? <p style={{ margin: 0, fontFamily: d.bodyFf, fontSize: 14, color: 'var(--lv-sec)' }}>{live ? 'No tracklist for this set yet.' : 'No tracklist.'}</p> : <div style={{ columnCount: 2, columnGap: 20 }}>{tracks.map((t, i) => srow2(t, i))}</div>}
                   </div>
                   {/* playing on, kept by, playlists */}
                   <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, fontFamily: d.bodyFf, fontSize: 14 }}>
@@ -2883,7 +2889,7 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - 140))
                       <span style={{ ...mono, color: 'var(--lv-sec)' }}>Playing on</span>
                       {locations.length === 0 ? <span style={{ opacity: 0.6 }}>No links yet.</span> : locations.map(({ p, n }) => (
                         <button key={p} onClick={() => playFrom(p)} aria-pressed={p === shownP} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 500, color: 'inherit', cursor: 'pointer', opacity: p === shownP ? 1 : 0.55, borderBottom: p === shownP ? '2px solid currentColor' : '2px solid transparent' }}>
-                          <i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6, background: shelfColor(p) }} />{SOURCE_NAME[p] || p}<span style={{ ...mono, fontSize: 10.5, marginLeft: 5, color: 'var(--lv-sec)' }}>{n}/{tracks.length}</span>
+                          <i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6, background: shelfColor(p) }} />{SOURCE_NAME[p] || p}{tracks.length > 0 && <span style={{ ...mono, fontSize: 10.5, marginLeft: 5, color: 'var(--lv-sec)' }}>{n}/{tracks.length}</span>}
                         </button>
                       ))}
                     </div>
@@ -6233,7 +6239,7 @@ export default function Feed() {
             const cardBg = sleeveShelf && item.kind !== 'spotlight' && isLiveSetPost(item.post) ? solid(moduleLook(postIdx).base)[0] : getCardBg(idx, item)
             const card = (item.kind === 'spotlight'
               ? <SpotlightCard key={item.key} cardKey={item.key} subject={item.subject} cardBg={cardBg} onCreateFromDiscogs={openComposeWithUrl} />
-              : isLiveSetPost(item.post)
+              : isLiveSetPost(item.post) && !sleeveShelf
                 ? <LiveSetCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, true)} onEdit={setEditingPost} />
                 : SHELF_CARDS
                 ? <ShelfCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} d={designFor(idx, false)} onEdit={setEditingPost} idx={postIdx} nextBg={nextBgOf(postIdx)} />
@@ -6242,7 +6248,7 @@ export default function Feed() {
                 : <PostCard key={item.key} post={latestPost(item.post)} cardBg={cardBg} onEdit={setEditingPost}
                     d={item.mirror ? { ...designFor(idx, false), mediaSide: 'left', plateAlign: 'left' } : designFor(idx, detectType(item.post) === 'livemix')} />)
             // Floating card — rounded and lifted off the surface (FloatSlot).
-            nodes.push(SLEEVE_SCROLL && MODULE_CARDS && !phone && item.kind !== 'spotlight' && !isLiveSetPost(item.post)
+            nodes.push(SLEEVE_SCROLL && MODULE_CARDS && !phone && item.kind !== 'spotlight'
               ? <div key={item.key} data-float-slot="" style={{ flexShrink: 0, height: '100%', display: 'flex' }}>{card}</div>
               : <FloatSlot key={item.key} sleeve={sleeveShelf} nextBg={nextBgOf(postIdx)} bare={BLOCKS_CARDS && SHELF_CARDS && item.kind !== 'spotlight' && !isLiveSetPost(item.post)}>{card}</FloatSlot>)
           })
