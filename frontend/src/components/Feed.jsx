@@ -665,6 +665,32 @@ function DrawerLink({ kind, name, quiet = false, style, children }) {
   )
 }
 
+// A heading that shrinks until the whole title fits on one line (down to `min`), then runs on two lines at a smaller size: the sleeve's record / set title.
+function FitTitle({ text, max = 46, min = 30, two = 26, style }) {
+  const ref = useRef(null)
+  const fit = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.whiteSpace = 'nowrap'; el.style.display = 'block'; el.style.WebkitLineClamp = ''
+    let sz = max
+    el.style.fontSize = sz + 'px'
+    while (el.scrollWidth > el.clientWidth + 1 && sz > min) { sz -= 1; el.style.fontSize = sz + 'px' }
+    if (el.scrollWidth > el.clientWidth + 1) {
+      el.style.fontSize = two + 'px'; el.style.whiteSpace = 'normal'; el.style.display = '-webkit-box'
+      el.style.WebkitBoxOrient = 'vertical'; el.style.WebkitLineClamp = '2'; el.style.lineHeight = '1.05'
+    }
+  }, [max, min, two])
+  useLayoutEffect(() => {
+    fit()
+    const el = ref.current
+    const ro = new ResizeObserver(fit)
+    if (el) ro.observe(el)
+    document.fonts?.ready?.then(fit)
+    return () => ro.disconnect()
+  }, [fit, text])
+  return <h2 ref={ref} title={text} style={style}>{text}</h2>
+}
+
 function PostCard({ post, cardBg, d, onEdit }) {
   const { canModify, deleting, deletePost } = usePostActions(post)
   const { openD3, registerPostRef } = useLayout() || {}
@@ -2815,7 +2841,7 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.len
             const detailsEl = (
                     <div data-inner-scroll={live ? undefined : ''} style={live ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: '0 32px', alignItems: 'start' } : { flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 4, ...INNER_SCROLL_STYLE }}>
 <div>
-                      {live && channelName(post) && <div style={{ marginBottom: 20 }}><span style={lab}>Channel</span><div style={fval}>{channelName(post)}</div></div>}
+                      {live && channelName(post) && <div style={{ marginBottom: 20 }}><span style={lab}>Channel</span><div style={fval}><DrawerLink kind="live" name={channelName(post)}>{channelName(post)}</DrawerLink>{' '}<FavHeart kind="channel" name={channelName(post)} size={16} style={{ color: 'var(--lv-sec)' }} /></div></div>}
                       {label && <div style={{ marginBottom: 20 }}><span style={lab}>Label</span><div style={fval}><DrawerLink kind="labels" name={label}>{label}</DrawerLink></div></div>}
                       {(catNo || post.year) && <div style={{ marginBottom: 20 }}><span style={lab}>Cat. no. · Year</span><div style={fval}>{[catNo, post.year].filter(Boolean).join(' · ')}</div></div>}
                       {post.genres?.length > 0 && <div style={{ marginBottom: 20 }}><span style={lab}>Genres</span><div style={{ ...fval, fontWeight: 400, fontSize: 17, lineHeight: 1.4, color: 'var(--lv-sec)' }}>{post.genres.map((g, k) => <span key={g}>{k > 0 && ', '}<DrawerLink kind="genres" name={g} quiet style={{ textDecoration: 'underline', textDecorationColor: 'color-mix(in srgb, currentColor 35%, transparent)', textUnderlineOffset: 3 }}>{g}</DrawerLink></span>)}</div></div>}
@@ -2849,9 +2875,9 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.len
                   <div style={{ position: 'relative', height: 92, flexShrink: 0 }}>
                     <div style={{ position: 'absolute', left: 0, top: 0, right: 150 }}>
                       <div style={{ fontFamily: d.bodyFf, fontWeight: 500, fontSize: 20, lineHeight: 1.15, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {artist && !isVariousArtist(artist) ? <DrawerLink kind="artists" name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || (live ? channelName(post) : post.title))}
+                        {artist && !isVariousArtist(artist) ? <DrawerLink kind={live ? 'live' : 'artists'} name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || (live ? channelName(post) : post.title))}
                       </div>
-                      <h2 title={post.title} style={{ margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.title}</h2>
+                      <FitTitle text={post.title} style={{ margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} />
                     </div>
                     <div aria-label={`Post ${num}`} style={{ position: 'absolute', right: 0, top: -12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                       <b style={{ fontFamily: d.bodyFf, fontWeight: 700, fontSize: hdrNum, lineHeight: 0.9, letterSpacing: '-0.04em' }}>{num}</b>
