@@ -58,7 +58,8 @@ export function firstFriend() {
 export function befriend(userId) {
   const friend = firstFriend();
   if (!friend) return; // no admin yet: caught up once there is one
-  if (friend.id !== userId) db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(userId, friend.id);
+  // from_now: a new account starts with an empty feed and sees the first friend's NEW posts, not the whole history (23 Oct 2026, gabriel).
+  if (friend.id !== userId) db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, from_now) VALUES (?, ?, 1)').run(userId, friend.id);
   db.prepare("UPDATE users SET befriended_at = datetime('now') WHERE id = ?").run(userId);
 }
 try { for (const { id } of db.prepare('SELECT id FROM users WHERE befriended_at IS NULL').all()) befriend(id); } catch { /* ignore */ }
@@ -84,7 +85,7 @@ export function checkPassword(password, stored) {
 // ── validation ──
 export const USERNAME_RE = /^[A-Za-z0-9_.-]{3,24}$/;
 // Names nobody can register: they'd read as staff or the site itself.
-const RESERVED = /^(admin|administrator|root|lnv|lnv_admin|lnvadmin|support|help|moderator|mod|staff|system|official|latenightvibes|no-?reply)$/i;
+const RESERVED = /^(admin|administrator|root|lnv|lnv_admin|lnvadmin|support|help|moderator|mod|staff|system|official|latenightvibes|chewingtheceiling|chewing|no-?reply)$/i;
 export const isReservedUsername = name => RESERVED.test(String(name || '').trim());
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const PASSWORD_MIN = 8;
@@ -165,7 +166,7 @@ function mailer() {
   return transport;
 }
 
-const mailFrom = () => process.env.MAIL_FROM || 'Late Night Vibes <no-reply@latenightvibes.com>';
+const mailFrom = () => process.env.MAIL_FROM || 'Chewing the Ceiling <no-reply@chewingtheceiling.com>';
 
 // One email: a line of text, a button, and a quiet footnote. Without SMTP
 // (local dev) it's printed to the backend console instead. Every send and
@@ -197,8 +198,8 @@ async function sendMail({ to, subject, intro, button, link, footnote, logAs }) {
 
 export function sendVerifyEmail(user, link) {
   return sendMail({
-    to: user.email, subject: 'Confirm your Late Night Vibes account', logAs: 'verify',
-    intro: `Hi ${user.username},\n\nConfirm your email to finish setting up your Late Night Vibes account.`,
+    to: user.email, subject: 'Confirm your Chewing the Ceiling account', logAs: 'verify',
+    intro: `Hi ${user.username},\n\nConfirm your email to finish setting up your Chewing the Ceiling account.`,
     button: 'Confirm my email', link,
     footnote: `The link works for ${VERIFY_HOURS} hours. If you didn't sign up, ignore this email.`,
   });
@@ -206,8 +207,8 @@ export function sendVerifyEmail(user, link) {
 
 export function sendResetEmail(user, link) {
   return sendMail({
-    to: user.email, subject: 'Reset your Late Night Vibes password', logAs: 'reset',
-    intro: `Hi ${user.username},\n\nSomeone asked to reset the password for your Late Night Vibes account. If it was you, choose a new one here.`,
+    to: user.email, subject: 'Reset your Chewing the Ceiling password', logAs: 'reset',
+    intro: `Hi ${user.username},\n\nSomeone asked to reset the password for your Chewing the Ceiling account. If it was you, choose a new one here.`,
     button: 'Choose a new password', link,
     footnote: `The link works for ${RESET_HOURS} hour and only once. If you didn't ask for this, ignore this email — your password stays the same.`,
   });
@@ -216,9 +217,9 @@ export function sendResetEmail(user, link) {
 // Admin "send a test email" (Status tab).
 export function sendTestEmail(to) {
   return sendMail({
-    to, subject: 'Late Night Vibes test email', logAs: 'test',
-    intro: 'This is a test from the Late Night Vibes admin page. If you can read it, email sending works.',
-    button: 'Open Late Night Vibes', link: frontendUrl(),
+    to, subject: 'Chewing the Ceiling test email', logAs: 'test',
+    intro: 'This is a test from the Chewing the Ceiling admin page. If you can read it, email sending works.',
+    button: 'Open Chewing the Ceiling', link: frontendUrl(),
     footnote: `Sent from ${mailFrom()}.`,
   });
 }

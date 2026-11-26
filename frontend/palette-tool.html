@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LNV palette tool</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --sans: 'Barlow', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace; --cp: 'Chakra Petch', var(--sans); --rad: 30; --cut: 38; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; background: #1b1a1f; color: #eee; font: 13px var(--sans); }
+  /* ---- the editor panel ---- */
+  #panel { width: 372px; flex: none; height: 100vh; overflow-y: auto; padding: 14px 16px 40px; background: #232227; border-right: 1px solid #ffffff1a; }
+  #panel h1 { margin: 0 0 2px; font: 800 17px var(--sans); } #panel p.s { margin: 0 0 12px; color: #aaa; line-height: 1.45; font-size: 12px; }
+  .tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 14px; }
+  .tab { border: 1.5px solid transparent; border-radius: 10px; padding: 6px 8px; background: #ffffff10; color: #eee; cursor: pointer; text-align: left; font: 600 11px var(--mono); } .tab.on { border-color: #fff; } .tab.edited::after { content: ' ●'; color: #FD9367; }
+  .tab .strip { display: flex; height: 12px; margin-top: 5px; border-radius: 4px; overflow: hidden; } .tab .strip i { flex: 1; }
+  .tok { display: grid; grid-template-columns: 38px 1fr 76px 22px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #ffffff10; }
+  .tok input[type=color] { width: 38px; height: 34px; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; }
+  .tok b { font: 600 12px var(--mono); display: block; } .tok small { color: #999; font-size: 10.5px; line-height: 1.3; display: block; }
+  .tok input[type=text] { width: 100%; background: #ffffff10; border: 1px solid #ffffff22; border-radius: 6px; color: #fff; padding: 6px 7px; font: 500 12px var(--mono); }
+  .tok .aa { font: 700 11px var(--mono); padding: 4px 6px; border-radius: 6px; text-align: center; } .tok .rv { cursor: pointer; background: none; border: 0; color: #888; font-size: 13px; } .tok .rv:hover { color: #fff; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; } button.b { font: 600 11px var(--mono); padding: 7px 11px; border-radius: 99px; border: 1px solid #ffffff44; background: none; color: #eee; cursor: pointer; } button.b:hover { background: #ffffff1a; } button.b.go { background: #FD9367; color: #1b1a1f; border-color: #FD9367; }
+  #msg { min-height: 16px; font: 500 11px var(--mono); color: #FDCD63; margin: 4px 0 8px; }
+  textarea#code { width: 100%; height: 110px; background: #0006; color: #ddd; border: 1px solid #ffffff22; border-radius: 8px; font: 500 10.5px/1.4 var(--mono); padding: 8px; }
+  label.chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; color: #ccc; }
+  /* ---- the preview ---- */
+  #main { flex: 1; min-width: 0; height: 100vh; overflow: auto; transition: background .4s; }
+  #bar { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 18px; background: #1b1a1fee; color: #eee; backdrop-filter: blur(6px); border-bottom: 1px solid #ffffff1a; }
+  #bar label { display: flex; gap: 6px; align-items: center; font: 600 11px var(--mono); } #bar input[type=range] { width: 110px; } #bar select { background: #333; color: #fff; border: 0; border-radius: 6px; padding: 5px 8px; font: 600 11px var(--mono); }
+  #spec { margin: 14px 18px 0; padding: 12px 14px 14px; border-radius: 14px; background: #1b1a1fcc; color: #eee; } #spec .st { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0 10px; } #spec .st div { display: grid; gap: 2px; text-align: center; font: 600 10px var(--mono); } #spec .st i { display: block; height: 14px; border-radius: 3px; } #spec .st i.t { height: 22px; } #spec .sr { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; } #spec select { background: #333; color: #fff; border: 0; border-radius: 6px; padding: 5px 8px; font: 600 11px var(--mono); } #spec p { margin: 6px 0 0; color: #aaa; font-size: 12px; line-height: 1.4; }
+  #pop .sgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 6px 0 10px; } #pop .sq { border-radius: 10px; padding: 8px 10px; min-height: 52px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; border: 2px solid transparent; font: 600 10px var(--mono); } #pop .sq b { font: 700 11px var(--sans); } #pop .sq span { opacity: .8; } #pop .sq:hover { outline: 2px solid #fff; } #pop .sq.on { border-color: #fff; box-shadow: inset 0 0 0 2px #0008; }
+  #pop .dd { display: grid; gap: 2px; margin: 6px 0 8px; } #pop .di { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer; } #pop .di:hover { background: #ffffff1c; } #pop .di.on { background: #ffffff26; box-shadow: inset 0 0 0 1.5px #fff; } #pop .di i { width: 22px; height: 22px; border-radius: 6px; border: 1px solid #ffffff44; } #pop .di b { font: 600 12px var(--sans); } #pop .di span { font: 500 10px var(--mono); color: #aaa; }
+  #pop .chips2 { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin: 4px 0 8px; } #pop .chips2 i { height: 22px; border-radius: 5px; cursor: pointer; border: 1px solid #ffffff33; } #pop .chips2 i:hover { outline: 2px solid #fff; } #pop .br { display: flex; gap: 5px; flex-wrap: wrap; } #pop .br button { font: 600 10.5px var(--mono); padding: 5px 9px; border-radius: 99px; border: 1px solid #ffffff44; background: none; color: #eee; cursor: pointer; } #pop .br button:hover { background: #ffffff1a; }
+  #err { display: none; margin: 12px 18px 0; padding: 10px 14px; border-radius: 10px; background: #5a1d1d; color: #ffd0d0; font: 500 12px/1.5 var(--mono); white-space: pre-wrap; } #err.on { display: block; }
+  #refwrap { margin: 14px 18px 0; padding: 10px 14px 14px; border-radius: 14px; background: #1b1a1fcc; color: #eee; } #refwrap summary { cursor: pointer; font: 700 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .dayrow { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin: 10px 0; } .dayrow div { border-radius: 8px; padding: 8px; font: 600 10px var(--mono); min-height: 52px; display: flex; flex-direction: column; justify-content: space-between; }
+  .rrow { display: grid; grid-template-columns: 118px repeat(10, minmax(0, 1fr)); gap: 3px; align-items: stretch; margin-bottom: 4px; } .rrow .nm { font: 700 11px var(--mono); align-self: center; } .rrow .nm small { display: block; color: #999; font-weight: 500; } .sw { border-radius: 6px; min-height: 46px; padding: 4px 5px; font: 600 9px/1.25 var(--mono); display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; border: 1px solid #ffffff22; } .sw:hover { outline: 2px solid #fff; } .sw b { font-weight: 700; opacity: .75; text-transform: uppercase; } .rhead { font: 600 9px var(--mono); color: #999; text-align: center; text-transform: uppercase; }
+  .brow { padding: 6px 18px 4px; } .brow h3 { margin: 10px 0 6px; font: 700 13px var(--mono); letter-spacing: .06em; text-transform: uppercase; } .brow .bc { display: flex; gap: 14px; align-items: flex-start; }
+  #grid { display: flex; flex-wrap: wrap; gap: 28px; padding: 22px 18px 80px; align-items: flex-start; }
+  .cw { flex: none; width: calc(800px * var(--z, .55)); height: calc((var(--h, 900px) + 34px) * var(--z, .55)); } .cwi { width: 800px; transform: scale(var(--z, .55)); transform-origin: 0 0; } .cap { font: 600 14px var(--mono); margin: 0 0 6px; opacity: .7; }
+  .card .bk, .card [data-tok], #modal [data-tok] { cursor: pointer; } .card .bk[data-look]:hover::after { content: '✎ colour this box'; } .card .bk:hover::after { content: '✎ click to change colour'; position: absolute; top: 8px; right: 14px; z-index: 5; font: 700 11px var(--mono); padding: 4px 10px; border-radius: 99px; background: #000b; color: #fff; pointer-events: none; }
+  .card { cursor: pointer; } .card [data-tok]:not(.bk):hover { outline: 2px dashed #ffffffaa; outline-offset: 2px; }
+  #pop { position: fixed; z-index: 90; width: 236px; padding: 12px 14px 14px; border-radius: 16px; background: #232227; color: #eee; box-shadow: 0 18px 50px #000a, 0 0 0 1px #ffffff22; font: 12px var(--sans); }
+  #pop .ph { font: 700 12px var(--mono); margin-bottom: 2px; } #pop .ps { color: #999; font-size: 11px; margin-bottom: 8px; } #pop .pt { display: grid; grid-template-columns: 38px 1fr 74px; gap: 10px; align-items: center; padding: 5px 0; } #pop .pt input[type=color] { width: 46px; height: 40px; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; } #pop .pt b { font: 600 12px var(--mono); display: block; } #pop .pt small { color: #999; font-size: 10.5px; } #pop input[type=text] { background: #ffffff10; border: 1px solid #ffffff22; border-radius: 6px; color: #fff; padding: 6px 7px; font: 500 12px var(--mono); width: 100%; } #pop .x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #aaa; cursor: pointer; font-size: 15px; }
+  #modal { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; background: #000a; } #modal.on { display: grid; }
+
+  /* ---- the blocks card (same markup and rules as Feed.jsx) ---- */
+  .card { position: relative; width: 800px; height: var(--h, 900px); padding: 56px 20px 72px; display: flex; flex-direction: column; gap: 8px; background: var(--theme-bg); color: var(--lv-pri); overflow: hidden; font-family: var(--sans); transition: background .3s; }
+  .bk { position: relative; overflow: hidden; border-radius: calc(var(--rad) * 1px); background: var(--fill); color: var(--lv-pri); transition: transform .35s cubic-bezier(.2,.9,.3,1.3), box-shadow .35s; } .bk:hover { transform: translateY(-3px) rotate(-.2deg); box-shadow: 0 14px 30px rgba(0,0,0,.18); } .bk.still:hover { transform: none; box-shadow: none; }
+  .bk.dark { --lv-pri: rgba(255,255,255,.95); --lv-sec: rgba(255,255,255,.80); --lv-ter: rgba(255,255,255,.72); --lv-line: rgba(255,255,255,.18); } .bk.light { --lv-pri: rgba(0,0,0,.86); --lv-sec: rgba(0,0,0,.72); --lv-ter: rgba(0,0,0,.66); --lv-line: rgba(0,0,0,.12); }
+  .br { clip-path: polygon(0 0,100% 0,100% calc(100% - var(--cut) * 1px),calc(100% - var(--cut) * 1px) 100%,0 100%); } .bl { clip-path: polygon(0 0,100% 0,100% 100%,calc(var(--cut) * 1px) 100%,0 calc(100% - var(--cut) * 1px)); } .tr { clip-path: polygon(0 0,calc(100% - var(--cut) * 1px) 0,100% calc(var(--cut) * 1px),100% 100%,0 100%); } .tl { clip-path: polygon(calc(var(--cut) * 1px) 0,100% 0,100% 100%,0 100%,0 calc(var(--cut) * 1px)); }
+  .col { display: flex; flex-direction: column; min-height: 0; } .sb { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; } h4 { margin: 0 0 12px; font: 700 21px var(--cp); letter-spacing: .05em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: baseline; flex: none; } h4 small { font: 600 10.5px var(--cp); letter-spacing: .06em; opacity: .7; }
+  .hero { flex: none; padding: 18px 24px 24px; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 24px; align-items: center; } .cover { width: 230px; height: 230px; border-radius: 18px; overflow: hidden; background: var(--theme-dark3); } .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; } .pills span { font: 600 8.5px/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; padding: 6px 9px; border-radius: 99px; background: color-mix(in srgb, var(--lv-pri) 10%, transparent); color: var(--lv-sec); } .pills .k { background: var(--theme-accent); color: #fff; } .pills .s { color: var(--lv-pri); background: color-mix(in srgb, var(--sc) 30%, transparent); }
+  .artist { font: 700 28px/1.02 var(--sans); letter-spacing: -.022em; word-break: break-word; } .title { font: italic 400 24px/1.05 var(--sans); color: var(--lv-sec); margin-top: 2px; word-break: break-word; } .meta { font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--lv-sec); margin-top: 10px; }
+  .gn { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; } .gn span { font: 400 11px var(--sans); padding: 5px 10px; border-radius: 99px; background: color-mix(in srgb, var(--lv-pri) 10%, transparent); color: var(--lv-sec); }
+  .addfeed { display: inline-block; margin-top: 12px; font: 700 12px var(--cp); letter-spacing: .04em; padding: 8px 16px; border-radius: 99px; border: 1.5px solid currentColor; }
+  .numc { position: absolute; right: 26px; bottom: 32px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font: 600 16px var(--mono); background: var(--lv-pri); color: var(--base); }
+  .mid { flex: 1 1 0; min-height: 250px; display: grid; grid-template-columns: 1.25fr 1fr; gap: 8px; } .rcol { display: grid; grid-template-rows: auto minmax(0,1fr); gap: 8px; min-height: 0; }
+  .tlist { display: grid; gap: 3px; } .tr1 { display: grid; grid-template-columns: 24px minmax(0,1fr) auto auto 26px; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 99px; background: color-mix(in srgb, currentColor 8%, transparent); } .tr1.on { background: var(--theme-accent); color: #fff; padding: 9px 12px; transform: translateX(10px); }
+  .tr1 b { font: 600 10px var(--mono); opacity: .7; } .tr1 span.n { font: 500 13px/1.2 var(--cp); } .tr1 em { font: 400 11px var(--mono); font-style: normal; opacity: .7; } .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 3px; outline: 1.5px solid color-mix(in srgb, currentColor 40%, transparent); } .star { opacity: .5; text-align: center; }
+  .pr { display: grid; grid-template-columns: 100px minmax(0,1fr) 36px; gap: 10px; align-items: center; padding: 3px 6px; margin: 0 0 4px -6px; border-radius: 99px; font: 600 12px var(--sans); } .pr.on { background: color-mix(in srgb, currentColor 14%, transparent); } .bar2 { height: 9px; border-radius: 99px; background: color-mix(in srgb, currentColor 18%, transparent); overflow: hidden; } .bar2 i { display: block; height: 100%; background: currentColor; border-radius: 99px; } .pr em { font: 400 11px var(--mono); font-style: normal; text-align: right; opacity: .85; }
+  .btns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; } .btns span, .chips span { font: 600 11px var(--sans); padding: 6px 12px; border-radius: 99px; border: 1.5px solid currentColor; } .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
+  .dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; } .dl dt { font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .6; } .dl dd { margin: 2px 0 0; font: 500 14px var(--sans); } .dwrap { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center; } .wheel { width: 112px; height: 112px; }
+  .post { flex: 0 1 auto; min-height: 120px; max-height: 34%; padding: 16px 24px 18px; } .post p.q { margin: 0; font: italic 400 20px/1.22 var(--sans); letter-spacing: -.01em; white-space: pre-line; } .post p.d { margin: 8px 0 0; font: 400 14px/1.45 var(--sans); color: var(--lv-sec); white-space: pre-line; }
+  .foot { flex: none; display: flex; align-items: center; gap: 12px; margin-top: 10px; font: 400 12px var(--mono); } .foot .u { border: 1px solid var(--lv-line); border-radius: 99px; padding: 2px 10px 2px 3px; font: 600 12px var(--sans); } .foot .rb { margin-left: auto; font: 700 13px var(--cp); letter-spacing: .04em; border-radius: 99px; padding: 10px 18px; background: var(--lv-pri); color: var(--base); } .foot .t { color: var(--lv-sec); }
+  /* the pop-outs (wheel and replies), shown for colour checks */
+  .popcard { width: min(560px, 92vw); } .rbox { background: var(--theme-sidebar); color: var(--lv-pri); border-radius: calc(var(--rad) * 1px); padding: 18px; clip-path: polygon(calc(var(--cut) * 1px) 0,100% 0,100% 100%,0 100%,0 calc(var(--cut) * 1px)); width: 340px; box-shadow: 0 20px 50px #0008; } .rbox h5 { margin: 0 0 12px; font: 700 18px var(--cp); letter-spacing: .05em; text-transform: uppercase; } .rc { border-radius: 20px; padding: 10px 14px; font: 400 13px/1.35 var(--sans); margin-bottom: 8px; } .rc b { display: block; font: 700 11px var(--cp); letter-spacing: .06em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>LNV palette tool</h1>
+  <p class="s"><b>Click any box in the preview to change its colour.</b> Pick a time of day, change its colours, and every post on the right redraws with it. Blocks take their colours from these tokens (the colourways rotate them per post). <b>Apply to my feed</b> puts your choices into the real feed on this browser; <b>Copy code</b> gives you the lines for <code>themeService.js</code>.</p>
+  <div class="tabs" id="tabs"></div>
+  <div id="toks"></div>
+  <label class="chk"><input type="checkbox" id="isDark"> This is a dark palette (light text on the page / nav strip)</label>
+  <div class="row">
+    <button class="b go" id="apply">Apply to my feed</button>
+    <button class="b" id="clearApplied">Clear applied</button>
+    <button class="b" id="resetOne">Reset this palette</button>
+    <button class="b" id="resetAll">Reset all</button>
+    <button class="b" id="copyOne">Copy this palette</button>
+    <button class="b" id="copyAll">Copy all code</button>
+  </div>
+  <div id="msg"></div>
+  <div class="row" style="margin-top:0">
+    <select id="hist" style="background:#333;color:#fff;border:0;border-radius:6px;padding:6px 8px;font:600 11px var(--mono);max-width:210px"></select>
+    <button class="b" id="restore">Restore</button>
+    <button class="b" id="dl">Download backup</button>
+    <button class="b" id="ul">Load backup…</button>
+    <input type="file" id="file" accept=".json,application/json" style="display:none">
+  </div>
+  <div id="resbar" style="display:none"></div>
+  <textarea id="code" readonly placeholder="Code appears here when you press Copy"></textarea>
+</div>
+<div id="main">
+  <div id="bar">
+    <label>Show <select id="mode"><option value="spectrum" selected>8 posts · hand-coloured spectrum</option><option value="posts">all posts · this palette (edit palette colours)</option><option value="compare">one post · all 8 palettes</option><option value="board">board · all 8 themes × their 8 posts</option></select></label>
+    <label id="postPick" style="display:none">Post <select id="pickPost"></select></label>
+    <label>Colourway <select id="way"></select></label>
+    <label>Size <input type="range" id="zoom" min="30" max="100" value="55"><b id="zv">55%</b></label>
+    <label>Screen height <input type="range" id="hgt" min="620" max="1200" step="10" value="900"><b id="hv">900</b></label>
+    <label>Roundness <input type="range" id="rad" min="0" max="60" value="30"></label>
+    <label>Corner cut <input type="range" id="cut" min="0" max="80" value="38"></label>
+    <button class="b" id="popBtn">Preview wheel + replies</button>
+  </div>
+  <div id="plain" style="display:none"></div>
+  <div id="err"></div>
+  <div id="spec" style="display:none"></div>
+  <details id="refwrap" open><summary>All palettes — reference (click a swatch to drop that colour into the colour you are editing)</summary><div id="ref"></div></details>
+  <div id="grid"></div>
+</div>
+<div id="modal"></div>
+
+<script type="module">
+// The eight built-in palettes, embedded so this page works even when it is opened as a plain file (a copy of themeService.js's PALETTES;
+// when the page is served by the dev server the live ones are used instead).
+let BUILTIN_PALETTES = [
+  { name:'Deep Night',   slot:'00:00', isDark:true,  bg:'#08090B', sidebar:'#08090B', dark1:'#08090B', dark2:'#17191D', dark3:'#2B2F36', light1:'#6B7380', light2:'#F2F4F7', showcase:'#2B2F36', accent:'#6B7380' },
+  { name:'Pre-dawn',     slot:'03:00', isDark:true,  bg:'#0A0D14', sidebar:'#0C0F18', dark1:'#0A0D14', dark2:'#141C2A', dark3:'#1A2230', light1:'#1E2535', light2:'#1E2535', showcase:'#1E2535', accent:'#404C70' },
+  { name:'First Light',  slot:'06:00', isDark:false, bg:'#DCE8F0', sidebar:'#EDF4F8', dark1:'#12304A', dark2:'#1E4060', dark3:'#BACED8', light1:'#EAF2F8', light2:'#EDF4F8', showcase:'#1A4A6B', accent:'#1A4A6B' },
+  { name:'Morning',      slot:'09:00', isDark:false, bg:'#E4E0D6', sidebar:'#F0EDE4', dark1:'#1C2E1E', dark2:'#2C4A2E', dark3:'#B8C4B0', light1:'#EAE6DC', light2:'#EAE6DC', showcase:'#2C4A2E', accent:'#2C4A2E', channel:'#B8C4B0' },
+  { name:'Midday',       slot:'12:00', isDark:false, bg:'#FFEA61', sidebar:'#FFEA61', dark1:'#8B1A1A', dark2:'#C0392B', dark3:'#E05020', light1:'#FF8C00', light2:'#FFC300', showcase:'#8B1A1A', accent:'#8B1A1A' },
+  { name:'Afternoon',    slot:'15:00', isDark:false, bg:'#E8E2D8', sidebar:'#F5F0E8', dark1:'#1A1612', dark2:'#2E2820', dark3:'#D4CEC4', light1:'#EDE8DF', light2:'#F5F0E8', showcase:'#C4391A', accent:'#C4391A' },
+  { name:'Evening',      slot:'18:00', isDark:true,  bg:'#2A1A4E', sidebar:'#3C2967', dark1:'#2A1A4E', dark2:'#C3005D', dark3:'#FD9367', light1:'#FDCD63', light2:'#FDCD63', showcase:'#782D65', accent:'#C3005D' },
+  { name:'Late Evening', slot:'21:00', isDark:true,  bg:'#1B1928', sidebar:'#1B1928', dark1:'#1B1928', dark2:'#1C3182', dark3:'#2D3956', light1:'#404C70', light2:'#9970AA', showcase:'#404C70', accent:'#9970AA' },
+]
+try { const m = await import('/src/services/themeService.js'); if (m.BUILTIN_PALETTES?.length === 8) BUILTIN_PALETTES = m.BUILTIN_PALETTES } catch { /* opened as a plain file: the embedded ones above */ }
+const CAN_STORE = (() => { try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); return true } catch { return false } })()
+const ON_SERVER = location.protocol.startsWith('http')
+
+const TOKENS = [
+  ['bg', 'Feed background', 'The surface the cards sit on; also the first cards.'],
+  ['sidebar', 'Nav strip / pop-ups', 'Nav strip, menus, the replies pop-out.'],
+  ['dark1', 'Dark 1', 'Deepest block and spectrum start.'],
+  ['dark2', 'Dark 2', 'Mid-dark block colour.'],
+  ['dark3', 'Dark 3', 'Post block in the settled colourway; tag chips.'],
+  ['light1', 'Light 1', 'Details block, second light.'],
+  ['light2', 'Light 2', 'Top block (cover + header); spectrum end.'],
+  ['showcase', 'Showcase', 'Tracks block; artist / label spotlight cards.'],
+  ['accent', 'Accent', 'Plays-from block, playing track, buttons, post number.'],
+  ['channel', 'Channel (optional)', 'The strip’s second zone where the logo sits; empty = Dark 2.'],
+]
+const KEYS = TOKENS.map(t => t[0])
+const DRAFT_KEY = 'lnv-palette-draft', APPLIED_KEY = 'lnv-palette-overrides'
+const base = Object.fromEntries(BUILTIN_PALETTES.map(p => [p.name, p]))
+const names = BUILTIN_PALETTES.map(p => p.name)
+const load = k => { try { return JSON.parse(localStorage.getItem(k) || 'null') || {} } catch { return {} } }
+let draft = Object.keys(load(DRAFT_KEY)).length ? load(DRAFT_KEY) : load(APPLIED_KEY) // start from what is applied, if anything
+let cur = 0
+const eff = n => ({ ...base[n], ...(draft[n] || {}) })
+const save = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)) } catch { /* ignore */ } schedSnap() }
+const edited = n => Object.keys(draft[n] || {}).some(k => (draft[n][k] ?? '') !== (base[n][k] ?? ''))
+const say = t => { document.getElementById('msg').textContent = t; clearTimeout(say.t); say.t = setTimeout(() => { document.getElementById('msg').textContent = '' }, 5000) }
+
+/* ---------- colour maths ---------- */
+const rgb = h => { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)) }
+const lum = h => { const c = rgb(h).map(v => v / 255).map(v => v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2] }
+const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05) }
+function bgIsDark(el) { // same rule as the app: where white and black ink give equal contrast
+  const c = getComputedStyle(el).backgroundColor, m = c.match(/\d+(\.\d+)?/g); if (!m) return false
+  const k = /^color\(srgb/i.test(c) ? 255 : 1
+  const [r, g, b] = m.slice(0, 3).map(v => { v = (Number(v) * k) / 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4 })
+  return .2126 * r + .7152 * g + .0722 * b < .18
+}
+
+/* ---------- colourways (same as Feed.jsx) ---------- */
+const TK = k => `var(--theme-${k})`
+const MX = (a, pa, b) => `color-mix(in srgb, ${TK(a)} ${pa}%, ${TK(b)})`
+const RAMP = t => `color-mix(in srgb, ${TK('dark1')} ${Math.round((1 - Math.min(1, Math.max(0, t))) * 100)}%, ${TK('light2')})`
+const GRAD = (a, b, deg = 135) => [`linear-gradient(${deg}deg, ${a}, ${b})`, a]
+const tri = t => { const x = ((t % 1) + 1) % 1; return x < .5 ? x * 2 : (1 - x) * 2 }
+const WAYS = [
+  ['settled', () => ({ hero: TK('light2'), tracks: TK('showcase'), plays: TK('accent'), details: TK('light1'), post: TK('dark3') })],
+  ['inverse', () => ({ hero: TK('showcase'), tracks: TK('light2'), plays: TK('dark3'), details: TK('accent'), post: TK('light1') })],
+  ['gradient', () => ({ hero: GRAD(TK('light2'), TK('light1')), tracks: GRAD(TK('showcase'), TK('dark1'), 160), plays: GRAD(TK('accent'), TK('showcase')), details: GRAD(TK('light1'), TK('light2'), 200), post: GRAD(TK('dark3'), TK('light1'), 120) })],
+  ['ramp', i => { const t = tri(i / 8) * .3; return { hero: RAMP(.92 - t), tracks: RAMP(.1 + t), plays: TK('accent'), details: RAMP(.7 - t / 2), post: RAMP(.42) } }],
+  ['split', () => ({ hero: TK('accent'), tracks: TK('dark1'), plays: TK('showcase'), details: TK('light2'), post: MX('accent', 40, 'light1') })],
+  ['tint', () => ({ hero: MX('accent', 10, 'light2'), tracks: MX('accent', 85, 'dark1'), plays: TK('accent'), details: MX('accent', 22, 'light2'), post: MX('accent', 45, 'light1') })],
+  ['duo', () => ({ hero: TK('light1'), tracks: TK('accent'), plays: TK('light2'), details: TK('showcase'), post: TK('dark1') })],
+]
+const wayOf = (i, sel) => { const w = sel === 'cycle' ? WAYS[i % WAYS.length] : WAYS.find(x => x[0] === sel); return Object.fromEntries(Object.entries(w[1](i)).map(([k, v]) => [k, Array.isArray(v) ? v : [v, v]])) }
+
+/* ---------- posts ---------- */
+const SRCN = { youtube: 'YouTube', soundcloud: 'SoundCloud', bandcamp: 'Bandcamp', spotify: 'Spotify', deezer: 'Deezer', applemusic: 'Apple Music', apple: 'Apple Music', beatport: 'Beatport', discogs: 'Discogs', mixcloud: 'Mixcloud', tidal: 'Tidal' }
+const SRCC = { youtube: '#F8311C', soundcloud: '#FF8A1F', bandcamp: '#1DA0C3', spotify: '#1DB954', deezer: '#A238FF', applemusic: '#FA243C', apple: '#FA243C', beatport: '#01FF95', mixcloud: '#5000FF', tidal: '#222' }
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const mkTracks = (n, plats) => Array.from({ length: n }, (_, i) => ({ position: n > 6 ? 'ABCD'[Math.floor(i / 3)] + (i % 3 + 1) : String.fromCharCode(65 + i), title: ['Free 2 B', 'Orbit Rinse', 'Plate Spinner', 'Low Tide Lullaby', 'Concrete Bloom', 'Warm Static', 'Glass Elevator', 'Night Bus', 'Soft Parcel', 'Last Train', 'Static Garden', 'Moth Light', 'Tape Hiss', 'Blue Hour'][i % 14], duration: `${3 + (i % 4)}:${String((i * 7) % 60).padStart(2, '0')}`, sources: [{ platform: 'youtube' }, ...(i % 2 === 0 && plats > 1 ? [{ platform: 'soundcloud' }] : []), ...(i % 3 === 0 && plats > 2 ? [{ platform: 'bandcamp' }] : [])] }))
+const SAMPLE = [
+  ['Space Ghost', 'Free 2 B', 'album', 8, 3, ['Breakbeat', 'Electro', 'Bass Music', 'IDM'], 'Found this in a crate at the weekend, A3 is the one.'],
+  ['Mara Quill', 'Night Bus', 'single', 2, 2, ['Deep House', 'Ambient'], 'Two for two from Soft Parcel.'],
+  ['Various', 'Sixties Psychedelic Story', 'album', 14, 1, ['Rock', 'Psychedelic Rock'], ''],
+  ['Otis Vane', 'Tape Hiss EP', 'single', 4, 2, ['Dub Techno'], 'Heard this on a long train ride and could not stop replaying the second track. The pads on it are unreal, and the whole EP sits so well together that I kept it on repeat for the rest of the week.'],
+  ['Halo Static', 'Blue Hour', 'album', 10, 3, ['Electronic', 'Downtempo', 'Trip Hop'], ''],
+  ['Mira Okoye', 'Moth Light', 'single', 1, 1, ['Ambient'], 'One for the late shift.'],
+  ['The Soft Parcel Orchestra', 'Last Train', 'album', 6, 2, ['Jazz', 'Nu Jazz', 'Broken Beat'], ''],
+  ['Kit & Lantern', 'Glass Elevator', 'single', 3, 3, ['House'], 'Warm and bouncy.'],
+].map(([artist, title, post_type, n, plats, genres, notes], i) => ({ id: 9000 + i, title, post_type, year: 2020 + (i % 5), feedNumber: 200 + i, genres, artists: [{ artist_name: artist }], labels: [{ name: ['Hypnotic Wax', 'Soft Parcel', 'Iris Music', 'Night Slugs', 'Rekids', 'Crue-l', 'Studio Barnhus', 'Dekmantel'][i], catalogue_number: 'XX-0' + (10 + i) }], user: { username: 'gabe' }, notes, commentCount: i % 3, tracks: mkTracks(n, plats) }))
+let POSTS = []
+async function loadPosts() {
+  try {
+    let r = null
+    for (const base of (ON_SERVER ? [''] : ['http://localhost:5173', 'http://localhost:3001'])) { try { const x = await fetch(base + '/api/posts?limit=60&feed=home'); if (x.ok) { r = x; break } } catch { /* try the next */ } }
+    if (!r) throw new Error('no answer')
+    const d = await r.json(); const ps = (Array.isArray(d) ? d : d.posts || []).filter(p => p.post_type !== 'livemix' && !p.is_spotlight)
+    // a varied handful: short and long tracklists, albums and singles, with and without text
+    const pick = [], seen = new Set()
+    const add = p => { if (p && !seen.has(p.id)) { seen.add(p.id); pick.push(p) } }
+    ;[...ps].sort((a, b) => (b.tracks || []).length - (a.tracks || []).length).slice(0, 2).forEach(add)
+    ps.filter(p => (p.tracks || []).length <= 2).slice(0, 4).forEach(add)
+    ps.filter(p => { const n = (p.tracks || []).length; return n >= 3 && n <= 6 }).slice(0, 4).forEach(add)
+    ps.filter(p => { const n = (p.tracks || []).length; return n >= 8 && n <= 16 }).slice(0, 3).forEach(add)
+    ps.filter(p => (p.notes || '').length > 120).slice(0, 2).forEach(add)
+    ps.slice(0, 16).forEach(p => { if (pick.length < 16) add(p) })
+    POSTS = pick.length ? pick : SAMPLE
+  } catch (e) { POSTS = SAMPLE; showErr('Could not load posts from the backend (' + e.message + '). Showing built-in sample posts instead — start the backend on :3001 for your real ones.') }
+  if (POSTS.length < 3) POSTS = [...POSTS, ...SAMPLE]
+}
+
+/* ---------- the card ---------- */
+const tokensOf = f => [...new Set([...String(f).matchAll(/--theme-(\w+)/g)].map(m => m[1]))].join(',')
+const palVars = p => KEYS.map(k => `--theme-${k}:${p[k] || p.dark2}`).join(';') + `;--theme-channel:${p.channel || p.dark2}`
+const WHEEL = [['Warehouse warmups', 24, 1], ['Rainy bus', 12, 1], ['Sunday digging', 31, 0], ['Late night drive', 18, 0], ['Breaks & bits', 40, 1], ['Crate finds', 9, 0], ['Peak time', 27, 0]]
+function wedge(cx, cy, r0, r1, a0, a1) { const P = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)], f = v => v.toFixed(1); const [x0, y0] = P(r1, a0), [x1, y1] = P(r1, a1), [x2, y2] = P(r0, a1), [x3, y3] = P(r0, a0), L = a1 - a0 > Math.PI ? 1 : 0; return `M${f(x0)} ${f(y0)}A${r1} ${r1} 0 ${L} 1 ${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}A${r0} ${r0} 0 ${L} 0 ${f(x3)} ${f(y3)}Z` }
+function wheel(size, mini) {
+  const n = WHEEL.length, cx = size / 2, R = size / 2 - (mini ? 3 : 18), r0 = size * (mini ? .16 : .1), th = 2 * Math.PI / n, mx = 40, sw = mini ? 2 : 12
+  const outer = 'color-mix(in srgb, var(--theme-dark1) 55%, #000)'
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:100%;height:auto;display:block;overflow:visible">${WHEEL.map(([nm, c, inn], i) => {
+    const a0 = -Math.PI / 2 - th / 2 + i * th + .04, a1 = a0 + th - .08, am = (a0 + a1) / 2, ri = r0 + (R - r0) * (.4 + .6 * c / mx)
+    const o = wedge(cx, cx, r0 + sw / 2, R - sw / 2, a0 + sw / 2 / R, a1 - sw / 2 / R), nn = wedge(cx, cx, r0 + sw + 2, ri - sw / 2 - 4, a0 + (sw + 14) / 2 / ri, a1 - (sw + 14) / 2 / ri)
+    const fill = inn ? 'var(--theme-accent)' : 'var(--theme-light2)', lr = (r0 + ri) / 2 + 2, tx = cx + lr * Math.cos(am), ty = cx + lr * Math.sin(am), ink = inn ? '#fff' : 'var(--ink-light2)'
+    return `<path data-tok="dark1" d="${o}" fill="${outer}" stroke="${outer}" stroke-width="${sw}" stroke-linejoin="round"/><path data-tok="${inn ? 'accent' : 'light2'}" d="${nn}" fill="${fill}" stroke="${fill}" stroke-width="${sw}" stroke-linejoin="round"/>` + (mini ? '' : `<text x="${tx}" y="${ty - 4}" text-anchor="middle" font-size="22" font-weight="700" style="font-family:var(--cp);fill:${ink}">${inn ? '✓ ' : ''}${c}</text><text x="${tx}" y="${ty + 14}" text-anchor="middle" font-size="12.5" style="font-family:var(--cp);fill:${ink}">${nm.length > 14 ? nm.slice(0, 13) + '…' : nm}</text>`)
+  }).join('')}</svg>`
+}
+function card(p, idx, pal, sel, h, label, look) {
+  const W = look ? Object.fromEntries(Object.entries(look).map(([k, v]) => { const c = /^#/.test(v) ? v : `var(--theme-${v})`; return [k, [c, c]] })) : wayOf(idx, sel), tr = p.tracks || [], artist = p.artists?.[0]?.artist_name || p.artist || '', lab = p.labels?.[0]?.name || p.labels?.[0]?.label_name || '', cat = p.labels?.[0]?.catalogue_number || ''
+  const plat = new Map(); tr.forEach(t => new Set((t.sources || []).map(s => s.platform)).forEach(x => plat.set(x, (plat.get(x) || 0) + 1)))
+  if (!plat.size) plat.set('youtube', 0)
+  const locs = [...plat.entries()].sort((a, b) => b[1] - a[1])
+  const bk = (key, cls, inner, extra = '') => `<section class="bk ${cls}" ${look ? `data-look="${idx}"` : `data-tok="${tokensOf(W[key][0])}"`} data-blk="${key}" style="--fill:${W[key][0]};${extra}" data-base="${esc(W[key][1])}"><i class="probe" style="position:absolute;width:0;height:0;background:${W[key][1]}"></i>${inner}</section>`
+  const type = p.post_type === 'single' || tr.length <= 2 ? 'single' : (p.post_type || 'album')
+  const playing = Math.min(1, tr.length - 1)
+  const q = (p.post_title || '').trim() || ((p.notes || '').length <= 300 ? (p.notes || '') : ''), d = (p.notes || '').length > 300 ? p.notes : ''
+  return `<div class="cw"><div class="cwi"><div class="cap">${esc(label)}</div><div class="card" data-tok="bg" data-pal="${esc(pal.name)}" data-pi="${idx}" style="${palVars(pal)};--ink-light2:${lum(pal.light2) > .18 ? 'rgba(0,0,0,.86)' : '#fff'};background:${pal.bg}">
+  ${bk('hero', 'br hero', `<div class="cover">${p.cover_image || p.thumb_image ? `<img src="${esc(p.cover_image || p.thumb_image)}" alt="" loading="lazy">` : ''}</div>
+    <div style="min-width:0;padding-right:56px"><div class="pills"><span class="k" data-tok="accent">${type}</span>${locs.map(([k, n]) => `<span class="s" style="--sc:${SRCC[k] || '#888'}">${SRCN[k] || k}${tr.length > 1 && n ? ` ${n}/${tr.length}` : ''}</span>`).join('')}<span>◈ discogs</span><span>buy ↗</span></div>
+    <div class="artist">${esc(artist || p.title)}</div><div class="title">${esc(p.title)}</div><div class="meta">${esc([lab, cat, p.year].filter(Boolean).join(' · '))}</div>
+    ${(p.genres || []).length ? `<div class="gn">${p.genres.map(g => `<span>${esc(g.name || g)}</span>`).join('')}</div>` : ''}<div class="addfeed">♡ Add to feed</div></div>
+    <span class="numc" style="--base:${W.hero[1]}">${esc(String(p.feedNumber ?? p.id).padStart(2, '0'))}</span>`)}
+  <div class="mid">
+    ${bk('tracks', 'bl col still', `<div style="padding:18px 22px 30px;display:flex;flex-direction:column;min-height:0;height:100%"><h4><span>Tracks</span><small>${tr.length}</small></h4><div class="sb"><div class="tlist">${tr.map((t, i) => `<div class="tr1${i === playing ? ' on' : ''}"${i === playing ? ' data-tok="accent"' : ''}><b>${esc(t.position || i + 1)}</b><span class="n">${esc(t.title)}${t.artist && t.artist !== artist ? ` – <span style="opacity:.8">${esc(t.artist)}</span>` : ''}</span><em>${esc(t.duration || '')}</em><span>${[...new Set((t.sources || []).map(s => s.platform))].map(k => `<i class="dot" style="background:${SRCC[k] || '#888'}"></i>`).join('')}</span><span class="star">☆</span></div>`).join('')}</div></div></div>`)}
+    <div class="rcol">
+      ${bk('plays', 'tr', `<div style="padding:18px 22px 20px"><h4><span>Plays from</span><small>${locs.length} source${locs.length === 1 ? '' : 's'}</small></h4>${locs.map(([k, n], i) => `<div class="pr${i === 0 ? ' on' : ''}"><span>${i === 0 ? '▶ ' : ''}${SRCN[k] || k}</span><span class="bar2"><i style="width:${tr.length ? Math.max(6, n / tr.length * 100) : 100}%"></i></span><em>${tr.length > 1 ? `${n}/${tr.length}` : ''}</em></div>`).join('')}<div class="btns"><span>Discogs ↗</span><span>Buy ↗</span></div></div>`)}
+      ${bk('details', 'col', `<div style="padding:18px 22px;display:flex;flex-direction:column;min-height:0;height:100%"><h4><span>Details</span><small>${esc(cat)}</small></h4><div class="sb"><div class="dwrap"><dl class="dl">${lab ? `<div><dt>Label</dt><dd>${esc(lab)}</dd></div>` : ''}${p.year ? `<div><dt>Year</dt><dd>${p.year}</dd></div>` : ''}<div><dt>Kept by</dt><dd>${1 + (p.alsoPostedBy || []).length}</dd></div><div><dt>In playlists</dt><dd>3</dd></div></dl><div class="wheel">${wheel(112, true)}</div></div><div class="chips"><span>♫ Warehouse warmups</span><span>♫ Rainy bus</span></div></div></div>`)}
+    </div>
+  </div>
+  ${bk('post', 'tl col post', `<h4 style="margin-bottom:8px"><span>The post</span><small>${p.commentCount || 0} replies</small></h4><div class="sb" style="flex:0 1 auto">${q ? `<p class="q">${esc(q)}</p>` : ''}${d ? `<p class="d">${esc(d)}</p>` : ''}${!q && !d ? '<p class="d" style="margin:0;color:var(--lv-ter)">No post text.</p>' : ''}</div><div class="foot"><span class="u">${esc(p.user?.username || 'someone')}</span><span>main #${esc(p.feedNumber ?? p.id)}</span><span class="rb" style="--base:${W.post[1]}">↩ Reply</span><span class="t">Thu 8 Oct · 22:22</span></div>`)}
+  </div></div></div>`
+}
+const safeCard = (...a) => { try { return card(...a) } catch (e) { console.error(e); return `<div class="cw" style="width:420px;height:80px"><div class="cwi" style="color:#ff8a8a;font:600 12px var(--mono)">Could not draw "${esc(a[0]?.title)}": ${esc(e.message)}</div></div>` } }
+
+/* ---------- render ---------- */
+const $ = id => document.getElementById(id)
+const showErr = m => { const e = $('err'); e.textContent = String(m); e.classList.add('on') }
+window.addEventListener('error', ev => showErr('Script error: ' + ev.message))
+window.addEventListener('unhandledrejection', ev => showErr('Error: ' + (ev.reason?.message || ev.reason)))
+let lastTok = null
+document.addEventListener('focusin', e => { const k = e.target.dataset?.k || e.target.dataset?.t; if (k) lastTok = k })
+function renderRef() {
+  const ink = h => (cr(h, '#14120f') >= cr(h, '#ffffff') ? '#14120f' : '#ffffff')
+  $('ref').innerHTML = `<div class="dayrow">${names.map((n, i) => { const p = eff(n); return `<div style="background:${p.bg};color:${ink(p.bg)}"><span>${BUILTIN_PALETTES[i].slot}</span><span>${n}</span></div>` }).join('')}</div>
+  <div class="rrow"><div></div>${KEYS.map(k => `<div class="rhead">${k}</div>`).join('')}</div>
+  ${names.map((n, i) => { const p = eff(n); return `<div class="rrow"><div class="nm">${BUILTIN_PALETTES[i].slot} ${n}<small>${p.isDark ? 'dark' : 'light'}${edited(n) ? ' · edited' : ''}</small></div>${KEYS.map(k => { const v = p[k] || p.dark2; return `<div class="sw" data-hex="${v}" style="background:${v};color:${ink(v)}" title="${n} · ${k} · ${v}"><b>${k === 'channel' && !p[k] ? 'dark2' : ''}</b>${v}</div>` }).join('')}</div>` }).join('')}`
+}
+$('ref').addEventListener('click', e => {
+  const sw = e.target.closest('.sw'); if (!sw) return
+  const hex = sw.dataset.hex
+  if (lastTok) { const c = $('toks').querySelector(`[data-k="${lastTok}"]`); if (c) { c.value = hex; setTok(lastTok, hex); const t = $('toks').querySelector(`[data-t="${lastTok}"]`); if (t) t.value = hex; syncPop(); say(`Set ${lastTok} to ${hex}`); return } }
+  navigator.clipboard?.writeText(hex); say(`Copied ${hex}. Click a colour in the editor first to drop it straight in.`)
+})
+function paintInk(root) { root.querySelectorAll('.bk').forEach(b => { const pr = b.querySelector(':scope > .probe'); const dark = pr ? bgIsDark(pr) : false; b.classList.toggle('dark', dark); b.classList.toggle('light', !dark) }) }
+const HIST_KEY = 'lnv-tool-history'
+const readHist = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]') } catch { return [] } }
+const hasWork = (d, sp) => Object.keys(d || {}).length > 0 || Object.keys(sp?.pals || {}).length > 0
+function snapNow(reason = 'edit') {
+  if (!hasWork(draft, spec)) return
+  const h = readHist(), cur = JSON.stringify({ draft, spec }), last = h[h.length - 1]
+  if (last && JSON.stringify({ draft: last.draft, spec: last.spec }) === cur) return
+  h.push({ t: Date.now(), reason, draft: JSON.parse(JSON.stringify(draft)), spec: JSON.parse(JSON.stringify(spec)) })
+  while (h.length > 60) h.shift()
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(h)) } catch { /* full: drop the oldest half and retry */ try { localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(-20))) } catch { /* ignore */ } }
+  fillHist()
+}
+let snapT = null
+function schedSnap() { clearTimeout(snapT); snapT = setTimeout(() => snapNow('edit'), 1200) }
+window.addEventListener('beforeunload', () => snapNow('closed'))
+const when = t => new Date(t).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function fillHist() {
+  const h = readHist().reverse(), sel = $('hist'); if (!sel) return
+  sel.innerHTML = h.length ? h.map((e, i) => `<option value="${h.length - 1 - i}">${when(e.t)} · ${e.reason} · ${Object.keys(e.spec?.pals || {}).length} spectrum, ${Object.keys(e.draft || {}).length} palette edits</option>`).join('') : '<option value="">no saved history yet</option>'
+}
+function restoreEntry(e) { snapNow('before restore'); draft = JSON.parse(JSON.stringify(e.draft || {})); spec = JSON.parse(JSON.stringify(e.spec || { mode: 'wrap', pals: {} })); if (!spec.pals) spec = { mode: 'wrap', pals: {} }; save(); saveSpec(); render(); say('Restored.') }
+const zoomVal = () => $('zoom').value / 100 * ($('mode').value === 'board' ? 0.4 : 1)
+const BLOCK_KEYS = ['hero', 'tracks', 'plays', 'details', 'post']
+const SPEC_DRAFT = 'lnv-spectrum-draft', SPEC_APPLIED = 'lnv-post-spectrum'
+let spec = (() => { const d = load(SPEC_DRAFT); if (d.pals) return d; const a = load(SPEC_APPLIED); return a.pals ? a : { mode: 'wrap', pals: {} } })()
+const saveSpec = () => { try { localStorage.setItem(SPEC_DRAFT, JSON.stringify(spec)) } catch { /* ignore */ } schedSnap() }
+const toHex = c => { const m = String(c).match(/[\d.]+/g); if (!m) return '#888888'; const k = /^color\(srgb/i.test(c) ? 255 : 1; return '#' + m.slice(0, 3).map(v => Math.round(Number(v) * k).toString(16).padStart(2, '0')).join('').toUpperCase() }
+const tokHex = (name, v) => { const pal = eff(name); return /^#/.test(v) ? v : (pal[v] || pal.dark2) }
+const nearestTok = (hex, name) => { const pal = eff(name), a = rgb(hex); let best = 'dark1', d0 = 1e9; KEYS.forEach(k => { if (!pal[k]) return; const b = rgb(pal[k]), d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2; if (d < d0) { d0 = d; best = k } }); return best }
+function migrateSpec() { Object.entries(spec.pals || {}).forEach(([n, looks]) => { if (!names.includes(n)) return; looks.forEach(l => BLOCK_KEYS.forEach(k => { if (/^#/.test(l[k])) l[k] = nearestTok(l[k], n) })) }) }
+function seedSpec(name) { // the 8 looks start as whatever the colourways give, as plain hex, then they are yours to change
+  const looks = []
+  document.querySelectorAll('#grid .card').forEach((card, i) => { const l = {}; BLOCK_KEYS.forEach(k => { const pr = card.querySelector(`.bk[data-blk="${k}"] > .probe`); l[k] = pr ? nearestTok(toHex(getComputedStyle(pr).backgroundColor), name) : 'dark1' }); looks[i] = l })
+  spec.pals[name] = looks.slice(0, 8); saveSpec()
+}
+function drawGrid() {
+  const pal = eff(names[cur]), sel = $('way').value, h = $('hgt').value, mode = $('mode').value
+  $('main').style.background = pal.bg; $('spec').style.display = mode === 'spectrum' ? '' : 'none'; $('grid').style.display = mode === 'board' ? 'block' : ''
+  if (mode === 'posts') $('grid').innerHTML = POSTS.map((p, i) => safeCard(p, i, pal, sel, h, `#${i + 1} · ${sel === 'cycle' ? WAYS[i % WAYS.length][0] : sel} · ${(p.tracks || []).length} tracks`)).join('')
+  else if (mode === 'compare') { const i0 = +$('pickPost').value || 0; $('grid').innerHTML = names.map((n, i) => safeCard(POSTS[i0], i0, eff(n), sel, h, `${BUILTIN_PALETTES[i].slot} ${n}`)).join('') }
+  else if (mode === 'board') {
+    const eight = Array.from({ length: 8 }, (_, i) => POSTS[i % POSTS.length])
+    $('grid').style.display = 'block'
+    $('grid').innerHTML = names.map((n, ni) => { const pl = eff(n), looks = spec.pals[n]; return `<div class="brow"><h3>${BUILTIN_PALETTES[ni].slot} ${esc(n)}${looks ? '' : ' — no spectrum saved yet (open this theme in the spectrum view)'}</h3><div class="bc">${looks ? eight.map((p, i) => safeCard(p, i, pl, sel, h, `${i + 1}`, looks[i])).join('') : ''}</div></div>` }).join('')
+    $('spec').style.display = 'none'
+  }
+  else {
+    const eight = Array.from({ length: 8 }, (_, i) => POSTS[i % POSTS.length])
+    const draw = ls => { $('grid').innerHTML = eight.map((p, i) => safeCard(p, i, pal, sel, h, `Post ${i + 1} of 8 · ${(p.tracks || []).length} tracks`, ls?.[i])).join('') }
+    if (!spec.pals[pal.name]) { draw(null); paintInk($('grid')); seedSpec(pal.name) }
+    draw(spec.pals[pal.name]); renderSpecBar()
+  }
+  paintInk($('grid'))
+}
+function renderSpecBar() {
+  const name = names[cur], looks = spec.pals[name] || []
+  $('spec').innerHTML = `<b style="font:700 12px var(--mono);letter-spacing:.06em;text-transform:uppercase">Spectrum for ${esc(name)} — 8 posts you colour by hand</b>
+  <div class="st">${looks.map((l, i) => `<div>${BLOCK_KEYS.map(k => `<i class="${k === 'hero' ? 't' : ''}" style="background:${tokHex(name, l[k])}" title="${k}: ${l[k]}"></i>`).join('')}${i + 1}</div>`).join('')}</div>
+  <div class="sr"><span style="font:600 11px var(--mono)">Feed order</span><select id="specOrder"><option value="tone"${(spec.order || 'tone') === 'tone' ? ' selected' : ''}>light ↔ dark by the profile card</option><option value="hand"${spec.order === 'hand' ? ' selected' : ''}>exactly as set here</option></select><span style="font:600 11px var(--mono)">Loop (as set here)</span><select id="specMode"><option value="wrap"${spec.mode === 'wrap' ? ' selected' : ''}>wrap  1→8, 1→8…</option><option value="pingpong"${spec.mode === 'pingpong' ? ' selected' : ''}>ping-pong  1→8→1…</option></select>
+  <button class="b" data-sp="rotate">Rotate →</button><button class="b" data-sp="reverse">Reverse</button><button class="b" data-sp="reseed">Re-seed from colourways</button><button class="b" data-sp="copy">Copy spectrum</button></div>
+  <p>Click any box in a post and pick one of this time of day’s colours. As you scroll the feed, posts take these 8 looks in order, so the colour moves through your spectrum. Each palette has its own 8, and a look follows the palette if you change its colours.</p>`
+}
+function render() {
+  document.documentElement.style.setProperty('--z', zoomVal())
+  document.documentElement.style.setProperty('--h', $('hgt').value + 'px'); document.documentElement.style.setProperty('--rad', $('rad').value); document.documentElement.style.setProperty('--cut', $('cut').value)
+  $('zv').textContent = $('zoom').value + '%'; $('hv').textContent = $('hgt').value
+  drawGrid(); renderPanel(); renderRef()
+}
+function renderTabs() {
+  $('tabs').innerHTML = names.map((n, i) => { const p = eff(n); return `<button class="tab${i === cur ? ' on' : ''}${edited(n) ? ' edited' : ''}" data-i="${i}">${BUILTIN_PALETTES[i].slot} ${n}<div class="strip">${['bg', 'dark1', 'dark2', 'dark3', 'light1', 'light2', 'showcase', 'accent'].map(k => `<i style="background:${p[k]}"></i>`).join('')}</div></button>` }).join('')
+}
+function renderPanel() {
+  const n = names[cur], p = eff(n); renderTabs(); $('isDark').checked = !!p.isDark
+  $('toks').innerHTML = TOKENS.map(([k, name, hint]) => {
+    const v = p[k] || p.dark2, ink = cr(v, '#14120f') >= cr(v, '#ffffff') ? '#14120f' : '#ffffff', ratio = Math.max(cr(v, '#14120f'), cr(v, '#ffffff')).toFixed(1)
+    return `<div class="tok"><input type="color" data-k="${k}" value="${v}"><div><b>${name}</b><small>${hint}</small></div><input type="text" data-t="${k}" value="${p[k] || ''}" placeholder="${k === 'channel' ? 'none' : ''}"><div class="aa" style="background:${v};color:${ink}" title="Best ink on this colour, contrast ratio">${ratio}</div></div>`
+  }).join('')
+}
+const norm = v => { v = v.trim(); if (!v) return ''; if (!v.startsWith('#')) v = '#' + v; return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v) ? (v.length === 4 ? '#' + [...v.slice(1)].map(c => c + c).join('') : v).toUpperCase() : null }
+function setTok(k, v) {
+  const n = names[cur]; draft[n] = { ...(draft[n] || {}), [k]: v }
+  if (k === 'channel' && !v) delete draft[n].channel
+  save(); const pal = eff(n)
+  // redraw the preview and the swatches without rebuilding the inputs (so the colour picker keeps its drag)
+  render0(pal)
+}
+function render0() { // light redraw: previews + tab strips
+  const keep = document.activeElement; const pal = eff(names[cur])
+  drawGrid(); renderTabs(); renderRef()
+  document.querySelectorAll('.tok').forEach(r => { const k = r.querySelector('[data-k]').dataset.k, v = pal[k] || pal.dark2, ink = cr(v, '#14120f') >= cr(v, '#ffffff') ? '#14120f' : '#ffffff'; const aa = r.querySelector('.aa'); aa.style.background = v; aa.style.color = ink; aa.textContent = Math.max(cr(v, '#14120f'), cr(v, '#ffffff')).toFixed(1) })
+  keep?.focus?.()
+}
+$('toks').addEventListener('input', e => {
+  const k = e.target.dataset.k, t = e.target.dataset.t
+  if (k) { const v = e.target.value.toUpperCase(); const txt = $('toks').querySelector(`[data-t="${k}"]`); txt.value = v; setTok(k, v) }
+  if (t) { const v = norm(e.target.value); if (v === null) return; if (v) $('toks').querySelector(`[data-k="${t}"]`).value = v.length === 7 ? v : '#000000'; setTok(t, v) }
+})
+$('isDark').addEventListener('change', e => { const n = names[cur]; draft[n] = { ...(draft[n] || {}), isDark: e.target.checked }; save(); renderTabs() })
+$('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; cur = +b.dataset.i; render() })
+
+/* ---------- code, apply, reset ---------- */
+const line = n => { const p = eff(n), b = BUILTIN_PALETTES[names.indexOf(n)]; const f = k => `${k}:'${p[k]}'`; return `  { name:'${n}', slot:'${b.slot}', isDark:${!!p.isDark}, ${['bg', 'sidebar', 'dark1', 'dark2', 'dark3', 'light1', 'light2', 'showcase', 'accent'].map(f).join(', ')}${p.channel ? `, channel:'${p.channel}'` : ''} },` }
+const diff = n => KEYS.some(k => (eff(n)[k] ?? '') !== (base[n][k] ?? '')) || !!eff(n).isDark !== !!base[n].isDark
+async function copy(text) { $('code').value = text; try { await navigator.clipboard.writeText(text); say('Copied. Paste it to me, or into themeService.js.') } catch { $('code').select(); say('Select-all and copy from the box below.') } }
+$('copyOne').onclick = () => copy(line(names[cur])); $('copyAll').onclick = () => copy('export const PALETTES = [\n' + names.map(line).join('\n') + '\n]')
+$('apply').onclick = () => { snapNow('applied'); const o = {}; names.forEach(n => { if (diff(n)) { const p = eff(n); o[n] = Object.fromEntries([...KEYS.filter(k => p[k]).map(k => [k, p[k]]), ['isDark', !!p.isDark]]) } }); try { localStorage.setItem(APPLIED_KEY, JSON.stringify(o)); const sp = Object.keys(spec.pals).length ? { mode: spec.mode, order: spec.order || 'tone', pals: spec.pals } : null; if (sp) localStorage.setItem(SPEC_APPLIED, JSON.stringify(sp)); say(`Applied ${Object.keys(o).length} palette(s)${sp ? ` and the spectrum for ${Object.keys(sp.pals).length} of them` : ''}. Reload the feed (localhost:5173) to see them.`) } catch { say('Could not save.') } }
+$('clearApplied').onclick = () => { localStorage.removeItem(APPLIED_KEY); localStorage.removeItem(SPEC_APPLIED); say('Cleared. The feed is back on the built-in palettes after a reload.') }
+$('resetOne').onclick = () => { snapNow('before reset'); delete draft[names[cur]]; save(); render(); say('Reset to the built-in colours.') }
+$('resetAll').onclick = () => { if (confirm('Throw away every change in this tool (not what is applied to the feed)? A copy stays in History.')) { snapNow('before reset all'); draft = {}; save(); spec = { mode: 'wrap', pals: {} }; saveSpec(); render() } }
+
+/* ---------- pop-out preview ---------- */
+$('popBtn').onclick = () => {
+  const pal = eff(names[cur]), m = $('modal')
+  m.innerHTML = `<div data-pal="${esc(pal.name)}" data-tok="bg" style="${palVars(pal)};--ink-light2:${lum(pal.light2) > .18 ? 'rgba(0,0,0,.86)' : '#fff'};display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;justify-content:center;max-height:94vh;overflow:auto;padding:20px;background:${pal.bg};border-radius:24px"><div class="popcard"><div style="text-align:center">${wheel(520, false)}</div></div>
+   <div class="rbox bk" data-tok="sidebar" style="--fill:var(--theme-sidebar)"><i class="probe" style="position:absolute;width:0;height:0;background:var(--theme-sidebar)"></i><h5>Replies</h5>${['dark3', 'light1', 'accent'].map((t, i) => `<div class="rc bk" data-tok="${t}" style="--fill:var(--theme-${t});transform:rotate(${[-1, 1.2, -1.4][i]}deg)"><i class="probe" style="position:absolute;width:0;height:0;background:var(--theme-${t})"></i><b>${['mara', 'otis', 'gabe'][i]}</b>${['that b-side is sneaky good', 'finally on bandcamp, copped.', 'wait for the break at 3:10'][i]}</div>`).join('')}</div></div>`
+  paintInk(m); m.querySelector('.rbox').style.setProperty('clip-path', ''); m.classList.add('on')
+}
+$('modal').onclick = e => { if (e.target.id === 'modal') $('modal').classList.remove('on') }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal').classList.remove('on') })
+
+/* ---------- click a box -> change its colour ---------- */
+const BLK = { hero: 'Top block (cover + header)', tracks: 'Tracks block', plays: 'Plays-from block', details: 'Details block', post: 'The post block' }
+const TOKNAME = Object.fromEntries(TOKENS.map(t => [t[0], t[1]]))
+let popState = null
+const closePop = () => { $('pop')?.remove(); popState = null }
+function openPop(el, palName, ev) {
+  closePop()
+  const toks = (el.dataset.tok || '').split(',').filter(Boolean); if (!toks.length) return
+  const pi = names.indexOf(palName); if (pi < 0) return
+  if (cur !== pi) { cur = pi; renderPanel() }
+  const what = el.dataset.blk ? BLK[el.dataset.blk] : el.matches('.card') ? 'Feed background' : el.matches('.k') ? 'Type pill' : el.matches('.tr1') ? 'Playing track' : el.matches('.rbox') ? 'Replies pop-out' : el.matches('.rc') ? 'Reply card' : 'Wheel petal'
+  popState = { pal: palName, toks }
+  const d = document.createElement('div'); d.id = 'pop'
+  d.innerHTML = `<button class="x" title="Close">✕</button><div class="ph">${esc(what)}</div><div class="ps">${esc(palName)} · ${toks.length > 1 ? 'this block mixes ' + toks.length + ' colours' : 'edits this colour everywhere it is used'}</div>${toks.map(k => { const v = eff(palName)[k] || eff(palName).dark2; return `<div class="pt"><input type="color" data-pk="${k}" value="${v}"><div><b>${esc(TOKNAME[k] || k)}</b><small>${k}</small></div><input type="text" data-ph="${k}" value="${v}"></div>` }).join('')}`
+  document.body.append(d)
+  const w = 292, h = d.offsetHeight, x = Math.min(Math.max(8, ev.clientX + 14), innerWidth - w - 8), y = Math.min(Math.max(8, ev.clientY - 20), innerHeight - h - 8)
+  d.style.left = x + 'px'; d.style.top = y + 'px'
+}
+function syncPanel(k, v) { const c = $('toks').querySelector(`[data-k="${k}"]`), t = $('toks').querySelector(`[data-t="${k}"]`); if (c && /^#[0-9a-f]{6}$/i.test(v)) c.value = v; if (t) t.value = v }
+function syncPop() { if (!popState) return; popState.toks.forEach(k => { const v = eff(popState.pal)[k] || eff(popState.pal).dark2; const c = document.querySelector(`#pop [data-pk="${k}"]`), t = document.querySelector(`#pop [data-ph="${k}"]`); if (c) c.value = v; if (t) t.value = v }) }
+document.addEventListener('input', e => {
+  const k = e.target.dataset?.pk, ph = e.target.dataset?.ph; if (!popState || !(k || ph)) return
+  let v; const key = k || ph
+  if (k) v = e.target.value.toUpperCase(); else { v = norm(e.target.value); if (!v || v.length !== 7) return }
+  const other = document.querySelector(`#pop [data-${k ? 'ph' : 'pk'}="${key}"]`); if (other) other.value = v
+  setTok(key, v); syncPanel(key, v)
+})
+document.addEventListener('click', e => {
+  if (e.target.closest('#pop .x')) return closePop()
+  if (e.target.closest('#pop, #panel, #bar, #ref, #refwrap')) return
+  const el = e.target.closest('#grid [data-look], #grid [data-tok], #modal [data-tok]')
+  if (!el) return closePop()
+  if (el.dataset.look !== undefined) return openSpecPop(el, +el.dataset.look, el.dataset.blk, e)
+  openPop(el, el.closest('[data-pal]')?.dataset.pal || names[cur], e)
+})
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePop() })
+document.addEventListener('focusin', e => { const k = e.target.dataset?.pk; if (k) lastTok = k })
+
+/* ---------- spectrum: click a block, give it a colour ---------- */
+const mixHex = (a, b, t) => { const x = rgb(a), y = rgb(b); return '#' + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join('').toUpperCase() }
+function setLook(i, key, hex, all) {
+  const looks = spec.pals[names[cur]]; if (!looks) return
+  ;(all ? looks : [looks[i]]).forEach(l => { l[key] = hex }); saveSpec(); drawGrid(); renderSpecBar(); renderTabs()
+}
+function openSpecPop(el, i, key, ev) {
+  closePop(); const name = names[cur], look = spec.pals[name]?.[i]; if (!look) return
+  popState = { spec: true, i, key }
+  const pal = eff(name), d = document.createElement('div'); d.id = 'pop'
+  const opts = KEYS.filter(k => pal[k] || k !== 'channel')
+  d.innerHTML = `<button class="x" title="Close">✕</button><div class="ph">Post ${i + 1} · ${BLK[key]}</div><div class="ps">${esc(name)} colours</div>
+  <div class="dd">${opts.map(k => { const v = pal[k] || pal.dark2; return `<div class="di${look[key] === k ? ' on' : ''}" data-use="${k}"><i style="background:${v}"></i><b>${esc((TOKNAME[k] || k).replace(' (optional)', ''))}</b><span>${v}</span></div>` }).join('')}</div>
+  <div class="br"><button data-pa="prev">like previous</button><button data-pa="next">like next</button><button data-pa="all">all 8</button></div>`
+  document.body.append(d)
+  const w = 236, h = d.offsetHeight, x = Math.min(Math.max(8, ev.clientX + 12), innerWidth - w - 8), y = Math.min(Math.max(8, ev.clientY - 14), innerHeight - h - 8)
+  d.style.left = x + 'px'; d.style.top = y + 'px'
+}
+function syncSpecPop() { if (!popState?.spec) return; const v = spec.pals[names[cur]][popState.i][popState.key]; document.querySelectorAll('#pop .di').forEach(q => q.classList.toggle('on', q.dataset.use === v)) }
+document.addEventListener('click', e => {
+  if (!popState?.spec) return
+  const u = e.target.closest('#pop [data-use]'); if (u) { setLook(popState.i, popState.key, u.dataset.use); closePop(); return }
+  const a = e.target.closest('#pop [data-pa]')?.dataset.pa; if (!a) return
+  const looks = spec.pals[names[cur]], { i, key } = popState
+  if (a === 'all') setLook(i, key, looks[i][key], true)
+  else { const j = (i + (a === 'next' ? 1 : looks.length - 1)) % looks.length; setLook(i, key, looks[j][key]); syncSpecPop() }
+})
+$('spec').addEventListener('click', e => {
+  const act = e.target.closest('[data-sp]')?.dataset.sp; if (!act) return
+  const name = names[cur], looks = spec.pals[name]; if (!looks) return
+  if (act === 'rotate') looks.unshift(looks.pop())
+  if (act === 'reverse') looks.reverse()
+  if (['rotate', 'reverse', 'reseed'].includes(act)) snapNow('before ' + act)
+  if (act === 'reseed') { delete spec.pals[name]; saveSpec(); drawGrid(); return say('Re-seeded from the colourways.') }
+  if (act === 'copy') return copy(JSON.stringify({ mode: spec.mode, order: spec.order || 'tone', pals: spec.pals }, null, 1))
+  saveSpec(); drawGrid()
+})
+$('spec').addEventListener('change', e => { if (e.target.id === 'specMode') { spec.mode = e.target.value; saveSpec() } if (e.target.id === 'specOrder') { spec.order = e.target.value; saveSpec() } })
+
+$('restore').onclick = () => { const h = readHist(), e = h[+$('hist').value]; if (!e) return say('Nothing to restore.'); if (confirm('Go back to the version from ' + when(e.t) + '? (Your current work is saved to history first.)')) restoreEntry(e) }
+$('dl').onclick = () => { snapNow('download'); const blob = new Blob([JSON.stringify({ lnvPaletteTool: 1, saved: new Date().toISOString(), draft, spec }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'lnv-palette-work-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); say('Backup downloaded.') }
+$('ul').onclick = () => $('file').click()
+$('file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.lnvPaletteTool) throw new Error('not a palette-tool backup'); restoreEntry({ draft: d.draft, spec: d.spec }) } catch (err) { say('Could not read that file: ' + err.message) } e.target.value = '' }
+
+/* ---------- controls ---------- */
+$('way').innerHTML = '<option value="cycle">cycle (as in the feed)</option>' + WAYS.map(w => `<option>${w[0]}</option>`).join('')
+;['zoom', 'hgt', 'rad', 'cut', 'way'].forEach(i => $(i).addEventListener('input', () => { render0(); $('zv').textContent = $('zoom').value + '%'; $('hv').textContent = $('hgt').value; document.documentElement.style.setProperty('--z', zoomVal()); document.documentElement.style.setProperty('--h', $('hgt').value + 'px'); document.documentElement.style.setProperty('--rad', $('rad').value); document.documentElement.style.setProperty('--cut', $('cut').value) }))
+$('mode').addEventListener('change', () => { document.documentElement.style.setProperty('--z', zoomVal()); $('postPick').style.display = $('mode').value === 'compare' ? '' : 'none'; render() })
+$('pickPost').addEventListener('change', render0)
+if (!ON_SERVER || !CAN_STORE) { const b = $('plain'); b.style.cssText = 'display:block;margin:12px 18px 0;padding:12px 14px;border-radius:10px;background:#7a4a00;color:#fff3d0;font:600 13px/1.5 var(--mono)'; b.innerHTML = 'This copy of the tool was opened as a plain file, so it <u>cannot remember your colours</u> or send them to your feed. Open <b>http://localhost:5173/palette-tool.html</b> in the browser instead. You can still try colours here and use <b>Download backup</b> to keep them.' }
+await loadPosts()
+$('pickPost').innerHTML = POSTS.map((p, i) => `<option value="${i}">#${i + 1} ${esc((p.artists?.[0]?.artist_name || '') + ' – ' + p.title).slice(0, 40)} (${(p.tracks || []).length})</option>`).join('')
+migrateSpec()
+fillHist()
+if (!hasWork(draft, spec)) { const h = readHist(); if (h.length) { const e = h[h.length - 1], b = $('resbar'); b.style.cssText = 'display:block;margin:10px 0;padding:10px 12px;border-radius:10px;background:#4a3a12;color:#ffe9a8;font:600 12px var(--mono)'; b.innerHTML = `Your work is empty, but the tool kept a copy from ${when(e.t)}. <button class="b go" id="resNow" style="margin-left:6px">Restore it</button>`; $('resNow').onclick = () => { restoreEntry(e); b.style.display = 'none' } } }
+// start on the palette the clock says it is
+{ const hr = new Date().getHours(); cur = hr < 3 ? 0 : hr < 6 ? 1 : hr < 9 ? 2 : hr < 12 ? 3 : hr < 15 ? 4 : hr < 18 ? 5 : hr < 21 ? 6 : 7 }
+render()
+</script>
+</body>
+</html>

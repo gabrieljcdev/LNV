@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LNV card arrangements (shop-inspired)</title>
+<!--
+  Arrangement ideas taken from record shops (Boomkat, Hard Wax, Bleep, Bandcamp)
+  and Instagram carousels (2026-10-08). Dev-only page, not linked from the app:
+  http://localhost:5173/mockup4.html. Album + single cards only; spotlights,
+  intros and live sets stay as they are. Real posts from http://localhost:3001.
+-->
+<script>if (location.protocol === 'file:') location.replace('http://localhost:5173/mockup4.html')</script>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,300;1,400&family=Barlow+Condensed:wght@600;800&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root { --sans: 'Barlow', sans-serif; --cond: 'Barlow Condensed', sans-serif; --mono: 'IBM Plex Mono', monospace; --serif: 'Instrument Serif', Georgia, serif; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; overflow-x: hidden; overflow-y: auto; background: var(--theme-bg, #111); color: var(--theme-text-pri); font-family: var(--sans); transition: background .6s; }
+  #shelf { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .card { flex: 0 0 800px; width: 800px; height: 820px; margin: 0; /* DESIGN_BASE cardW x cardH in Feed.jsx */ position: relative; overflow: hidden; transition: background .6s; }
+  .bg1 { background: var(--theme-dark1); } .bg2 { background: var(--theme-dark2); } .bg3 { background: var(--theme-dark3); }
+  .bgS { background: var(--theme-showcase); }
+  body[data-size="m"] .card { zoom: .7; border-radius: 12px; } body[data-size="s"] .card { zoom: .5; border-radius: 14px; }
+  body[data-size="f"] #shelf { gap: 32px; padding: 32px; } body[data-size="m"] #shelf { gap: 28px; padding: 28px 28px 90px; } body[data-size="s"] #shelf { gap: 22px; padding: 22px 22px 90px; }
+  .tag { position: absolute; top: 14px; right: 16px; z-index: 9; font: 500 10px/1 var(--mono); letter-spacing: .08em; padding: 5px 8px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; }
+  body.nolabels .tag { display: none; }
+  .cover { background: #000 center/cover no-repeat; border-radius: 40px; /* DESIGN_BASE.artRadius */ }
+  .artist { font: 700 38px/1 var(--sans); letter-spacing: -.01em; color: var(--theme-text-pri); }
+  .title { font: italic 300 28px/1.1 var(--sans); color: var(--theme-text-pri); }
+  .meta { font: 500 11px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--theme-text-sec); }
+  .desc p { margin: 0; font: 400 16px/1.55 var(--sans); color: var(--theme-text-sec); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .pnum { font: 500 12px/1 var(--mono); letter-spacing: .1em; color: var(--theme-accent, #e85d04); }
+  .pnum.abs { position: absolute; top: 16px; left: 18px; z-index: 3; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+  .fmt { display: inline-block; font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; border: 1.5px solid currentColor; border-radius: 3px; }
+  .runin { font: 400 15px/1.75 var(--sans); color: var(--theme-text-sec); }
+  .runin a { white-space: nowrap; margin-right: 4px; color: var(--theme-text-sec); cursor: pointer; } .runin a::before { content: '▶'; font-size: 9px; margin-right: 5px; color: var(--theme-showcase); } .runin a:hover { color: var(--theme-text-pri); }
+  .btnrow { display: flex; gap: 8px; align-items: center; }
+  .rb { width: 38px; height: 38px; border-radius: 50%; background: var(--theme-showcase); display: grid; place-items: center; color: #fff; font-size: 13px; flex-shrink: 0; }
+  .rb.ghost { background: var(--theme-border); color: var(--theme-text-sec); }
+  .buy { flex: 1; height: 38px; border-radius: 20px; background: var(--theme-showcase); color: #fff; display: grid; place-items: center; font: 600 13px var(--sans); letter-spacing: .12em; text-transform: uppercase; }
+
+  /* A — Shelf stack (Boomkat): cover + caption stack on top; everything else stays visible below:
+     location pills (every place it can be heard/bought), genre pills, the full tracklist with per-track source dots. */
+  .A { padding: 90px 32px; /* DESIGN_BASE padY 90 / bandPadX 32 */ display: grid; grid-template-columns: 390px 1fr; grid-template-rows: 390px 1fr auto; gap: 0 28px; }
+  .A .cover { width: 390px; height: 390px; box-shadow: 0 14px 34px rgba(0,0,0,.3); position: relative; }
+  .A .cap { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .A .cap .artist { font-size: 34px; } .A .cap .title { font-size: 24px; margin-top: 4px; }
+  .A .cap .lab { margin-top: 12px; font: 500 11px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--theme-text-sec); }
+  .A .cap .lab u { text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .A .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .A .pl { display: inline-flex; align-items: center; gap: 6px; font: 700 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; padding: 6px 9px; border-radius: 3px; background: var(--theme-border); color: var(--theme-text-sec); white-space: nowrap; }
+  .A .pl.type { background: var(--theme-showcase); color: #fff; }
+  .A .pl.plat { background: var(--pc); color: #fff; }
+  .A .pl.plat small { font: 500 9px/1 var(--mono); opacity: .8; letter-spacing: 0; }
+  .A .pl.out { background: transparent; border: 1.5px solid var(--theme-border); }
+  .A .gpills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .A .gpills span { font: 500 11px/1 var(--sans); padding: 6px 10px; border-radius: 20px; background: var(--theme-border); color: var(--theme-text-sec); }
+  .A .cap .blurb { margin-top: 14px; min-height: 0; overflow: hidden; } .A .cap .blurb p { -webkit-line-clamp: 4; font-size: 14px; }
+  .A .below { grid-column: 1 / -1; padding-top: 16px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .A .below h6 { margin: 0 0 6px; font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--theme-text-ter); display: flex; justify-content: space-between; }
+  .A .tl { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; align-content: start; flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+  .A .tl li { break-inside: avoid; display: grid; grid-template-columns: 26px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--theme-border); font: 400 13.5px/1.2 var(--sans); color: var(--theme-text-pri); cursor: pointer; }
+  .A .tl li b { font: 500 10px/1 var(--mono); color: var(--theme-text-ter); } .A .tl li i { font: 400 11px/1 var(--mono); font-style: normal; color: var(--theme-text-ter); }
+  .A .tl li span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .A .tl li:hover b { color: var(--theme-showcase); }
+  .A .dots { display: inline-flex; gap: 3px; } .A .dots em { width: 7px; height: 7px; border-radius: 50%; background: var(--pc); }
+  .A .post { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--theme-border); flex-shrink: 0; display: flex; flex-direction: column; }
+  .A .post .pt { font: 700 17px/1.25 var(--sans); color: var(--theme-text-pri); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .A .post .pd { margin: 3px 0 0; font: 400 13px/1.4 var(--sans); color: var(--theme-text-sec); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .A .post .none { font-style: italic; font-weight: 400; color: var(--theme-text-ter); }
+  .A .contrib { margin-top: 12px; font: 400 12px/1.6 var(--sans); color: var(--theme-text-sec); }
+  .A .contrib h6 { margin: 0 0 4px; font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .A .contrib b { font-weight: 600; color: var(--theme-text-pri); } .A .contrib em { font-style: normal; color: var(--theme-text-ter); }
+  .A .tl li .t em { font-style: normal; margin-right: 6px; }
+  .al { font-weight: 700; color: var(--theme-text-pri); text-decoration: none; border-bottom: 1px solid transparent; cursor: pointer; }
+  .al:hover { color: var(--theme-showcase); border-bottom-color: currentColor; }
+  .A .contrib .al { font-weight: 600; }
+  #toast { position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); z-index: 200; padding: 9px 16px; border-radius: 20px; background: rgba(0,0,0,.8); color: #fff; font: 500 12px var(--sans); opacity: 0; pointer-events: none; transition: opacity .2s; } #toast.on { opacity: 1; }
+  .A .btnrow { grid-column: 1 / -1; padding-top: 10px; }
+
+  /* B — Listing row (Hard Wax): cover + record on the left, label strip, highlighted "Artist: Title", run-in play links */
+  .B { padding: 44px 40px; display: grid; grid-template-columns: 280px 1fr; gap: 30px; align-content: center; }
+  .B .pair { display: grid; gap: 10px; align-content: start; }
+  .B .pair .cover { aspect-ratio: 1; width: 100%; }
+  .B .pair .disc { width: 54%; aspect-ratio: 1; border-radius: 50%; justify-self: end; margin-top: -80px; margin-right: -14px; box-shadow: 0 0 0 7px var(--theme-border), 0 14px 30px rgba(0,0,0,.4); }
+  .B .strip { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1.5px solid var(--theme-text-ter); font: 500 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--theme-text-sec); }
+  .B .strip .sp { flex: 1; }
+  .B .hlwrap { margin-top: 18px; line-height: 1.7; }
+  .B .hl { font: 700 26px/1.5 var(--sans); background: var(--theme-text-pri); color: var(--card-bg); padding: 2px 10px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .B .blurb { margin-top: 16px; } .B .blurb p { -webkit-line-clamp: 3; font-size: 15px; }
+  .B .runin { margin-top: 14px; max-height: 190px; overflow: hidden; }
+  .B .foot { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
+  .B .foot .meta { margin-left: 8px; }
+
+  /* Singles = the shelf stack (A) with one twist each. Same geometry (padY 90, cover 390 / r40), same header, pills above,
+     persistent info; the tracklist becomes big A / B side rows. */
+  .C.A .tl li, .D.A .tl li { grid-template-columns: 34px 1fr auto auto; padding: 9px 0; font: 500 18px/1.2 var(--sans); }
+  .C.A .tl li b, .D.A .tl li b { font: 800 24px/1 var(--cond); color: var(--theme-showcase); letter-spacing: .02em; }
+  .C.A .tl, .D.A .tl { grid-template-columns: 1fr !important; }
+  /* C — Spine: label + catalogue number run down a coloured strip on the card's left edge, like a record spine */
+  .C.A { padding-left: 88px; }
+  .C .spine { position: absolute; left: 0; top: 0; bottom: 0; width: 56px; background: var(--theme-showcase); color: #fff; writing-mode: vertical-rl; transform: rotate(180deg); display: flex; align-items: center; justify-content: space-between; padding: 90px 0; font: 700 22px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; z-index: 2; }
+  .C .spine span:last-child { font-weight: 600; font-size: 15px; letter-spacing: .2em; opacity: .85; }
+  .C.A .cap .artist { font-size: 30px; }
+  /* D — Hype sticker: a round sticker on the cover's corner with the catalogue number and format */
+  .D .sticker { position: absolute; right: -16px; bottom: -16px; width: 112px; height: 112px; border-radius: 50%; background: #f2c230; color: #151515; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; transform: rotate(10deg); box-shadow: 0 8px 20px rgba(0,0,0,.4); z-index: 3; padding: 10px; overflow: hidden; }
+  .D .sticker b { font: 800 18px/1 var(--cond); letter-spacing: .02em; text-transform: uppercase; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .D .sticker span { font: 600 10px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; margin-top: 4px; }
+
+  /* E — Label first (compilation): the label is the header, cover + index below */
+  .E { display: flex; flex-direction: column; }
+  .E .lh { background: var(--theme-showcase); color: #fff; padding: 26px 40px 22px; display: flex; align-items: center; gap: 18px; }
+  .E .lh .av { width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.2); display: grid; place-items: center; font: 800 26px/1 var(--cond); flex-shrink: 0; }
+  .E .lh .nm { font: 800 34px/1 var(--cond); letter-spacing: .03em; text-transform: uppercase; } .E .lh .sub { font: 500 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; opacity: .8; margin-top: 4px; }
+  .E .lh .cn { margin-left: auto; font: 600 13px/1 var(--mono); letter-spacing: .1em; border: 1.5px solid #fff; padding: 6px 9px; border-radius: 3px; }
+  .E .bd { flex: 1; min-height: 0; padding: 30px 40px; display: grid; grid-template-columns: 300px 1fr; gap: 30px; align-content: start; }
+  .E .bd .cover { width: 100%; aspect-ratio: 1; box-shadow: 0 14px 34px rgba(0,0,0,.3); }
+  .E .bd .artist { font-size: 26px; } .E .bd .title { font-size: 19px; margin-top: 4px; }
+  .E .bd ul { list-style: none; margin: 16px 0 0; padding: 0; } .E .bd li { display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--theme-border); font: 400 14px/1.25 var(--sans); color: var(--theme-text-sec); } .E .bd li b { font: 500 10px/1.8 var(--mono); color: var(--theme-text-ter); }
+  .E .bd .btnrow { margin-top: 18px; }
+
+  /* F — Carousel strip: frames of one carousel on a grid — cover | record label | tracklist */
+  .F { display: grid; grid-template-columns: 430px 1fr; grid-template-rows: 430px 1fr; gap: 14px; padding: 40px; }
+  .F .fr { position: relative; border-radius: 6px; overflow: hidden; background: var(--theme-border); display: flex; flex-direction: column; min-height: 0; }
+  .F .fr.c { background-size: cover; background-position: center; grid-row: 1; grid-column: 1; }
+  .F .fr.l { grid-row: 2; grid-column: 1; align-items: center; justify-content: center; background: #0c0c0c; }
+  .F .fr.l .disc { height: 88%; aspect-ratio: 1; border-radius: 50%; background: repeating-radial-gradient(circle, #151515 0 2px, #0b0b0b 2px 4px); display: grid; place-items: center; animation: spin 12s linear infinite; }
+  .F .fr.l .disc i { width: 34%; aspect-ratio: 1; border-radius: 50%; background-size: cover; background-position: center; }
+  .F .fr.t { grid-row: 1 / 3; grid-column: 2; padding: 26px 24px; background: transparent; border: 1.5px solid var(--theme-border); }
+  .F .fr.t .artist { font-size: 28px; } .F .fr.t .title { font-size: 19px; margin-top: 4px; }
+  .F .fr.t .runin { margin: 16px 0; font-size: 14px; overflow: hidden; flex: 1; }
+  .F .dots { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 5px; justify-content: center; } .F .dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); } .F .dots i:first-child { background: #fff; }
+  .F .fr .cap { position: absolute; left: 14px; bottom: 30px; font: 500 11px/1 var(--mono); letter-spacing: .1em; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.7); text-transform: uppercase; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+
+  /* Comments pop-out: a panel that slides out of the card (chosen 2026-10-08) */
+  .cb { cursor: pointer; } .cb:hover { background: var(--theme-showcase); color: #fff; }
+  .cp { display: flex; flex-direction: column; min-height: 0; color: var(--theme-text-pri); font-family: var(--sans); }
+  .cp .hd { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--theme-border); flex-shrink: 0; }
+  .cp .hd .th { width: 44px; height: 44px; border-radius: 4px; flex-shrink: 0; background: #000 center/cover; }
+  .cp .hd b { display: block; font: 700 15px/1.2 var(--sans); } .cp .hd span { display: block; font: 400 12px/1.3 var(--sans); color: var(--theme-text-sec); margin-top: 2px; }
+  .cp .hd .n { margin-left: auto; font: 500 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .cp .hd .x { background: none; border: 0; color: var(--theme-text-sec); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 0 0 8px; }
+  .cp .list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px; scrollbar-width: thin; }
+  .cp .c { display: grid; grid-template-columns: 32px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--theme-border); }
+  .cp .c .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 700 13px/1 var(--sans); color: #fff; background: var(--theme-showcase); }
+  .cp .c .who { font: 600 13px/1.2 var(--sans); } .cp .c .who i { font: 400 11px/1 var(--mono); font-style: normal; color: var(--theme-text-ter); margin-left: 8px; }
+  .cp .c p { margin: 5px 0 6px; font: 400 14px/1.45 var(--sans); color: var(--theme-text-pri); }
+  .cp .c .act { font: 500 11px/1 var(--mono); letter-spacing: .06em; color: var(--theme-text-ter); display: flex; gap: 14px; } .cp .c .act span { cursor: pointer; } .cp .c .act span:hover { color: var(--theme-showcase); }
+  .cp .none { padding: 26px 0; font-style: italic; color: var(--theme-text-ter); }
+  .cp .sample { margin: 10px 18px 0; font: 500 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--theme-text-ter); }
+  .cp .reply { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--theme-border); flex-shrink: 0; }
+  .cp .reply input { flex: 1; min-width: 0; border-radius: 20px; border: 1px solid var(--theme-border); background: transparent; color: var(--theme-text-pri); padding: 10px 16px; font: 400 14px var(--sans); outline: none; }
+  .cp .reply button { border: 0; border-radius: 20px; background: var(--theme-showcase); color: #fff; padding: 0 20px; font: 600 13px var(--sans); cursor: pointer; }
+  /* side: slides out of the card's right edge, card stays readable on the left */
+  .cp.side { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 20; background: var(--card-bg); border-left: 1px solid var(--theme-border); box-shadow: -18px 0 40px rgba(0,0,0,.35); animation: inR .28s ease-out; }
+  @keyframes inR { from { transform: translateX(100%); } } 
+  #bar { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; gap: 6px; padding: 6px; border-radius: 10px; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); }
+  #bar button, #bar select { font: 500 12px var(--sans); color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); border-radius: 6px; padding: 6px 10px; cursor: pointer; } #bar select option { color: #000; }
+  #err { position: fixed; inset: 0; display: grid; place-items: center; font: 500 16px var(--mono); color: #fff; }
+</style>
+</head>
+<body>
+<div id="shelf"></div>
+<div id="toast"></div>
+<div id="bar">
+  <select id="size"><option value="f">Full size</option><option value="m" selected>Medium</option><option value="s">Compact</option></select>
+  <select id="mode">
+    <option value="auto">Shelf stack for everything</option>
+    <option value="comps">Compilations only</option>
+    <option value="albums">Albums: A / B / F</option>
+    <option value="singles">Singles: C / D</option>
+    <option value="A">A · Shelf stack (any)</option>
+    <option value="B">B · Listing row (album)</option>
+    <option value="C">C · Spine (single)</option>
+    <option value="D">D · Hype sticker (single)</option>
+    <option value="E">E · Label first (compilation)</option>
+    <option value="F">F · Carousel strip (album)</option>
+  </select>
+  <button id="labels">Labels</button><button id="pal">Palette ◐</button>
+</div>
+<script type="module">
+import { PALETTES, applyPalette, getAutoIndex } from '/src/services/themeService.js'
+const API = 'http://localhost:3001/api'
+let pal = getAutoIndex(); applyPalette(pal)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const ytId = u => (u || '').match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1]
+
+function norm(p) {
+  const artist = ((p.artists || []).map(a => a.artist_name).filter(Boolean).join(' & ')).replace(/ - Topic$/, '')
+  const vid = ytId(p.stream_url)
+  const isSet = p.post_type === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title)
+  const cover = p.cover_image || (vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '')
+  const tl = (p.tracks || []).length
+  const single = tl <= 2 && !/album|lp|ep/i.test(p.post_type || '')
+  return { id: p.id, p, artist, title: p.title, label: p.labels?.[0]?.label_name || '', catno: p.labels?.[0]?.catalogue_number || '', year: p.year || '',
+    tracks: p.tracks || [], genres: p.genres || [], notes: (p.notes || '').replace(/https?:\/\/\S+/g, '').trim(), cover, platform: p.platform || '', isSet, single,
+    format: single ? (tl > 1 ? '12"' : '7"') : (tl > 6 ? 'LP' : 'EP'), va: /^various( artists)?$/i.test(artist.trim()) }
+}
+// A compilation: credited to Various, or most track names read "Artist - Title". Track artists are split out for display.
+const splitTrack = t => { const m = String(t.title || '').match(/^(.{2,70}?)\s[-–—]\s(.+)$/); return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: t.title } }
+function compInfo(x) {
+  const parts = x.tracks.map(splitTrack), withArtist = parts.filter(t => t.artist).length
+  const comp = x.va || (x.tracks.length >= 5 && withArtist / x.tracks.length >= 0.6)
+  const artists = [...new Set(parts.map(t => t.artist).filter(Boolean))]
+  return { comp, parts, artists }
+}
+const artistLink = n => `<a class="al" href="#artist" data-artist="${esc(n)}" title="Open ${esc(n)} in the artists drawer">${esc(n)}</a>`
+// One track for display: its own artist (post_tracks.artist) or the "Artist - Title" the name reads as, and the clean title.
+function trackView(x, t) {
+  const comp = compInfo(x).comp
+  let artist = (t.artist || '').trim(), title = t.title || ''
+  if (artist && title.toLowerCase().startsWith(artist.toLowerCase() + ' - ')) title = title.slice(artist.length + 3).trim()
+  else if (!artist && comp) { const sp = splitTrack(t); artist = sp.artist; title = sp.title }
+  return { artists: artist ? artist.split(/,\s+/).filter(Boolean) : [], title }
+}
+const bg = x => `style="background-image:url('${x.cover}')"`
+const num = x => `<span class="pnum abs">#${x.id}</span>`
+const blurb = (x, n = 220) => x.notes ? `<div class="desc blurb"><p>${esc(x.notes.slice(0, n))}</p></div>` : ''
+const runin = x => `<div class="runin">${(x.tracks.length ? x.tracks : [{ title: x.title }]).slice(0, 10).map(t => `<a>${esc(t.title)}</a>`).join(' ')}</div>`
+const actions = x => `<div class="btnrow"><div class="rb">▶</div><div class="rb ghost">♡</div><div class="rb ghost cb" data-pid="${x.id}">💬</div><div class="buy">${esc(x.platform || 'listen')} ↗</div></div>`
+const genreLine = x => esc(x.genres.slice(0, 3).join(' · '))
+const PC = { youtube: '#e52d27', soundcloud: '#f50', bandcamp: '#1da0c3', spotify: '#1db954', mixcloud: '#5000ff', deezer: '#a238ff', applemusic: '#fc3c44', tidal: '#111', beatport: '#01a870', discogs: '#555' }
+const PN = { applemusic: 'Apple Music', youtube: 'YouTube', soundcloud: 'SoundCloud', bandcamp: 'Bandcamp', spotify: 'Spotify', mixcloud: 'Mixcloud', deezer: 'Deezer', tidal: 'Tidal', beatport: 'Beatport' }
+// Every place this release can be played: the posted link plus whatever sources the tracks have found (count = tracks covered).
+function locs(x) {
+  const m = new Map(), tot = x.tracks.length
+  const add = (pf, t) => { if (!pf || pf === 'discogs') return; const e = m.get(pf) || { pf, n: 0 }; if (t) e.n++; m.set(pf, e) }
+  x.tracks.forEach(t => { const set = new Set([...(t.sources || []).map(s => s.platform)]); const own = /youtu/.test(t.stream_url || '') ? 'youtube' : null; if (own) set.add(own); set.forEach(pf => add(pf, true)) })
+  if (x.platform && x.platform !== 'discogs' && !m.has(x.platform)) m.set(x.platform, { pf: x.platform, n: 0 })
+  return { list: [...m.values()].sort((a, b) => b.n - a.n), tot }
+}
+const platPills = x => { const { list, tot } = locs(x); return list.map(e => `<span class="pl plat" style="--pc:${PC[e.pf] || '#444'}">${esc(PN[e.pf] || e.pf)}${tot > 1 && e.n ? ` <small>${e.n}/${tot}</small>` : ''}</span>`).join('') }
+const trackDots = t => { const set = new Set((t.sources || []).map(s => s.platform)); if (/youtu/.test(t.stream_url || '')) set.add('youtube'); return `<span class="dots">${[...set].map(pf => `<em title="${esc(PN[pf] || pf)}" style="--pc:${PC[pf] || '#444'}"></em>`).join('')}</span>` }
+const TAGS = { A: 'A · shelf stack', B: 'B · listing row', C: 'C · spine', D: 'D · hype sticker', E: 'E · label first', F: 'F · carousel strip' }
+
+const R = {
+  A: x => `<div class="cover" ${bg(x)}>${num(x)}</div><div class="cap"><div class="pills"><span class="pl type">${compInfo(x).comp ? 'compilation' : esc(x.single ? 'single' : (x.p.post_type || 'album'))}</span>${platPills(x)}${x.p.discogs_id ? '<span class="pl out">◈ Discogs</span>' : ''}${x.p.discogs_id || x.platform === 'bandcamp' ? '<span class="pl out">Buy ↗</span>' : ''}</div><div class="artist">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div>
+    <div class="lab">${x.label ? `<u>${esc(x.label)}</u>` : ''}${x.catno ? ' · ' + esc(x.catno) : ''}${x.year ? ' · ' + esc(x.year) : ''}</div>
+    ${x.genres.length ? `<div class="gpills">${x.genres.slice(0, 6).map(g => `<span>${esc(g)}</span>`).join('')}</div>` : ''}${(() => { const c = compInfo(x); const names = [...new Set(x.tracks.flatMap(t => trackView(x, t).artists))]; return c.comp && names.length ? `<div class="contrib"><h6>${names.length} artists</h6>${names.slice(0, 9).map(artistLink).join(' <em>·</em> ')}${names.length > 9 ? ` <em>+${names.length - 9} more</em>` : ''}</div>` : '' })()}</div>
+    <div class="below"><h6><span>Tracklist</span><span>${x.tracks.length} track${x.tracks.length === 1 ? '' : 's'}</span></h6><ul class="tl" style="${x.tracks.length > 3 ? '' : 'grid-template-columns:1fr'}">${(x.tracks.length ? x.tracks : [{ title: x.title }]).slice(0, 14).map((t, i) => `<li><b>${esc(t.position || i + 1)}</b><span class="t">${(() => { const v = trackView(x, t); return (v.artists.length ? `<em>${v.artists.map(artistLink).join(', ')}</em>` : '') + esc(v.title) })()}</span><i>${esc(t.duration || '')}</i>${trackDots(t)}</li>`).join('')}</ul>
+      <div class="post"><div class="pt ${x.p.post_title ? '' : 'none'}" title="Post title">${esc(x.p.post_title || 'Post title')}</div><p class="pd ${x.notes ? '' : 'none'}" title="Description">${esc(x.notes ? x.notes.slice(0, 420) : 'No description yet')}</p></div></div>
+    <div class="btnrow"><div class="rb">▶</div><div class="rb ghost">♡</div><div class="rb ghost cb" data-pid="${x.id}">💬</div><span class="meta" style="margin-left:6px">${x.p.commentCount ? x.p.commentCount + (x.p.commentCount > 1 ? ' comments' : ' comment') : 'no comments yet'}</span></div>`,
+  B: x => `<div class="pair"><div class="cover" ${bg(x)}></div><div class="disc cover" ${bg(x)}></div></div>
+    <div><div class="strip"><span>${esc(x.label || 'LNV')}${x.catno ? ' ' + esc(x.catno) : ''}</span><span class="sp"></span><span class="pnum">#${x.id}</span><span class="fmt">${x.format}</span></div>
+    <div class="hlwrap"><span class="hl">${esc(x.artist)}: ${esc(x.title)}</span></div>${blurb(x, 200)}${runin(x)}
+    <div class="foot"><div class="rb">▶</div><div class="rb ghost">♡</div><div class="rb ghost cb" data-pid="${x.id}">💬</div><span class="meta">${genreLine(x)}${x.year ? ' · ' + esc(x.year) : ''}</span></div></div>`,
+  C: x => R.A(x) + `<div class="spine"><span>${esc(x.label || 'LNV')}</span><span>${esc(x.catno || ('#' + x.id))}</span></div>`,
+  D: x => R.A(x).replace('</div><div class="cap">', `<div class="sticker"><b>${esc(x.catno || x.format)}</b><span>${esc(x.format)}${x.year ? ' · ' + esc(x.year) : ''}</span></div></div><div class="cap">`),
+  E: x => `<div class="lh"><div class="av">${esc((x.label || 'L')[0])}</div><div><div class="nm">${esc(x.label || 'Compilation')}</div><div class="sub">${x.year ? esc(x.year) + ' · ' : ''}${esc(x.format)} · compilation</div></div>${x.catno ? `<div class="cn">${esc(x.catno)}</div>` : ''}</div>
+    <div class="bd"><div><div class="cover" ${bg(x)}></div><div style="margin-top:12px"><span class="pnum">#${x.id}</span></div></div><div><div class="artist">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div>
+    <ul>${x.tracks.slice(0, 9).map((t, i) => `<li><b>${esc(t.position || i + 1)}</b><span>${esc(t.title)}</span><span>${esc(t.duration || '')}</span></li>`).join('')}</ul>${actions(x)}</div></div>`,
+  F: x => `<div class="fr c" ${bg(x)}>${num(x)}<span class="cap">front</span><div class="dots"><i></i><i></i><i></i></div></div>
+    <div class="fr l"><div class="disc"><i ${bg(x)}></i></div><span class="cap">${esc(x.label || 'label')}${x.catno ? ' · ' + esc(x.catno) : ''}</span></div>
+    <div class="fr t"><div class="meta">${esc(x.format)}${x.year ? ' · ' + esc(x.year) : ''}</div><div class="artist" style="margin-top:8px">${esc(x.artist)}</div><div class="title">${esc(x.title)}</div>${runin(x)}${actions(x)}</div>`
+}
+const bgs = ['bg1', 'bg2', 'bg3', 'bg2', 'bgS', 'bg1', 'bg3']
+let items = []
+function render() {
+  const mode = document.getElementById('mode').value
+  const albums = ['A', 'B', 'F'], singles = ['C', 'D']; let ai = 0, si = 0
+  const list = mode === 'comps' ? items.filter(x => compInfo(x).comp) : items
+  document.getElementById('shelf').innerHTML = list.map((x, i) => {
+    let t = mode === 'comps' ? 'A' : mode
+    if (mode === 'albums') t = x.single ? 'A' : albums[ai++ % 3]
+    else if (mode === 'singles') t = x.single ? singles[si++ % 2] : 'A'
+    else if (mode === 'auto') t = 'A' // albums, singles and compilations all use the shelf stack (gabriel, 2026-10-08)
+    return `<div class="card ${t}${t === 'C' || t === 'D' ? ' A' : ''} ${bgs[i % bgs.length]}"><div class="tag">${TAGS[t]} · #${x.id}</div>${R[t](x)}</div>`
+  }).join('')
+  inkAll()
+}
+function inkFor(el) {
+  el.style.setProperty('--card-bg', getComputedStyle(el).backgroundColor)
+  const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g); if (!m) return
+  const [r, g, b] = m.map(Number).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4 })
+  const dark = .2126 * r + .7152 * g + .0722 * b < .35
+  const ink = dark ? ['rgba(255,255,255,.94)', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.14)'] : ['rgba(0,0,0,.86)', 'rgba(0,0,0,.6)', 'rgba(0,0,0,.4)', 'rgba(0,0,0,.12)']
+  ;['--theme-text-pri', '--theme-text-sec', '--theme-text-ter', '--theme-border'].forEach((v, i) => el.style.setProperty(v, ink[i]))
+}
+const inkAll = () => document.querySelectorAll('.card').forEach(inkFor)
+document.getElementById('mode').onchange = render
+document.getElementById('labels').onclick = () => document.body.classList.toggle('nolabels')
+document.getElementById('pal').onclick = () => { pal = (pal + 1) % PALETTES.length; applyPalette(pal); document.querySelectorAll('.card').forEach(el => ['--theme-text-pri', '--theme-text-sec', '--theme-text-ter', '--theme-border'].forEach(v => el.style.removeProperty(v))); setTimeout(inkAll, 650) }
+const sz = document.getElementById('size'); sz.onchange = () => document.body.dataset.size = sz.value; document.body.dataset.size = sz.value
+
+// ── Comments pop-out ─────────────────────────────────────────────────────────
+const SAMPLE = [
+  { username: 'lnv_admin', content: 'Been hunting this one for years. The B side is the one.', t: '2h' },
+  { username: 'mara', content: 'That bassline at 2:10 never gets old. Anyone know if the reissue is worth it?', t: '1h' },
+  { username: 'oskar_b', content: 'Reissue sounds good, the original pressing has more air though.', t: '40m' },
+  { username: 'lnv_admin', content: '@oskar_b agreed, but the price gap is wild.', t: '12m' }
+]
+const COLS = ['#c2410c', '#0f766e', '#7c3aed', '#be185d', '#1d4ed8', '#a16207']
+const closePop = () => document.querySelectorAll('.cp').forEach(e => e.remove())
+async function popComments(x, card) {
+  closePop()
+  let list = [], sample = false
+  try { const cs = await (await fetch(`${API}/posts/${x.id}/comments`)).json(); list = (cs.comments || cs || []).map(c => ({ username: c.username, content: c.content, t: (c.created_at || '').slice(5, 10) })) } catch (e) { list = [] }
+  if (!list.length) { list = SAMPLE; sample = true }
+  card.insertAdjacentHTML('beforeend', `<div class="cp side"><div class="hd"><div class="th" style="background-image:url('${x.cover}')"></div><div><b>${esc(x.artist || x.title)}</b><span>${esc(x.title)}</span></div><span class="n">${list.length} comment${list.length === 1 ? '' : 's'}</span><button class="x" aria-label="Close">×</button></div>
+    ${sample ? '<div class="sample">sample comments — this post has none yet</div>' : ''}
+    <div class="list">${list.map((c, i) => `<div class="c"><div class="av" style="background:${COLS[i % COLS.length]}">${esc((c.username || '?')[0].toUpperCase())}</div><div><div class="who">${esc(c.username)}<i>${esc(c.t || '')}</i></div><p>${esc(c.content)}</p><div class="act"><span>♡ like</span><span>reply</span></div></div></div>`).join('')}</div>
+    <div class="reply"><input placeholder="Add a comment…"><button>Post</button></div></div>`)
+  card.querySelector('.cp .x').onclick = closePop
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.cb'); if (b) { const x = items.find(i => i.id == b.dataset.pid); if (x) popComments(x, b.closest('.card')); return }
+})
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePop() })
+document.addEventListener('click', e => {
+  const a = e.target.closest('.al'); if (!a) return
+  e.preventDefault(); e.stopPropagation()
+  const t = document.getElementById('toast'); t.textContent = '→ opens ' + a.dataset.artist + ' in the artists drawer'; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1800)
+}, true)
+try {
+  const d = await (await fetch(`${API}/posts?limit=60`)).json()
+  items = (d.posts || d).map(norm).filter(x => !x.isSet && x.p.post_type !== 'spotlight' && x.p.post_type !== 'intro' && x.cover)
+  render()
+} catch (e) { document.body.insertAdjacentHTML('beforeend', `<div id="err">Couldn't reach the backend on :3001 — ${esc(e.message)}</div>`) }
+</script>
+</body>
+</html>

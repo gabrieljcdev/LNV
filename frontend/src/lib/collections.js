@@ -52,7 +52,8 @@ let mode = (() => {
     if (m.type === 'home') return homeMode()
     if (m.type === 'wall' && m.username && m.username === getUser()) return homeMode()
     if (m.type === 'wall' && m.username) return m
-    if (m.type === 'playlist' && (m.token || (m.id && isLoggedIn()))) return m
+    // A playlist feed is not restored on reload (13 Oct 2026): a one-card playlist feed left people with nothing to scroll and no
+    // obvious way back. Opening one from a link or the wheel still works; the site reopens on your home feed.
     return homeMode()
   } catch { return homeMode() }
 })()
@@ -91,9 +92,16 @@ export function feedModeLabel(m) {
 export const openWall = username => setFeedMode(username && username === getUser() ? homeMode() : { type: 'wall', username })
 // Also posted by (2026-10-04): put a release that's already up on your wall
 // too, or take it off again. Both return the updated post.
+// `how` says where the keep came from (2026-10-22): { origin: 'user', origin_ref: <whose feed or wall> }, { origin: 'digging', origin_ref: <drawer or spotlight> } or { origin: 'link' }.
 export const joinApi = {
-  join: postId => call('POST', `/posts/${postId}/join`),
+  join: (postId, how) => call('POST', `/posts/${postId}/join`, how),
   leave: postId => call('DELETE', `/posts/${postId}/join`),
+}
+// Silent hide (2026-10-22): a record you do not want in your feed; nobody is told. Not your own posts. The list is for bringing them back.
+export const hideApi = {
+  hide: postId => call('POST', `/posts/${postId}/hide`),
+  unhide: postId => call('DELETE', `/posts/${postId}/hide`),
+  list: () => call('GET', '/posts/hidden'),
 }
 export const openPlaylistFeed = p => setFeedMode({ type: 'playlist', id: p.id || undefined, token: p.token || undefined, name: p.name })
 
@@ -132,6 +140,17 @@ export function useProperChannels() {
   const q = useQuery({ queryKey: ['channels', 'proper'], queryFn: () => call('GET', '/media/channels/proper'), staleTime: 10 * 60_000 })
   return new Set((q.data?.names || []).map(n => n.toLowerCase()))
 }
+// "For later" (2026-10-22): a private bookmark on an artist, label or channel spotlight. Signed in only; nobody else sees it.
+export function useLater() {
+  const signedIn = isLoggedIn()
+  const q = useQuery({ queryKey: ['later'], queryFn: () => call('GET', '/walls/me/later'), enabled: signedIn, staleTime: 60_000 })
+  const items = (signedIn && q.data?.items) || []
+  const has = (kind, name) => items.some(i => i.kind === kind && i.name.toLowerCase() === String(name || '').toLowerCase())
+  return { items, has }
+}
+export const laterApi = {
+  set: (kind, name, on) => call('PUT', '/walls/me/later', { kind, name, on }),
+}
 export const favouritesApi = {
   set: (kind, name, on) => call('PUT', '/walls/me/favourites', { kind, name, on }),
 }
@@ -164,7 +183,8 @@ export const wallsApi = {
   follow: username => call('POST', `/walls/${encodeURIComponent(username)}/follow`),
   unfollow: username => call('DELETE', `/walls/${encodeURIComponent(username)}/follow`),
 }
-export const wallLink = username => `${window.location.origin}/?feed=${encodeURIComponent(username)}`
+// A person's address (2026-10-22). Older links (?feed=name, ?wall=name) still open their feed: Feed.jsx reads them.
+export const wallLink = username => `${window.location.origin}/u/${encodeURIComponent(username)}`
 
 // Introductions (alpha, 2026-10-05): people my feed suggests you follow,
 // with the reasons (backend collectionsService introductionsFor). Fetched

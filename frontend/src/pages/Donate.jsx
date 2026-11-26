@@ -1,7 +1,7 @@
 const LINES = [
   'DONATE.TXT',
   '────────────────────────────────',
-  'Late Night Vibes is free and always will be.',
+  'Chewing the Ceiling is free and always will be.',
   'If you enjoy it, consider supporting the project.',
   '',
   'BITCOIN',

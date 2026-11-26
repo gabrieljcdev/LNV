@@ -52,7 +52,7 @@ const PLATFORM_URLS = [
 export const platformOfUrl = url => PLATFORM_URLS.find(([, re]) => re.test(url || ''))?.[0] || null;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const UA = 'LateNightVibes/1.0 ( https://latenightvibes.example )';
+const UA = 'ChewingTheCeiling/1.0 ( https://chewingtheceiling.com )';
 
 // ── finders: each -> { platform, url, title } | null ────────────────────────
 const firstArtist = a => String(a || '').split(/\s*,\s*|\s*&\s*/)[0].trim();

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DrawerHead, DrawerBody } from './Drawers'
 import { FollowButton } from './Collect'
+import { UserSearch } from './UserPicker'
 import { openWall } from '../lib/collections'
 import { useLayout } from '../context/LayoutContext'
 import { COMMUNITY_RULES } from '../lib/communityRules'
@@ -50,6 +51,8 @@ export function CommunityDrawer() {
     <DrawerHead title="Community" count="" action={<span title="Alpha — an early, experimental feature" style={{ alignSelf: 'center', fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--theme-showcase)', background: PRI, borderRadius: 99, padding: '3px 8px', whiteSpace: 'nowrap' }}>α ALPHA</span>} />
     <DrawerBody>
       <p style={{ margin: '0 0 16px', fontFamily: SANS, fontSize: 15, lineHeight: 1.45, color: SEC }}>Who’s been digging — by what they post and keep. A way to find people to follow, not a contest.</p>
+
+      <UserSearch onOpen={() => closeD3?.()} />
 
       <div role="tablist" style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontFamily: SANS, fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', borderBottom: `1px solid ${LINE}`, marginBottom: 14 }}>
         {tabBtn('style', 'By style')}

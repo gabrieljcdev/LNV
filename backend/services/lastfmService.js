@@ -25,7 +25,7 @@ async function call(params) {
   if (cached) return JSON.parse(cached.data);
   if (Date.now() < pausedUntil) return null;
   countCall('lastfm');
-  const res = await fetch(`https://ws.audioscrobbler.com/2.0/?${qs}`, { headers: { 'User-Agent': 'LateNightVibes/1.0' } });
+  const res = await fetch(`https://ws.audioscrobbler.com/2.0/?${qs}`, { headers: { 'User-Agent': 'ChewingTheCeiling/1.0 +https://chewingtheceiling.com' } });
   if (res.status === 429) { pausedUntil = Date.now() + 60_000; return null; }
   const data = await res.json().catch(() => null);
   if (!res.ok || !data || data.error) return null; // not found, bad key… nothing to keep

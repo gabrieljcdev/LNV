@@ -56,7 +56,7 @@ export default function PhoneNav() {
 
   const item = { display: 'block', width: '100%', textAlign: 'left', padding: '13px 16px', border: 0, borderRadius: 12, background: 'none', color: 'var(--theme-text-pri)', fontFamily: SANS, fontSize: 16, cursor: 'pointer', textDecoration: 'none' }
   return (
-    <nav aria-label="Main" style={{ position: 'relative', zIndex: 50, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: 2, height: PHONE_NAV_H, padding: '0 6px env(safe-area-inset-bottom)', boxSizing: 'content-box', background: 'var(--theme-dark3)', borderTop: '1px solid var(--theme-border)' }}>
+    <nav aria-label="Main" data-region="phonenav" data-chrome="" style={{ position: 'relative', zIndex: 50, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: 2, height: PHONE_NAV_H, padding: '0 6px env(safe-area-inset-bottom)', boxSizing: 'content-box', background: 'var(--theme-dark3)', borderTop: '1px solid var(--theme-border)' }}>
       {TABS.map(t => {
         if (t.id === 'post') return (
           <button key={t.id} onClick={() => tap(t.id)} aria-label="New post"

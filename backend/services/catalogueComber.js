@@ -106,7 +106,16 @@ async function masterOf(row) {
 const cachedKey = r => (r.item_type === 'master' ? `master:${r.item_id}` : `release:${r.item_id}`);
 async function tracksOf(r) {
   const cached = !!db.prepare('SELECT 1 FROM discogs_cache WHERE cache_key = ?').get(cachedKey(r));
-  const d = r.item_type === 'master' ? await getMaster(r.item_id, { background: true }) : await getRelease(r.item_id, { background: true });
+  let d;
+  try {
+    d = r.item_type === 'master' ? await getMaster(r.item_id, { background: true }) : await getRelease(r.item_id, { background: true });
+  } catch (err) {
+    // Gone from Discogs (404): this row can never be compared, so it is settled on its own (it stays a separate row) instead of failing the turn again
+    // every minute for ever (the log showed "Failed to fetch release … 404" once a minute).
+    if (err.status !== 404) throw err;
+    db.prepare("UPDATE discogs_catalogue SET combed_at = datetime('now') WHERE kind = ? AND entity_id = ? AND item_type = ? AND item_id = ?").run(r.kind, r.entity_id, r.item_type, r.item_id);
+    return [];
+  }
   if (!cached) { await sleep(CHECK_GAP_MS); spend(); }
   return (d?.tracklist || []).map(t => tidyTitle(t.title)).filter(Boolean);
 }

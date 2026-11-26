@@ -131,7 +131,7 @@ export default function SearchBox({ onJump, onOpenDrawer, onShowAll, onClear, fi
   </>)
 
   return (
-    <div ref={boxRef} style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, width: 320, ...style }}>
+    <div ref={boxRef} data-float-top="" style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, width: 320, ...style }}>
       <div style={{ display: 'flex', alignItems: 'center', background: 'var(--theme-dark3)', border: '1px solid var(--theme-border)', borderRadius: 99, padding: '7px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
         <span aria-hidden="true" style={{ color: 'var(--theme-text-ter)', fontSize: 13, marginRight: 8 }}>{loading || busy ? '◐' : '⌕'}</span>
         <input ref={inputRef} value={q} role="combobox" aria-expanded={!!show} aria-label="Search posts, artists, labels, genres, or a post number"

@@ -2,9 +2,14 @@ import { useState, useEffect } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLayout } from '../context/LayoutContext'
 import { releaseTag, roleGroup, ROLE_PILL, cleanLabelName } from '../lib/catalogue'
-import { FavHeart } from './Collect'
+import { FavHeart, LaterButton } from './Collect'
 import ReleasePreview from './ReleasePreview'
+import { useDiscogsRecords, discogsPseudoPosts, useCatalogueTotals } from '../lib/discogsAccount'
+import { browseQueryOptions } from '../lib/drawerPrefetch'
 import { COMMUNITY_RULES } from '../lib/communityRules'
+import { openWall, openPlaylistFeed } from '../lib/collections'
+import { authHeaders, isLoggedIn } from '../lib/auth'
+import { rightSizedCover } from '../lib/covers'
 
 // ── Browse drawers (2026-10-01) ───────────────────────────────────────────────
 // Artists, labels, genres, live sets and About — rendered inside ContentPanel
@@ -33,15 +38,11 @@ const uniq = a => [...new Set(a.filter(Boolean))]
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 function useBrowse() {
-  return useQuery({
-    queryKey: ['posts', 'browse'],
-    queryFn: async () => { const r = await fetch(`${API}/posts/browse`); if (!r.ok) throw new Error(r.status); return r.json() },
-    staleTime: 60_000,
-  })
+  return useQuery(browseQueryOptions)
 }
 
 // Same rule as Feed.jsx's isLiveSetPost: typed as one, or titled like one.
-const isLiveSet = p => p.post_type === 'livemix' || /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
+const isLiveSet = p => p.post_type ? p.post_type === 'livemix' : /\|\s*.+\d{4}|\bb2b\b|dj set|live at|session/i.test(p.title || '')
 
 // Who played, where, and when — from the channel field when the poster
 // filled it in, otherwise read out of the title, which is where older sets
@@ -77,12 +78,12 @@ function useDrawerNav() {
 export function DrawerHead({ title, count, crumb, onBack, filter, setFilter, action, children }) {
   const { close } = useDrawerNav()
   return (
-    <div style={{ padding: `28px 30px 6px ${PADX}px`, display: 'grid', gap: 14, flexShrink: 0 }}>
+    <div data-region="drawer-head" data-chrome="" style={{ padding: `28px 30px 6px ${PADX}px`, display: 'grid', gap: 14, flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
         {crumb && (
           <button onClick={onBack} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: MONO, fontSize: 12.5, color: SEC, cursor: 'pointer', flexShrink: 0 }}>← {crumb}</button>
         )}
-        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+        <h2 style={{ margin: 0, fontFamily: SANS, fontWeight: 900, fontSize: 34.5, letterSpacing: '-0.02em', lineHeight: 1.05, color: PRI, flex: 1, minWidth: 0, overflow: 'hidden', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{title}</h2>
         {action}
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{count}</span>
         <button onClick={close} aria-label="Close" style={{ width: 30, height: 30, borderRadius: '50%', border: `1px solid ${LINE}`, background: FILL, color: SEC, cursor: 'pointer', fontSize: 17, flexShrink: 0, alignSelf: 'center' }}>×</button>
@@ -123,21 +124,21 @@ function Row({ onClick, children, style }) {
   const [h, setH] = useState(false)
   return (
     <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
-      style={{ display: 'flex', alignItems: 'center', gap: 12, width: 'calc(100% + 20px)', margin: '0 -10px', padding: '8px 10px', border: 0, borderRadius: 12, background: h ? HOVER : 'none', textAlign: 'left', cursor: 'pointer', color: PRI, ...style }}>
+      style={{ display: 'flex', alignItems: 'center', gap: 12, width: 'calc(100% + 20px)', margin: '0 -10px', padding: '8px 10px', border: 0, borderRadius: 12, background: h ? HOVER : 'none', textAlign: 'left', cursor: 'pointer', color: PRI, ...style, ...(style?.background === undefined ? { background: h ? HOVER : 'none' } : null) /* a caller passing background: undefined must not leave a button its default light grey (white text on it was unreadable) */ }}>
       {typeof children === 'function' ? children(h) : children}
     </button>
   )
 }
 
 const Cover = ({ src, size, radius = 10, round }) => (
-  <span style={{ width: size, height: size, flexShrink: 0, borderRadius: round ? '50%' : radius, background: src ? `var(--theme-dark2) center/cover no-repeat url("${src}")` : 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))' }} />
+  <span style={{ width: size, height: size, flexShrink: 0, borderRadius: round ? '50%' : radius, background: src ? `var(--theme-dark2) center/cover no-repeat url("${rightSizedCover(src, size)}")` : 'linear-gradient(135deg, var(--theme-dark2), var(--theme-dark1))' }} />
 )
 
 function CoverStack({ posts }) {
   return (
     <span style={{ display: 'flex', flexShrink: 0 }}>
       {posts.slice(0, 3).map((p, i) => (
-        <span key={p.id} style={{ width: 26, height: 26, borderRadius: 7, marginLeft: i ? -9 : 0, border: '2px solid var(--theme-bg)', background: p.cover ? `var(--theme-dark2) center/cover no-repeat url("${p.cover}")` : 'var(--theme-dark2)' }} />
+        <span key={p.id} style={{ width: 26, height: 26, borderRadius: 7, marginLeft: i ? -9 : 0, border: '2px solid var(--theme-bg)', background: p.cover ? `var(--theme-dark2) center/cover no-repeat url("${rightSizedCover(p.cover, 26)}")` : 'var(--theme-dark2)' }} />
       ))}
     </span>
   )
@@ -147,7 +148,10 @@ function CoverStack({ posts }) {
 // feed to it (and closes the drawer).
 function PostRow({ post, right }) {
   const { jump } = useDrawerNav()
-  const artist = post.artists.filter(a => !isVarious(a))[0] || post.artists[0] || ''
+  // A "Various" release says who is on it: the artists named on its tracks ("A, B, C +4").
+  const named = post.artists.filter(a => !isVarious(a))[0]
+  const onIt = !named && post.track_artists?.length ? post.track_artists : null
+  const artist = onIt ? onIt.slice(0, 3).join(', ') + (onIt.length > 3 ? ` +${onIt.length - 3}` : '') : (named || post.artists[0] || '')
   return (
     <Row onClick={() => jump(post.id)}>
       {h => <>
@@ -181,15 +185,33 @@ function Tags({ names, kind = 'genres' }) {
 }
 
 const Empty = ({ children }) => <p style={{ fontFamily: SANS, fontSize: 15, color: SEC, padding: '20px 0', margin: 0 }}>{children}</p>
-const Loading = () => <p style={{ fontFamily: MONO, fontSize: 12.5, color: TER, padding: `24px ${PADX}px`, margin: 0 }}>Loading…</p>
+const SKEL = 'color-mix(in srgb, var(--theme-text-pri) 14%, transparent)' // visible on every theme (FILL, at 7%, vanished on the light ones)
+// A drawer waiting for its data shows the shape of what is coming (pulsing rows), not a blank panel.
+const SkeletonRows = ({ n = 9 }) => (
+  <div role="status" aria-label="Loading" style={{ display: 'grid', gap: 4 }}>
+    <style>{'@keyframes lnvPulse { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
+    {Array.from({ length: n }, (_, i) => (
+      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', animation: `lnvPulse 1.4s ease-in-out ${i * 0.08}s infinite` }}>
+        <span style={{ width: 42, height: 42, borderRadius: 10, background: SKEL, flexShrink: 0 }} />
+        <span style={{ flex: 1, display: 'grid', gap: 7 }}>
+          <span style={{ height: 12, width: `${48 + (i * 17) % 34}%`, borderRadius: 6, background: SKEL }} />
+          <span style={{ height: 10, width: `${28 + (i * 23) % 30}%`, borderRadius: 5, background: SKEL }} />
+        </span>
+      </div>
+    ))}
+  </div>
+)
+const Loading = () => <div style={{ padding: `18px 30px 0 ${PADX}px` }}><SkeletonRows /></div>
 
 const matches = (q, ...fields) => !q || fields.some(f => String(f || '').toLowerCase().includes(q.toLowerCase()))
 
 // Artists or labels: A–Z with letter headings, most posted, or recently posted.
-function NameList({ groups, sort, filter, sub, onOpen, noun }) {
+// `totalOf(name, posts)`: the size of that artist's / label's Discogs catalogue, when it's known.
+const postCount = ps => ps.reduce((n, p) => n + (p.discogsOnly ? 0 : 1), 0)
+function NameList({ groups, sort, filter, sub, onOpen, noun, totalOf }) {
   let rows = [...groups.entries()].filter(([name, ps]) => matches(filter, name, sub(ps)))
-  rows.sort(sort === 'count' ? (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
-    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id
+  rows.sort(sort === 'count' ? (a, b) => postCount(b[1]) - postCount(a[1]) || a[0].localeCompare(b[0])
+    : sort === 'new' ? (a, b) => b[1][0].id - a[1][0].id  // real posts come first in a group; imported records have negative ids
     : (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
   if (!rows.length) return <Empty>No {noun} match “{filter}”.</Empty>
   let last = ''
@@ -205,7 +227,10 @@ function NameList({ groups, sort, filter, sub, onOpen, noun }) {
           <span style={{ fontFamily: SANS, fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub(ps)}</span>
         </span>
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.5, fontVariantNumeric: 'tabular-nums' }}>
-          {plural(ps.length, 'post')}<br />latest {pad(ps[0].id)}
+          {(() => {
+            const total = totalOf?.(name, ps)
+            return <>{plural(postCount(ps), 'post')}<br />{total != null ? `${total.toLocaleString('en-GB')} in catalogue` : ''}</>
+          })()}
         </span>
       </Row>
     )]
@@ -248,18 +273,29 @@ function rolePillStyle(group) {
   return { ...base, color: group === 'guest' ? TER : PRI, borderColor: group === 'guest' ? LINE : SEC, borderStyle: group === 'prod' ? 'dashed' : 'solid' }
 }
 
-function Discography({ kind, id, name, allPosts }) {
+function Discography({ kind, id: idFromPosts, name, allPosts }) {
   const { jump } = useDrawerNav()
+  // A track artist or remixer has no Discogs id on the post: look the name up (exact single match only).
+  const { data: found } = useQuery({
+    queryKey: ['discogs-artist-id', name],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/artist-id?name=${encodeURIComponent(name)}`); return r.ok ? (await r.json()).id : null },
+    enabled: kind === 'artist' && !idFromPosts && !!name,
+    staleTime: Infinity,
+  })
+  const id = idFromPosts || found || null
   const [openRel, setOpenRel] = useState(null) // 'type:id' of the release open in place
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
+  const [jumpTo, setJumpTo] = useState(null) // a decade chip: 1990 | 'unknown' | null (from the top)
   useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t) }, [query])
 
   const qc = useQueryClient()
   const pages = useInfiniteQuery({
-    queryKey: ['drawer-discography', kind, id, q],
+    queryKey: ['drawer-discography', kind, id, q, jumpTo],
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams({ offset: String(pageParam), limit: '100', q })
+      // The first page also asks for the count per decade (the chips); with a chip picked it starts at that decade, and the next pages follow on from there.
+      if (pageParam === 0) { qs.set('decades', '1'); if (jumpTo != null) qs.set('decade', String(jumpTo)) }
       const r = await fetch(`${API}/discogs/${kind}/${id}/releases?${qs}`)
       if (!r.ok) throw new Error(`Discogs catalogue: ${r.status}`)
       return r.json()
@@ -298,6 +334,19 @@ function Discography({ kind, id, name, allPosts }) {
   const right = !first ? '' : crawl && !crawl.done
     ? `collecting ${crawl.have.toLocaleString('en-GB')} of ${crawl.total.toLocaleString('en-GB')}`
     : `${total.toLocaleString('en-GB')} on Discogs`
+  // Decade chips (2026-10-22): jump straight to a decade of a long catalogue. The server counts releases per decade and, given `decade`, starts there.
+  const decadeList = first?.decades || []
+  const decadeChips = total > 100 && decadeList.length > 1 ? (
+    <div role="group" aria-label="Jump to a decade" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
+      {[{ key: null, label: 'All' }, ...decadeList.map(d => ({ key: d.decade == null ? 'unknown' : d.decade, label: d.decade == null ? 'Undated' : `${d.decade}s`, n: d.n }))].map(c => {
+        const on = jumpTo === c.key
+        return (
+          <button key={String(c.key)} onClick={() => setJumpTo(c.key)} aria-pressed={on} title={c.n ? `${c.n.toLocaleString('en-GB')} releases` : 'From the newest'}
+            style={{ border: `1px solid ${on ? PRI : LINE}`, borderRadius: 99, padding: '4px 12px', background: on ? PRI : 'transparent', color: on ? 'var(--theme-showcase)' : SEC, fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{c.label}</button>
+        )
+      })}
+    </div>
+  ) : null
   const COLS = kind === 'artist' ? '50px minmax(0, 1fr) 76px 40px' : '50px minmax(0, 1fr) 40px'
 
   if (!id) return <>
@@ -316,11 +365,12 @@ function Discography({ kind, id, name, allPosts }) {
         {q && first && <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{first.pagination.matched.toLocaleString('en-GB')} found</span>}
       </label>
     )}
-    {!first ? (pages.isLoading || pages.isFetching ? <Empty>Pulling the Discogs catalogue…</Empty> : (
+    {decadeChips}
+    {!first ? (pages.isLoading || pages.isFetching ? <><Empty>Pulling the Discogs catalogue…</Empty><SkeletonRows n={5} /></> : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '20px 0' }}>
         <span style={{ fontFamily: SANS, fontSize: 15, color: SEC }}>Couldn’t load the catalogue — Discogs didn’t answer.</span>
         {/* A fresh start, not refetch(): a retry paused while the tab was hidden would just keep waiting. */}
-        <button onClick={() => qc.resetQueries({ queryKey: ['drawer-discography', kind, id, q] })}
+        <button onClick={() => qc.resetQueries({ queryKey: ['drawer-discography', kind, id, q, jumpTo] })}
           style={{ border: `1px solid ${LINE}`, borderRadius: 99, padding: '7px 16px', background: FILL, color: PRI, fontFamily: SANS, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Try again</button>
       </div>
     ))
@@ -331,9 +381,11 @@ function Discography({ kind, id, name, allPosts }) {
           const onSite = r.type !== 'master' ? postByRelease.get(r.id) : null
           // "· 609 versions": pressings the duplicate comber folded into this row.
           const versions = r.versions > 1 ? `${r.versions.toLocaleString('en-GB')} versions` : ''
-          const sub = kind === 'label'
-            ? [r.artist, r.catno && !/^none$/i.test(r.catno) ? r.catno : '', versions].filter(Boolean).join(' · ')
-            : [group !== 'main' ? r.artist : '', cleanLabelName(r.label || mi?.label || ''), versions].filter(Boolean).join(' · ')
+          // The artist and label names in the sub-line open their own drawers (2026-10-23).
+          const subParts = kind === 'label'
+            ? [r.artist && <NameLinks key="a" kind="artist" names={r.artist} />, r.catno && !/^none$/i.test(r.catno) ? r.catno : '', versions]
+            : [group !== 'main' && r.artist && <NameLinks key="a" kind="artist" names={r.artist} />, cleanLabelName(r.label || mi?.label || '') && <NameLinks key="l" kind="label" names={[cleanLabelName(r.label || mi?.label || '')]} />, versions]
+          const sub = subParts.filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))
           // On LNV: go to the post. Otherwise open it here — tracklist and
           // players, like the spotlights (2026-10-06; it used to open Discogs).
           const rk = `${r.type}:${r.id}`, isOpen = openRel === rk
@@ -346,12 +398,12 @@ function Discography({ kind, id, name, allPosts }) {
                   {onSite && <span title={`On LNV as ${pad(onSite.id)}`} style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--theme-accent)', marginRight: 7, verticalAlign: 'middle' }} />}
                   {r.title}
                 </span>
-                {sub && <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>}
+                {sub.length > 0 && <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.map((x, i) => <span key={i}>{x}</span>)}</span>}
               </span>
               {kind === 'artist' && <span style={rolePillStyle(group)}>{ROLE_PILL[group]}</span>}
               <span style={{ fontFamily: MONO, fontSize: 12, color: TER, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.year || ''}</span>
             </Row>
-            {isOpen && <ReleasePreview release={r} artistName={kind === 'artist' ? name : r.artist || ''} />}
+            {isOpen && <ReleasePreview release={r} artistName={kind === 'artist' ? name : r.artist || ''} digRef={name} />}
           </div>)
         })}
     {pages.hasNextPage && (
@@ -364,20 +416,27 @@ function Discography({ kind, id, name, allPosts }) {
 }
 
 // ── Artists ───────────────────────────────────────────────────────────────────
-export function ArtistsDrawer({ filter: initial }) {
+export function ArtistsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Artists" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
-  const groups = group(records, p => p.artists.filter(a => !isVarious(a)))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
+  // A compilation sits under every artist on its tracks too, not only the post's own artist.
+  const groups = group(records, p => [...p.artists, ...(p.track_artists || [])].filter(a => !isVarious(a)))
 
   if (selected) {
     const ps = groups.get(selected) || []
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     const enc = encodeURIComponent(selected)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <FavHeart kind="artist" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Artists" onBack={() => setSelected(null)} action={!/^various( artists)?$/i.test(selected) && <span style={{ display: 'flex', gap: 10, alignSelf: 'center' }}><FavHeart kind="artist" name={selected} size={24} style={{ color: SEC }} /><LaterButton kind="artist" name={selected} size={22} style={{ color: SEC }} /></span>} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} radius={18} />
@@ -387,7 +446,8 @@ export function ArtistsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="newest first" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels[0]?.name || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts by {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="artist" id={discogsIdOf('artist', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -399,29 +459,247 @@ export function ArtistsDrawer({ filter: initial }) {
   }
   return <>
     <DrawerHead title="Artists" count={plural(groups.size, 'artist')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} /></DrawerBody>
+    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="artists" onOpen={setSelected} sub={ps => uniq(ps.flatMap(p => p.labels.map(l => l.name))).join(' · ')} totalOf={(name, ps) => totals?.artist?.[discogsIdOf('artist', name, ps)] ?? null} /></DrawerBody>
   </>
+}
+
+// Your imported Discogs records under an artist or label: open one in place, like the discography rows.
+function MineRows({ records }) {
+  const [open, setOpen] = useState(null)
+  return records.map(p => (
+    <div key={p.id}>
+      <Row onClick={() => setOpen(open === p.discogs_id ? null : p.discogs_id)} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: '7px 10px', ...(open === p.discogs_id ? { background: HOVER } : null) }}>
+        <Cover src={p.cover} size={40} radius={8} />
+        <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+          <span style={{ fontFamily: SANS, fontStyle: 'italic', fontSize: 13.5, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.artists.join(', '), p.labels[0]?.name, p.labels[0]?.catno].filter(Boolean).join(' · ')}</span>
+        </span>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: TER }}>{p.year || ''}{p.lists?.includes('wantlist') && !p.lists.includes('collection') ? ' · want' : ''}</span>
+      </Row>
+      {open === p.discogs_id && <ReleasePreview release={{ id: p.discogs_id, type: 'release', thumb: p.cover, year: p.year }} artistName={p.artists[0] || ''} digRef="your Discogs" />}
+    </div>
+  ))
 }
 
 const ExtLink = ({ href, children }) => (
   <a href={href} target="_blank" rel="noopener noreferrer" style={{ border: `1px solid ${LINE}`, borderRadius: 99, padding: '3px 10px', fontFamily: SANS, fontSize: 13, color: SEC, textDecoration: 'none' }}>{children}</a>
 )
 
+// ── Labels added from Bandcamp (2026-10-22) ───────────────────────────────────
+// A label that is not on Discogs (or not findable there): paste its Bandcamp page, check what we read
+// and whether it is one we already know ("Is this the label you meant?"), then confirm. Nothing is saved
+// until the confirm. Backend: services/customLabels.js (/api/custom-labels).
+function useCustomLabels() {
+  return useQuery({
+    queryKey: ['custom-labels'],
+    queryFn: async () => { const r = await fetch(`${API}/custom-labels`, { headers: authHeaders() }); return r.ok ? (await r.json()).labels : [] },
+    staleTime: 60_000,
+  })
+}
+async function labelPost(path, body) {
+  const r = await fetch(`${API}/custom-labels/${path}`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error(j.error || `Something went wrong (${r.status})`), { status: r.status })
+  return j
+}
+
+const smallBtn = (primary, disabled) => ({ border: `1px solid ${primary ? 'transparent' : LINE}`, background: primary ? 'var(--theme-accent)' : 'none', color: primary ? '#fff' : SEC, borderRadius: 99, padding: '6px 16px', fontFamily: SANS, fontWeight: 600, fontSize: 14, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.45 : 1 })
+
+function AddLabelPanel({ onDone, onCancel }) {
+  const qc = useQueryClient()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [pv, setPv] = useState(null)
+  const [pick, setPick] = useState(null)    // 'new' | 'd<discogsId>'
+  const [name, setName] = useState('')
+  const reset = () => { setPv(null); setPick(null); setErr('') }
+
+  if (!isLoggedIn()) return <div style={{ border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, margin: '8px 0', fontFamily: SANS, fontSize: 15, color: SEC }}>Sign in to add a label. <button onClick={onCancel} style={smallBtn(false)}>Close</button></div>
+
+  const lookUp = async e => {
+    e?.preventDefault()
+    if (!url.trim() || busy) return
+    setBusy(true); setErr('')
+    try {
+      const out = await labelPost('preview', { url: url.trim() })
+      if (out.alreadyAdded) { qc.invalidateQueries({ queryKey: ['custom-labels'] }); onDone(out.alreadyAdded.id); return }
+      setPv(out); setName(out.label.name); setPick(null)
+    } catch (ex) { setErr(ex.message) } finally { setBusy(false) }
+  }
+  const confirm = async () => {
+    if (!pick || busy) return
+    setBusy(true); setErr('')
+    try {
+      const body = pick === 'new' ? { previewId: pv.previewId, action: 'new', name } : { previewId: pv.previewId, action: 'link', discogsId: Number(pick.slice(1)), name }
+      const { label } = await labelPost('confirm', body)
+      qc.invalidateQueries({ queryKey: ['custom-labels'] })
+      onDone(label.id)
+    } catch (ex) {
+      setErr(ex.message)
+      if (ex.status === 410) reset()   // the preview expired: start again
+    } finally { setBusy(false) }
+  }
+
+  const box = { border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, margin: '8px 0 4px', display: 'grid', gap: 12 }
+  const input = { flex: 1, minWidth: 0, border: `1px solid ${LINE}`, background: FILL, borderRadius: 99, padding: '7px 14px', fontFamily: SANS, fontSize: 15, color: PRI, outline: 0 }
+  const L = pv?.label
+  return (
+    <div style={box}>
+      {!pv ? <>
+        <div style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16 }}>Add a label from Bandcamp</div>
+        <div style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>Paste the label's own Bandcamp page. We read its releases once, you check it is the right label, then it joins the list.</div>
+        <form onSubmit={lookUp} style={{ display: 'flex', gap: 8 }}>
+          <input autoFocus value={url} onChange={e => setUrl(e.target.value)} placeholder="https://name.bandcamp.com" aria-label="Bandcamp page of the label" style={input} />
+          <button type="submit" disabled={busy || !url.trim()} style={smallBtn(true, busy || !url.trim())}>{busy ? 'Reading…' : 'Look it up'}</button>
+          <button type="button" onClick={onCancel} style={smallBtn(false)}>Cancel</button>
+        </form>
+      </> : <>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <Cover src={L.image} size={64} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontFamily: SANS, fontWeight: 800, fontSize: 19 }}>{L.name}</div>
+            <div style={{ fontFamily: MONO, fontSize: 12.5, color: TER, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{[L.location, plural(L.releaseCount, 'release')].filter(Boolean).join(' · ')}</div>
+            <a href={L.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: SANS, fontSize: 13, color: SEC }}>View on Bandcamp ↗</a>
+          </div>
+        </div>
+        {pv.sample.length > 0 && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, display: 'grid', gap: 2 }}>
+          {pv.sample.slice(0, 4).map(s => <div key={s.link} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: PRI }}>{s.title}</b>{s.artist ? ` · ${s.artist}` : ''}</div>)}
+          {L.releaseCount > 4 && <div style={{ color: TER }}>+ {L.releaseCount - 4} more</div>}
+        </div>}
+        <div style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16 }}>{pv.question}</div>
+        {pv.matches.length > 0 && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>Discogs has labels with similar names. Pick the right one so two different labels don't get mixed up.</div>}
+        <div role="radiogroup" aria-label={pv.question} style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontFamily: SANS, fontSize: 15, cursor: 'pointer' }}>
+            <input type="radio" name="label-pick" checked={pick === 'new'} onChange={() => setPick('new')} />
+            <span><b>Yes, add “{L.name}” as a new label</b>{pv.matches.length > 0 ? ' (it is none of the ones below)' : ''}</span>
+          </label>
+          {pv.matches.filter(m => m.source === 'discogs').slice(0, 4).map(m => (
+            <label key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontFamily: SANS, fontSize: 15, cursor: 'pointer' }}>
+              <input type="radio" name="label-pick" checked={pick === 'd' + m.id} onChange={() => setPick('d' + m.id)} />
+              <span>It is the same label as <b>{m.name}</b> on Discogs{m.sameBandcamp ? <i style={{ color: 'var(--theme-accent)' }}> · Discogs lists this Bandcamp page</i> : null}{' '}
+                {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: SEC, fontSize: 13 }}>open ↗</a>}</span>
+            </label>
+          ))}
+        </div>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: SANS, fontSize: 14, color: SEC }}>Name shown <input value={name} onChange={e => setName(e.target.value)} maxLength={80} style={input} /></label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={confirm} disabled={!pick || busy} style={smallBtn(true, !pick || busy)}>{busy ? 'Adding…' : pick ? 'Confirm' : 'Pick one to confirm'}</button>
+          <button onClick={reset} style={smallBtn(false)}>No, not this one</button>
+        </div>
+      </>}
+      {err && <div role="alert" style={{ fontFamily: SANS, fontSize: 14, color: 'var(--theme-accent)' }}>{err}</div>}
+    </div>
+  )
+}
+
+function CustomLabelRows({ labels, filter, onOpen }) {
+  const shown = (labels || []).filter(l => matches(filter, l.name))
+  if (!shown.length) return null
+  return <>
+    <SectionHead left="Added from Bandcamp" right={plural(shown.length, 'label')} />
+    {shown.map(l => (
+      <Row key={l.id} onClick={() => onOpen(l.id)}>
+        <Cover src={l.image} size={40} radius={9} />
+        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</span>
+          <span style={{ fontFamily: SANS, fontSize: 14, color: SEC }}>{l.location || 'Bandcamp'}</span>
+        </span>
+        <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER, whiteSpace: 'nowrap' }}>{plural(l.releaseCount, 'release')}</span>
+      </Row>
+    ))}
+  </>
+}
+
+function CustomLabelDetail({ id, onBack }) {
+  const qc = useQueryClient()
+  const { data: labels } = useCustomLabels()
+  const label = (labels || []).find(l => l.id === id)
+  const { data: cat, isLoading } = useQuery({
+    queryKey: ['custom-label-releases', id],
+    queryFn: async () => { const r = await fetch(`${API}/discogs/label/${-id}/releases?limit=200`); return r.ok ? r.json() : { releases: [] } },
+    staleTime: 60_000,
+  })
+  const [err, setErr] = useState('')
+  const remove = async () => {
+    if (!window.confirm(`Remove ${label.name} from the site? Its releases here go too (the Bandcamp page is untouched).`)) return
+    try {
+      const r = await fetch(`${API}/custom-labels/${id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not remove it.')
+      qc.invalidateQueries({ queryKey: ['custom-labels'] }); onBack()
+    } catch (ex) { setErr(ex.message) }
+  }
+  if (!label) return <><DrawerHead title="Label" count="" crumb="Labels" onBack={onBack} /><Loading /></>
+  const rows = cat?.releases || []
+  return <>
+    <DrawerHead title={label.name} count={plural(label.releaseCount, 'release')} crumb="Labels" onBack={onBack} />
+    <DrawerBody>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
+        <Cover src={label.image} size={96} round />
+        <div style={{ display: 'grid', gap: 8 }}>
+          <Facts lines={[label.location, 'Added from Bandcamp']} />
+          {label.bio && <div style={{ fontFamily: SANS, fontSize: 14, color: SEC, whiteSpace: 'pre-line', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{label.bio}</div>}
+        </div>
+      </div>
+      <SectionHead left="Releases" right="on Bandcamp" />
+      {isLoading ? <Loading /> : rows.length ? rows.map(r => (
+        <a key={r.id} href={r.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+          <Row style={{ pointerEvents: 'none' }}>
+            <Cover src={r.thumb} size={40} radius={9} />
+            <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+              <span style={{ fontFamily: SANS, fontSize: 14, color: SEC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.artist || ''}</span>
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 12.5, color: TER }}>↗</span>
+          </Row>
+        </a>
+      )) : <Empty>No releases were found on that page.</Empty>}
+      <SectionHead left="Elsewhere" />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <ExtLink href={label.url}>◈ Bandcamp</ExtLink>
+        {label.discogsId && <ExtLink href={`https://www.discogs.com/label/${label.discogsId}`}>◈ Discogs</ExtLink>}
+        {label.mine && <button onClick={remove} style={{ ...smallBtn(false), fontSize: 13 }}>Remove this label</button>}
+      </div>
+      {err && <div role="alert" style={{ fontFamily: SANS, fontSize: 14, color: 'var(--theme-accent)', marginTop: 8 }}>{err}</div>}
+    </DrawerBody>
+  </>
+}
+
+// On a Discogs label's page: "also on Bandcamp" when someone linked that label's Bandcamp page.
+function BandcampAlso({ discogsId, onOpen }) {
+  const { data } = useQuery({
+    queryKey: ['custom-label-lookup', discogsId],
+    queryFn: async () => { const r = await fetch(`${API}/custom-labels/lookup?discogs_id=${discogsId}`); return r.ok ? (await r.json()).label : null },
+    enabled: !!discogsId, staleTime: 5 * 60_000,
+  })
+  return data ? <button onClick={() => onOpen(data.id)} style={{ border: `1px solid ${LINE}`, background: 'none', borderRadius: 99, padding: '3px 10px', fontFamily: SANS, fontSize: 13, color: SEC, cursor: 'pointer' }}>◈ Bandcamp releases</button> : null
+}
+
 // ── Labels ────────────────────────────────────────────────────────────────────
-export function LabelsDrawer({ filter: initial }) {
+export function LabelsDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
+  const { data: mine } = useDiscogsRecords()   // your imported Discogs records join the list (2026-10-09)
+  const { data: totals } = useCatalogueTotals()
+  const { data: custom } = useCustomLabels()
   const [selected, setSelected] = useState(initial || null)
+  const [customId, setCustomId] = useState(null)   // a label added from Bandcamp, open
+  const [adding, setAdding] = useState(false)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('az')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setCustomId(null); setFilter('') } }
+  if (customId != null) return <CustomLabelDetail id={customId} onBack={() => setCustomId(null)} />
   if (isLoading || !data) return <><DrawerHead title="Labels" count="" /><Loading /></>
-  const records = data.filter(p => !isLiveSet(p))
+  const records = [...data.filter(p => !isLiveSet(p)), ...discogsPseudoPosts(mine?.records)]
   const groups = group(records, p => p.labels.map(l => l.name))
   const artistsOf = ps => uniq(ps.flatMap(p => p.artists.filter(a => !isVarious(a))))
 
   if (selected) {
     const ps = [...(groups.get(selected) || [])].sort((a, b) => (a.year || 9999) - (b.year || 9999) || a.id - b.id)
+    const real = ps.filter(p => !p.discogsOnly), fromDiscogs = ps.filter(p => p.discogsOnly)
     return <>
-      <DrawerHead title={selected} count={plural(ps.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<FavHeart kind="label" name={selected} size={24} style={{ alignSelf: 'center', color: SEC }} />} />
+      <DrawerHead title={selected} count={plural(real.length, 'post')} crumb="Labels" onBack={() => setSelected(null)} action={<span style={{ display: 'flex', gap: 10, alignSelf: 'center' }}><FavHeart kind="label" name={selected} size={24} style={{ color: SEC }} /><LaterButton kind="label" name={selected} size={22} style={{ color: SEC }} /></span>} />
       <DrawerBody>
         <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 16, alignItems: 'end', margin: '6px 0 4px' }}>
           <Cover src={ps[0]?.cover} size={96} round />
@@ -431,26 +709,41 @@ export function LabelsDrawer({ filter: initial }) {
           </div>
         </div>
         <SectionHead left="On the feed" right="by year" />
-        {ps.length ? ps.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {real.length ? real.map(p => <PostRow key={p.id} post={p} right={<>{p.labels.find(l => l.name === selected)?.catno || ''}{p.year ? <><br />{p.year}</> : null}</>} />) : <Empty>No posts on {selected} yet.</Empty>}
+        {fromDiscogs.length > 0 && <><SectionHead left="On your Discogs" /><MineRows records={fromDiscogs} /></>}
         <Discography kind="label" id={discogsIdOf('label', selected, ps)} name={selected} allPosts={data} />
         <SectionHead left="Elsewhere" />
-        <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <ExtLink href={`https://www.discogs.com/search/?q=${encodeURIComponent(selected)}&type=label`}>◈ Discogs</ExtLink>
+          <BandcampAlso discogsId={discogsIdOf('label', selected, ps)} onOpen={setCustomId} />
+        </div>
       </DrawerBody>
     </>
   }
+  const openCustom = id => { setAdding(false); setCustomId(id) }
+  const addButton = <button onClick={() => setAdding(a => !a)} aria-expanded={adding} style={{ ...smallBtn(false), fontSize: 13, padding: '3px 12px' }}>＋ Add a label</button>
   return <>
-    <DrawerHead title="Labels" count={plural(groups.size, 'label')} filter={filter} setFilter={setFilter}><Chips options={SORTS} value={sort} onChange={setSort} /></DrawerHead>
-    <DrawerBody><NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} /></DrawerBody>
+    <DrawerHead title="Labels" count={plural(groups.size + (custom?.length || 0), 'label')} filter={filter} setFilter={setFilter}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}><Chips options={SORTS} value={sort} onChange={setSort} />{addButton}</div>
+    </DrawerHead>
+    <DrawerBody>
+      {adding && <AddLabelPanel onDone={openCustom} onCancel={() => setAdding(false)} />}
+      <NameList groups={groups} sort={sort} filter={filter} noun="labels" onOpen={setSelected} sub={ps => artistsOf(ps).slice(0, 3).join(' · ')} totalOf={(name, ps) => totals?.label?.[discogsIdOf('label', name, ps)] ?? null} />
+      <CustomLabelRows labels={custom} filter={filter} onOpen={openCustom} />
+    </DrawerBody>
   </>
 }
 
 // ── Genres ────────────────────────────────────────────────────────────────────
 // Grouped the way Discogs does it: each genre with a bar for its share of
 // the feed, and the styles posted under it beneath.
-export function GenresDrawer({ filter: initial }) {
+export function GenresDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const [selected, setSelected] = useState(initial || null)
   const [filter, setFilter] = useState('')
+  // A name clicked elsewhere (a card, a profile) arrives as a new command number: show it. A plain open keeps where you were.
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) { setSelected(initial); setFilter('') } }
   if (isLoading || !data) return <><DrawerHead title="Genres" count="" /><Loading /></>
   const records = data.filter(p => !isLiveSet(p))
   const groups = group(records, p => p.genres)
@@ -504,12 +797,14 @@ export function GenresDrawer({ filter: initial }) {
 // ── Live sets ─────────────────────────────────────────────────────────────────
 // `filter` (2026-10-02): a live-set card's DJ name opens the drawer
 // already filtered to that DJ's sets.
-export function LiveDrawer({ filter: initial }) {
+export function LiveDrawer({ filter: initial, _n }) {
   const { data, isLoading } = useBrowse()
   const { jump } = useDrawerNav()
   const [filter, setFilter] = useState(initial || '')
   const [where, setWhere] = useState('all')
   const [sort, setSort] = useState('dj') // 'dj' = grouped by DJ, 'new' = one list, newest first
+  const [cmd, setCmd] = useState(_n)
+  if (_n !== cmd) { setCmd(_n); if (initial) setFilter(initial) }
   if (isLoading || !data) return <><DrawerHead title="Live sets" count="" /><Loading /></>
   const sets = data.filter(isLiveSet).map(p => ({ ...p, ...liveInfo(p) }))
   // Same DJ, place and date posted more than once: flag the later ones.
@@ -569,9 +864,15 @@ export function AboutDrawer() {
   const p = { fontFamily: SANS, fontSize: 16, lineHeight: 1.55, color: SEC, margin: '0 0 8px', maxWidth: '46ch' }
   const kbd = { fontFamily: MONO, fontSize: 12.5, border: `1px solid ${LINE}`, borderRadius: 4, padding: '0 5px' }
   return <>
-    <DrawerHead title="About" count="est. 2024" />
+    <DrawerHead title="About" count="est. 2026" />
     <DrawerBody>
-      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Late Night Vibes is a record shelf you scroll sideways. People post what they're playing, and the site files it by artist, label and genre.</p>
+      <p style={{ ...p, fontSize: 19.5, color: PRI, marginTop: 6 }}>Chewing the Ceiling is a record shelf you scroll sideways, and the best way to see what other people are digging. Someone posts a record they love and says why; the site files it by artist, label and genre, links it to Discogs, and lets you play it right there.</p>
+      <h3 style={h3}>Discover users and listen to their collections</h3>
+      <p style={p}>Open anyone’s name to see their whole shelf: what they’ve posted, kept and highlighted, and the playlists they’ve made. Follow the people whose taste you trust and their records turn up in your feed. Friends’ shelves are the quickest way to find something you didn’t know you wanted, and the big catalogue is there for when you want to go deep.</p>
+      <p style={p}>Make playlists, share them, and connect your Discogs name: your collection and wantlist come in as playlists you can dig through (private to you for now; sharing them with friends is next).</p>
+      <h3 style={h3}>A database the community builds</h3>
+      <p style={p}>Discogs gives every record its details, but the music itself is a link somebody found. Finding a playable link for every track is more than any one site can pay for, so this shelf is built by the people who use it. If a track has no player, look for <b style={{ color: PRI }}>Know where this is? Add a link</b> under it and paste a YouTube, SoundCloud or Spotify link.</p>
+      <p style={p}>We check the link’s own title against the track. A good match plays for everyone straight away, with your name on it; an unsure one waits for two other people to say it’s right. Posting a record, adding a link, confirming one, highlighting a track and building a playlist all help the next person dig.</p>
       <h3 style={h3}>Finding your way</h3>
       <ul style={{ margin: 0, paddingLeft: 18, color: SEC, fontFamily: SANS, fontSize: 16, lineHeight: 1.7 }}>
         <li>Scroll or drag to move along the feed.</li>
@@ -579,6 +880,10 @@ export function AboutDrawer() {
         <li>The search finds artists, labels, genres, tracks and catalogue numbers.</li>
         <li>Click a cover to play it, or a track to play that one. ▶ on the strip plays something at random.</li>
       </ul>
+      <h3 style={h3}>Highlights and replies</h3>
+      <p style={p}>Tap ☆ on a track to highlight it. The poster picks the track they’re posting the record for, and everyone else can highlight the one they’d play, so a record’s best moments show up on the card. Replies sit under the post; the 🔒 sends one privately to whoever posted it. You can delete your own replies.</p>
+      <h3 style={h3}>Playlists and your Discogs shelf</h3>
+      <p style={p}>Add any track to a playlist with +. Playlists on a profile show up on the posts they contain (“In playlists”). Connect your Discogs name and your collection and wantlist become private playlists of their own.</p>
       {/* 2026-10-04: the players are the platforms' own, ads included — so
           point people at the ways to hear them without. No ad-blocker
           suggestions: the YouTube embed terms forbid encouraging that. */}
@@ -590,7 +895,7 @@ export function AboutDrawer() {
         <li><b style={{ color: PRI }}>Bandcamp has no ads</b> — and buying there pays artists directly. Look for the BUY ↗ link on a card.</li>
       </ul>
       <h3 style={h3}>Posting</h3>
-      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud or Bandcamp link, and the form fills itself in. Add a post title and a few lines on why it matters.</p>
+      <p style={p}>Hit + on the feed, paste a Discogs, YouTube, SoundCloud, Bandcamp, Apple Music, Deezer or Tidal link, and the form fills itself in. Then say something about it: a line is enough, and it’s what starts the conversation. Prefer to write more? Choose “write a full post” for a title and a description.</p>
       {/* 2026-10-05: the introductions' rules, in full (Collect.jsx IntroCard,
           backend collectionsService introductionsFor). Keep them in step. */}
       <h3 style={h3}>Introductions <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', border: `1px solid ${LINE}`, borderRadius: 99, padding: '1px 7px', verticalAlign: 'middle' }}>α ALPHA</span></h3>
@@ -611,12 +916,64 @@ export function AboutDrawer() {
         {COMMUNITY_RULES.map(([b, rest]) => <li key={b}><b style={{ color: PRI }}>{b}</b> {rest}</li>)}
       </ol>
       <h3 style={h3}>Contact</h3>
-      <p style={p}>hello@latenightvibes.com · @latenightvibes</p>
+      <p style={p}>hello@chewingtheceiling.com</p>
       <h3 style={h3}>Built with</h3>
       <p style={{ ...p, fontFamily: MONO, fontSize: 14 }}>React · Node · SQLite · Discogs API · YouTube Data API</p>
     </DrawerBody>
   </>
 }
 
+// "In playlists" / "Kept by" on a post card (2026-10-12): who has this record. Each row opens that person's feed or that
+// public playlist, so people can find each other through the records they share.
+export function PostListDrawer({ kind, title, post, lists = [], people = [] }) {
+  const { close } = useDrawerNav()
+  const isLists = kind === 'playlists'
+  const rows = isLists ? lists : people
+  const go = fn => { fn(); close?.() }
+  const rowStyle = { display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '12px 4px', background: 'none', border: 'none', borderBottom: `1px solid ${LINE}`, cursor: 'pointer', textAlign: 'left', fontFamily: SANS, color: PRI }
+  return (
+    <>
+      <DrawerHead title={title} count={`${rows.length}`}>
+        {post && <div style={{ fontFamily: MONO, fontSize: 12.5, letterSpacing: '0.04em', textTransform: 'uppercase', color: SEC }}>{post}</div>}
+      </DrawerHead>
+      <DrawerBody>
+        {rows.length === 0 && <div style={{ padding: '20px 4px', fontFamily: SANS, fontSize: 15, color: SEC }}>{isLists ? 'Not in any public playlist yet.' : 'Nobody has kept this yet.'}</div>}
+        {isLists ? lists.map(pl => (
+          <button key={pl.id} onClick={() => go(() => openPlaylistFeed({ token: pl.token, id: pl.id, name: pl.name }))} style={rowStyle}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: 'block', fontWeight: 800, fontSize: 18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</b>
+              <small style={{ fontFamily: MONO, fontSize: 12, color: TER }}>by {pl.owner} · {pl.track_count} track{pl.track_count === 1 ? '' : 's'}</small>
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>open →</span>
+          </button>
+        )) : people.map(n => (
+          <button key={n} onClick={() => go(() => openWall(n))} style={rowStyle}>
+            <i style={{ width: 34, height: 34, borderRadius: '50%', background: SEC, color: 'var(--theme-bg)', display: 'grid', placeItems: 'center', font: '800 15px sans-serif', fontStyle: 'normal', flexShrink: 0 }}>{n[0]?.toUpperCase()}</i>
+            <b style={{ flex: 1, fontWeight: 800, fontSize: 18 }}>{n}</b>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--theme-accent)' }}>their feed →</span>
+          </button>
+        ))}
+        {isLists && rows.length > 0 && <div style={{ padding: '14px 4px', fontFamily: MONO, fontSize: 11.5, color: TER }}>Public playlists only.</div>}
+      </DrawerBody>
+    </>
+  )
+}
+
 // Shared with the walls and playlists drawers (CollectionDrawers.jsx).
-export { Chips, SectionHead, Row, Cover, Empty, Loading, ExtLink }
+// Names in a drawer row that open their own drawer (2026-10-23, "artist and label names must be clickable everywhere"): artist names to the artists drawer,
+// label names to the labels drawer. `names` is a list, or one string with several names split at commas. Not for "Various".
+function NameLinks({ kind, names, sep = ', ', style }) {
+  const { openD3 } = useLayout() || {}
+  const list = (Array.isArray(names) ? names : String(names || '').split(/\s*,\s+/)).map(n => String(n).trim()).filter(Boolean)
+  const drawer = kind === 'label' ? 'labels' : 'artists'
+  return list.map((n, i) => (
+    <span key={n + i}>{i > 0 && sep}
+      {/^various( artists)?$/i.test(n) ? n : (
+        <span role="link" tabIndex={0} title={`Open ${n} in the ${drawer} drawer`}
+          onClick={e => { e.stopPropagation(); openD3?.(drawer, { filter: n }) }} onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openD3?.(drawer, { filter: n }) } }}
+          style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3, ...style }}>{n}</span>)}
+    </span>
+  ))
+}
+
+export { Chips, SectionHead, Row, Cover, Empty, Loading, ExtLink, NameLinks }
