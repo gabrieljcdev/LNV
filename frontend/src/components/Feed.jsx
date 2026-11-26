@@ -2877,7 +2877,7 @@ const M = Math.max(280, Math.min(560, IH - 2 * P - 92 - 52 - 3 * G - (tracks.len
                       <div style={{ fontFamily: d.bodyFf, fontWeight: 500, fontSize: 20, lineHeight: 1.15, color: 'var(--lv-sec)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {artist && !isVariousArtist(artist) ? <DrawerLink kind={live ? 'live' : 'artists'} name={artist} quiet style={{ color: 'inherit', fontWeight: 'inherit', fontSize: 'inherit', textDecoration: 'underline', textDecorationThickness: 1.5, textUnderlineOffset: 5, textDecorationColor: 'color-mix(in srgb, currentColor 55%, transparent)' }}>{artist}</DrawerLink> : (artist || (live ? channelName(post) : post.title))}
                       </div>
-                      <FitTitle text={post.title} style={{ margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} />
+                      {(() => { const hs = { margin: '4px 0 0', fontFamily: d.bodyFf, fontWeight: 700, fontSize: 46, lineHeight: 1.04, letterSpacing: '-0.025em', color: 'var(--lv-pri)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }; return live ? <FitTitle text={post.title} style={hs} /> : <h2 title={post.title} style={hs}>{post.title}</h2> })()}
                     </div>
                     <div aria-label={`Post ${num}`} style={{ position: 'absolute', right: 0, top: -12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                       <b style={{ fontFamily: d.bodyFf, fontWeight: 700, fontSize: hdrNum, lineHeight: 0.9, letterSpacing: '-0.04em' }}>{num}</b>
